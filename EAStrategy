@@ -1,0 +1,123 @@
+//+------------------------------------------------------------------+
+//|                                                    StrategyEA.mq5 |
+//+------------------------------------------------------------------+
+#include <Trade\Trade.mqh>
+CTrade trade;
+
+input double TakeProfit = 200.0;
+input double StopLoss = 200.0;
+input double InitialLot = 0.01;
+input int MovingAveragePeriodShort = 9;
+input int MovingAveragePeriodMedium = 45;
+input int MovingAveragePeriodLong = 105;
+input int MagicNumber = 123456; // Número mágico único para este EA
+input string StartTime = "09:00"; // Horário de início das operações
+input string EndTime = "18:00"; // Horário de término das operações
+input int TrailingStop = 50; // Distância do trailing stop em pontos
+input int TrailingActivation = 30; // Movimento favorável para ativação
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit() {
+    trade.SetExpertMagicNumber(MagicNumber);
+    return INIT_SUCCEEDED;
+}
+
+//+------------------------------------------------------------------+
+//| Convert "HH:MM" string to hours and minutes                      |
+//+------------------------------------------------------------------+
+void StringToHourMinute(string timeStr, int &hour, int &minute) {
+    string splitArr[];
+    if (StringSplit(timeStr, ':', splitArr) >= 2) {
+        hour = StringToInteger(splitArr[0]);
+        minute = StringToInteger(splitArr[1]);
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Check if the current time is within the allowed trading interval |
+//+------------------------------------------------------------------+
+bool IsTradingTimeAllowed() {
+    MqlDateTime now;
+    TimeToStruct(TimeCurrent(), now);
+    
+    int startHour, startMinute, endHour, endMinute;
+    StringToHourMinute(StartTime, startHour, startMinute);
+    StringToHourMinute(EndTime, endHour, endMinute);
+    
+    int currentMinutes = now.hour * 60 + now.min;
+    int startMinutes = startHour * 60 + startMinute;
+    int endMinutes = endHour * 60 + endMinute;
+    
+    return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+}
+
+//+------------------------------------------------------------------+
+//| Check if there is an open position with the same magic number    |
+//+------------------------------------------------------------------+
+bool IsPositionWithMagicNumberOpen() {
+    for (int i = PositionsTotal() - 1; i >= 0; --i) {
+        ulong positionTicket = PositionGetTicket(i);
+        if (PositionSelectByTicket(positionTicket) && PositionGetInteger(POSITION_MAGIC) == MagicNumber) {
+            return true;
+        }
+    }
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Open a buy order                                                 |
+//+------------------------------------------------------------------+
+void OpenBuyOrder() {
+    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double sl = NormalizeDouble(ask - StopLoss * _Point, _Digits);
+    double tp = NormalizeDouble(ask + TakeProfit * _Point, _Digits);
+    
+    if (!trade.Buy(InitialLot, _Symbol, ask, sl, tp, MagicNumber)) {
+        Print("Failed to open buy order. Error code: ", GetLastError());
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Open a sell order                                                |
+//+------------------------------------------------------------------+
+void OpenSellOrder() {
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double sl = NormalizeDouble(bid + StopLoss * _Point, _Digits);
+    double tp = NormalizeDouble(bid - TakeProfit * _Point, _Digits);
+    
+    if (!trade.Sell(InitialLot, _Symbol, bid, sl, tp, MagicNumber)) {
+        Print("Failed to open sell order. Error code: ", GetLastError());
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Update the stop loss with a trailing stop                        |
+//+------------------------------------------------------------------+
+void UpdateTrailingStop() {
+    // Implementation of trailing stop logic here
+}
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick() {
+    if (!IsTradingTimeAllowed() || IsPositionWithMagicNumberOpen()) {
+        UpdateTrailingStop();
+        return;
+    }
+
+    double maShort = iMA(_Symbol, PERIOD_CURRENT, MovingAveragePeriodShort, 0, MODE_SMA, PRICE_CLOSE);
+    double maMedium = iMA(_Symbol, PERIOD_CURRENT, MovingAveragePeriodMedium, 0, MODE_SMA, PRICE_CLOSE);
+    double maLong = iMA(_Symbol, PERIOD_CURRENT, MovingAveragePeriodLong, 0, MODE_SMA, PRICE_CLOSE);
+
+    bool isUptrend = maShort > maMedium && maMedium > maLong;
+    bool isDowntrend = maShort < maMedium && maMedium < maLong;
+
+    if (isUptrend && !IsPositionWithMagicNumberOpen()) {
+        OpenBuyOrder();
+    } else if (isDowntrend && !IsPositionWithMagicNumberOpen()) {
+        OpenSellOrder();
+    }
+}
