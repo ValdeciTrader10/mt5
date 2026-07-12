@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Painel Forex M5 — Login</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #0e1117; color: #e6e6e6; margin: 0;
+      display: flex; min-height: 100vh; align-items: center; justify-content: center;
+    }
+    .card {
+      background: #161b22; border: 1px solid #2b313b; border-radius: 12px;
+      padding: 2rem; width: 100%; max-width: 360px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.4);
+    }
+    h1 { font-size: 1.15rem; margin: 0 0 .25rem; }
+    p.sub { margin: 0 0 1.5rem; color: #8b949e; font-size: .85rem; }
+    label { display: block; font-size: .8rem; color: #b0b8c1; margin: .8rem 0 .3rem; }
+    input {
+      width: 100%; padding: .6rem .7rem; border-radius: 8px;
+      border: 1px solid #30363d; background: #0d1117; color: #e6e6e6; font-size: .95rem;
+    }
+    input:focus { outline: 2px solid #2f81f7; border-color: #2f81f7; }
+    button {
+      width: 100%; margin-top: 1.4rem; padding: .7rem; border: 0; border-radius: 8px;
+      background: #2f81f7; color: #fff; font-weight: 600; font-size: .95rem; cursor: pointer;
+    }
+    button:hover { background: #2a74dc; }
+    .erro {
+      background: #3d1418; border: 1px solid #7a232c; color: #ffb3b8;
+      padding: .6rem .7rem; border-radius: 8px; font-size: .85rem; margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <form class="card" method="post" action="/login">
+    <h1>Painel Forex M5</h1>
+    <p class="sub">Empenho Contabilidade · acesso restrito</p>
+    {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+    <label for="usuario">Usuário</label>
+    <input id="usuario" name="usuario" autocomplete="username" autofocus required>
+    <label for="senha">Senha</label>
+    <input id="senha" name="senha" type="password" autocomplete="current-password" required>
+    <button type="submit">Entrar</button>
+  </form>
+</body>
+</html>
