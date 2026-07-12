@@ -34,13 +34,17 @@ def _cliente():
     global _mt5
     with _LOCK:
         if _mt5 is None:
+            # pymt5linux é o fork mantido; mt5linux fica como fallback. Mesma API.
             try:
-                from mt5linux import MetaTrader5
-            except ImportError as e:  # pragma: no cover - só falta em dev sem deps
-                raise MT5Erro(
-                    "mt5linux não instalado. Rode dentro do container ou "
-                    "instale requirements.txt."
-                ) from e
+                from pymt5linux import MetaTrader5
+            except ImportError:
+                try:
+                    from mt5linux import MetaTrader5
+                except ImportError as e:  # pragma: no cover - só falta em dev sem deps
+                    raise MT5Erro(
+                        "pymt5linux/mt5linux não instalado. Rode dentro do container "
+                        "ou instale requirements.txt."
+                    ) from e
             log.info("Conectando à ponte MT5 em %s:%s", config.MT5_HOST, config.MT5_PORT)
             _mt5 = MetaTrader5(host=config.MT5_HOST, port=config.MT5_PORT)
             if not _mt5.initialize():

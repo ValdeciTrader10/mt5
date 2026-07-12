@@ -1,6 +1,8 @@
-# Ponte MT5 (cliente RPyC que fala com o terminal MT5 sob Wine no container "mt5")
-mt5linux==0.1.9
-rpyc>=5.3,<7
+# Ponte MT5 (cliente RPyC que fala com o terminal MT5 sob Wine no container "mt5").
+# pymt5linux é o fork mantido do mt5linux — mesmo protocolo RPyC, sem os pins antigos
+# (o mt5linux 0.1.9 fixa numpy==1.21.4 e quebra o build). Exige Python >= 3.13.
+pymt5linux>=1.0
+rpyc>=5.3
 
 # Web / painel
 fastapi>=0.110,<1
@@ -12,7 +14,3 @@ bcrypt>=4.1,<5              # hash da senha do painel
 
 # Gráficos offline (sem CDN — padrão Empenho)
 plotly>=5.20,<6
-
-# Dados
-pandas>=2.2,<3
-numpy>=1.26,<3
