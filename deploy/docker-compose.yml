@@ -82,6 +82,27 @@ services:
     networks: [interna]
     restart: unless-stopped
 
+  # ------------------------------------------------------------------ Executor + gestor (Fase 5)
+  executor:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    container_name: forex_executor
+    command: python -m sistema_forex.executor
+    env_file: .env
+    environment:
+      - MT5_HOST=mt5
+      - MT5_PORT=8001
+      - DADOS_DIR=/dados
+    volumes:
+      - dados:/dados
+    depends_on:
+      - estrategista
+      - mt5
+    networks: [interna]
+    restart: unless-stopped
+
   # ------------------------------------------------------------------ Painel web
   web:
     build:

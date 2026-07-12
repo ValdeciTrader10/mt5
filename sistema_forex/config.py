@@ -137,6 +137,22 @@ DECISAO_POLL_S = int(os.environ.get("DECISAO_POLL_S", "5"))
 NIVEL_PROX_ATR = float(os.environ.get("NIVEL_PROX_ATR", "0.5"))
 
 # --------------------------------------------------------------------------- #
+# Executor + gestor de saída (Fase 5)
+# --------------------------------------------------------------------------- #
+# TRAVA DE SEGURANÇA. false = simulação sobre preço AO VIVO (nenhuma ordem é
+# enviada). true = envia e gerencia ordens de verdade na conta demo (exige
+# "Algo Trading" habilitado no terminal). Mude só quando decidir operar.
+EXECUCAO_ATIVA = os.environ.get("EXECUCAO_ATIVA", "false").lower() in ("1", "true", "sim")
+# Intervalo (segundos) do gestor de saída — poll de tick por posição aberta.
+GESTOR_POLL_S = int(os.environ.get("GESTOR_POLL_S", "1"))
+# Saída por reversão: depois de atingir BE_TRIGGER_R, fecha se ceder este tanto de R
+# do pico favorável (a "força contrária" no preço).
+GIVEBACK_R = float(os.environ.get("GIVEBACK_R", "0.7"))
+# Identificador das ordens do robô (magic number) e base de saldo p/ P&L simulado.
+MAGIC = int(os.environ.get("MAGIC", "500250"))
+SALDO_SIMULADO = float(os.environ.get("SALDO_SIMULADO", "1000"))
+
+# --------------------------------------------------------------------------- #
 # Logging
 # --------------------------------------------------------------------------- #
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "DEBUG")  # DEBUG desde a v1 (regra do projeto)

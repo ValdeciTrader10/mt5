@@ -233,6 +233,146 @@ def copy_rates_from_pos(simbolo: str, tf: str, pos: int, quantidade: int):
         ]
 
 
+# --------------------------------------------------------------------------- #
+# Ordens (Fase 5) — encapsulam as constantes remotas do MT5 aqui, num só lugar
+# --------------------------------------------------------------------------- #
+def posicoes(simbolo: str = None, magic: int = None) -> list:
+    """Posições abertas como lista de dicts (ticket, simbolo, tipo, volume, preço, sl, lucro)."""
+    with _LOCK:
+        mt5 = _cliente()
+        pos = mt5.positions_get(symbol=simbolo) if simbolo else mt5.positions_get()
+        if pos is None:
+            return []
+        out = []
+        for p in pos:
+            if magic is not None and int(getattr(p, "magic", 0)) != magic:
+                continue
+            out.append({
+                "ticket": int(p.ticket),
+                "simbolo": str(p.symbol),
+                "direcao": "compra" if int(p.type) == int(mt5.POSITION_TYPE_BUY) else "venda",
+                "volume": float(p.volume),
+                "preco_entrada": float(p.price_open),
+                "preco_atual": float(p.price_current),
+                "sl": float(p.sl),
+                "lucro": float(p.profit),
+                "abertura_utc": int(p.time),
+            })
+        return out
+
+
+def _filling(mt5, simbolo):
+    """Modo de preenchimento suportado pelo símbolo (varia por broker)."""
+    try:
+        info = mt5.symbol_info(simbolo)
+        modo = int(getattr(info, "filling_mode", 0))
+        # bit 1 = FOK, bit 2 = IOC (SYMBOL_FILLING_*)
+        if modo & 2:
+            return mt5.ORDER_FILLING_IOC
+        if modo & 1:
+            return mt5.ORDER_FILLING_FOK
+    except Exception:  # noqa: BLE001
+        pass
+    return mt5.ORDER_FILLING_IOC
+
+
+def abrir(simbolo: str, direcao: str, lote: float, sl: float, magic: int, comentario: str = "") -> int:
+    """Envia ordem a mercado com stop no servidor. Retorna o ticket. Levanta MT5Erro em falha."""
+    with _LOCK:
+        mt5 = _cliente()
+        tick = mt5.symbol_info_tick(simbolo)
+        if tick is None:
+            raise MT5Erro(f"symbol_info_tick({simbolo}) None ao abrir")
+        eh_compra = direcao == "compra"
+        req = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": simbolo,
+            "volume": float(lote),
+            "type": mt5.ORDER_TYPE_BUY if eh_compra else mt5.ORDER_TYPE_SELL,
+            "price": float(tick.ask if eh_compra else tick.bid),
+            "sl": float(sl),
+            "deviation": 20,
+            "magic": int(magic),
+            "comment": comentario[:31],
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": _filling(mt5, simbolo),
+        }
+        res = mt5.order_send(req)
+        if res is None:
+            raise MT5Erro(f"order_send retornou None: {mt5.last_error()}")
+        if int(res.retcode) != int(mt5.TRADE_RETCODE_DONE):
+            raise MT5Erro(f"order_send retcode {res.retcode} ({getattr(res, 'comment', '')})")
+        return int(res.order)
+
+
+def fechar(ticket: int, magic: int) -> None:
+    """Fecha a posição do ticket com uma ordem a mercado contrária."""
+    with _LOCK:
+        mt5 = _cliente()
+        pos = mt5.positions_get(ticket=ticket)
+        if not pos:
+            return  # já fechada
+        p = pos[0]
+        simbolo = str(p.symbol)
+        eh_compra = int(p.type) == int(mt5.POSITION_TYPE_BUY)
+        tick = mt5.symbol_info_tick(simbolo)
+        req = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": simbolo,
+            "volume": float(p.volume),
+            "type": mt5.ORDER_TYPE_SELL if eh_compra else mt5.ORDER_TYPE_BUY,
+            "position": int(ticket),
+            "price": float(tick.bid if eh_compra else tick.ask),
+            "deviation": 20,
+            "magic": int(magic),
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": _filling(mt5, simbolo),
+        }
+        res = mt5.order_send(req)
+        if res is None or int(res.retcode) != int(mt5.TRADE_RETCODE_DONE):
+            raise MT5Erro(f"fechar({ticket}) falhou: {getattr(res, 'retcode', 'None')}")
+
+
+def mover_sl(ticket: int, novo_sl: float) -> None:
+    """Modifica o stop da posição (usado no break-even)."""
+    with _LOCK:
+        mt5 = _cliente()
+        pos = mt5.positions_get(ticket=ticket)
+        if not pos:
+            return
+        p = pos[0]
+        req = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "symbol": str(p.symbol),
+            "position": int(ticket),
+            "sl": float(novo_sl),
+            "tp": float(p.tp),
+        }
+        res = mt5.order_send(req)
+        if res is None or int(res.retcode) != int(mt5.TRADE_RETCODE_DONE):
+            raise MT5Erro(f"mover_sl({ticket}) falhou: {getattr(res, 'retcode', 'None')}")
+
+
+def calc_lucro(direcao: str, simbolo: str, lote: float, entrada: float, saida: float):
+    """Lucro em USD via order_calc_profit (read-only, funciona sem Algo Trading). None se indisponível."""
+    with _LOCK:
+        mt5 = _cliente()
+        tipo = mt5.ORDER_TYPE_BUY if direcao == "compra" else mt5.ORDER_TYPE_SELL
+        try:
+            v = mt5.order_calc_profit(tipo, simbolo, float(lote), float(entrada), float(saida))
+            return float(v) if v is not None else None
+        except Exception:  # noqa: BLE001
+            return None
+
+
+def equity():
+    """Equity atual da conta (para o teto de drawdown diário). None se indisponível."""
+    with _LOCK:
+        mt5 = _cliente()
+        conta = mt5.account_info()
+        return float(conta.equity) if conta else None
+
+
 def tick_atual(simbolo: str):
     """Retorna dict com o tick atual (bid, ask, last, time, spread aproximado)."""
     with _LOCK:
