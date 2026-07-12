@@ -15,7 +15,7 @@ Aceite: contagem de candles bate com o MT5, sem buracos.
 import logging
 import signal
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from . import config, db, mt5_bridge
 
@@ -67,18 +67,55 @@ def contar(conn, par: str, tf: str) -> int:
 # --------------------------------------------------------------------------- #
 # Backfill
 # --------------------------------------------------------------------------- #
+# Minutos por candle de cada TF — usado para estimar quantas barras pedir no backfill.
+_MIN_POR_TF = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}
+
+
+def _alvo_barras(tf: str) -> int:
+    """Nº de candles a pedir para cobrir BACKFILL_MESES (com folga de fim de semana).
+
+    Pedimos por posição (copy_rates_from_pos) em vez de por data: pedir mais do que
+    existe é inofensivo (o MT5 corta no disponível), e pedir por posição força o
+    terminal a baixar a profundidade solicitada.
+    """
+    minutos = _MIN_POR_TF.get(tf, 5)
+    dias = config.BACKFILL_MESES * 31
+    return max(1, (dias * 24 * 60) // minutos)
+
+
+def _backfill_tf(simbolo: str, tf: str, alvo: int) -> list:
+    """Busca ~`alvo` candles com retry enquanto o histórico do MT5 vai baixando.
+
+    O MT5 baixa o histórico de forma assíncrona: a 1ª chamada logo após selecionar
+    o símbolo devolve poucas barras e dispara o download; as chamadas seguintes
+    trazem cada vez mais. Repetimos até a contagem parar de crescer (download
+    terminou / não há mais histórico) ou atingir o alvo.
+    """
+    anterior = -1
+    candles: list = []
+    for _ in range(config.BACKFILL_TENTATIVAS):
+        candles = mt5_bridge.copy_rates_from_pos(simbolo, tf, 0, alvo)
+        n = len(candles)
+        if n <= anterior:      # parou de crescer → histórico estabilizou
+            break
+        anterior = n
+        if n >= alvo:          # já temos tudo o que pedimos
+            break
+        time.sleep(config.BACKFILL_ESPERA_S)
+    return candles
+
+
 def backfill(conn, simbolos: dict) -> None:
-    """Baixa 6 meses de histórico por par/tf. Idempotente (INSERT OR IGNORE)."""
-    inicio = datetime.utcnow() - timedelta(days=config.BACKFILL_MESES * 31)
-    fim = datetime.utcnow() + timedelta(days=1)  # folga para pegar o candle mais recente
+    """Baixa ~6 meses de histórico por par/tf. Idempotente (INSERT OR IGNORE)."""
     for par, simbolo in simbolos.items():
         for tf in config.TFS_COLETA:
-            candles = mt5_bridge.copy_rates_range(simbolo, tf, inicio, fim)
+            alvo = _alvo_barras(tf)
+            candles = _backfill_tf(simbolo, tf, alvo)
             novos = gravar_candles(conn, par, tf, candles)
             conn.commit()
             log.info(
-                "Backfill %s %s: %d candles recebidos, %d novos, total no banco %d",
-                par, tf, len(candles), novos, contar(conn, par, tf),
+                "Backfill %s %s: %d candles recebidos (alvo %d), %d novos, total no banco %d",
+                par, tf, len(candles), alvo, novos, contar(conn, par, tf),
             )
 
 

@@ -103,6 +103,12 @@ TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT", "")
 # Intervalo (segundos) entre verificações de candle M5 fechado no loop.
 COLETOR_POLL_S = int(os.environ.get("COLETOR_POLL_S", "15"))
 
+# Backfill: o MT5 baixa o histórico de forma ASSÍNCRONA na 1ª chamada logo após
+# selecionar o símbolo (por isso, sem retry, só chegam ~9 candles). Repetimos a
+# requisição enquanto a contagem cresce, dando tempo para o download completar.
+BACKFILL_TENTATIVAS = int(os.environ.get("BACKFILL_TENTATIVAS", "8"))
+BACKFILL_ESPERA_S = int(os.environ.get("BACKFILL_ESPERA_S", "3"))
+
 # --------------------------------------------------------------------------- #
 # Logging
 # --------------------------------------------------------------------------- #
