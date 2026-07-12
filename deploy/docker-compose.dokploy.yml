@@ -1,0 +1,92 @@
+# Compose para deploy via DOKPLOY.
+#
+# Diferenças em relação ao docker-compose.yml (standalone):
+#   - SEM Caddy: o Dokploy/Traefik já cuida de proxy e HTTPS. Rodar Caddy aqui
+#     brigaria pelas portas 80/443.
+#   - Enquanto não há domínio, o painel é publicado numa porta do host (8090) para
+#     acesso por IP:  http://IP_DA_VPS:8090
+#   - VNC do MT5 vai para a porta 3100 do host (a 3000 é usada pelo próprio Dokploy).
+#   - Variáveis vêm do ambiente do Dokploy (aba Environment do serviço).
+#
+# No Dokploy: crie um serviço do tipo "Compose", aponte para este arquivo
+# (Compose Path: deploy/docker-compose.dokploy.yml) e cole as variáveis no Environment.
+
+services:
+  # ------------------------------------------------------------------ MT5 (Wine)
+  mt5:
+    # Imagem base gmag11 + correção do servidor da ponte (issue #28): fixa mt5linux 0.1.9.
+    build:
+      context: ./mt5
+    image: forex_mt5:latest
+    environment:
+      CUSTOM_USER: ${VNC_USER:-trader}
+      PASSWORD: ${VNC_PASSWORD:?defina VNC_PASSWORD no Environment}
+    volumes:
+      - mt5_config:/config
+    ports:
+      # Terminal MT5 no navegador, acessível direto pelo IP: http://IP_DA_VPS:3100
+      # (protegido pela senha do VNC — CUSTOM_USER/PASSWORD). 3100 no host para não
+      # colidir com o Dokploy (que usa a 3000). Depois de logar e validar, dá para
+      # voltar a "127.0.0.1:3100:3000" e acessar só por túnel SSH, se quiser mais segurança.
+      - "3100:3000"
+    expose:
+      - "8001"                       # API Python: apenas na rede interna
+    networks: [interna]
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------ Coletor (Fase 1)
+  coletor:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    command: python -m sistema_forex.coletor_mt5
+    environment:
+      MT5_HOST: mt5
+      MT5_PORT: "8001"
+      DADOS_DIR: /dados
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      COLETOR_POLL_S: ${COLETOR_POLL_S:-15}
+      MT5_LOGIN: ${MT5_LOGIN:-}
+      MT5_SERVER: ${MT5_SERVER:-}
+      MT5_PASSWORD: ${MT5_PASSWORD:-}
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      TELEGRAM_CHAT: ${TELEGRAM_CHAT:-}
+    volumes:
+      - dados:/dados
+    depends_on:
+      - mt5
+    networks: [interna]
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------ Painel web
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    command: uvicorn sistema_forex.web.app:app --host 0.0.0.0 --port 8000
+    environment:
+      DADOS_DIR: /dados
+      PAINEL_USUARIO: ${PAINEL_USUARIO:-admin}
+      PAINEL_SENHA: ${PAINEL_SENHA:-}
+      PAINEL_SENHA_HASH: ${PAINEL_SENHA_HASH:-}
+      SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no Environment}
+      SESSAO_HORAS: ${SESSAO_HORAS:-12}
+    volumes:
+      - dados:/dados
+    ports:
+      # Acesso por IP enquanto não há domínio. Depois, mapeie um domínio no Dokploy
+      # (aba Domains → porta interna 8000) e pode remover esta publicação.
+      - "8090:8000"
+    depends_on:
+      - coletor
+    networks: [interna]
+    restart: unless-stopped
+
+networks:
+  interna: {}
+
+volumes:
+  dados: {}
+  mt5_config: {}

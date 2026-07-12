@@ -1,0 +1,97 @@
+# Stack completo do sistema Forex M5 — tudo em Docker na VPS Hostinger.
+#
+#   mt5      → terminal MT5 sob Wine (gmag11) + API Python (mt5linux) na porta 8001
+#   coletor  → Fase 1: coleta candles e grava no banco
+#   web      → painel FastAPI com login
+#   caddy    → HTTPS (autoassinado no IP) + proxy reverso para o painel
+#
+# Subir:  cd deploy && cp .env.example .env  (edite os segredos)  &&  docker compose up -d --build
+
+services:
+  # ------------------------------------------------------------------ MT5 (Wine)
+  mt5:
+    image: gmag11/metatrader5_vnc:latest
+    container_name: forex_mt5
+    environment:
+      - CUSTOM_USER=${VNC_USER:-trader}
+      - PASSWORD=${VNC_PASSWORD:?defina VNC_PASSWORD no .env}
+    volumes:
+      - mt5_config:/config          # persiste a instalação/login do MT5 (Wine)
+    ports:
+      # Terminal MT5 no navegador SÓ no localhost — acesse por túnel SSH (ver LEIA-ME).
+      - "127.0.0.1:3000:3000"
+    expose:
+      - "8001"                       # API Python: apenas na rede interna do Docker
+    networks: [interna]
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------ Coletor (Fase 1)
+  coletor:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    container_name: forex_coletor
+    command: python -m sistema_forex.coletor_mt5
+    env_file: .env
+    environment:
+      - MT5_HOST=mt5
+      - MT5_PORT=8001
+      - DADOS_DIR=/dados
+    volumes:
+      - dados:/dados
+    depends_on:
+      mt5:
+        condition: service_started
+    networks: [interna]
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------ Painel web
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    container_name: forex_web
+    command: uvicorn sistema_forex.web.app:app --host 0.0.0.0 --port 8000
+    env_file: .env
+    environment:
+      - DADOS_DIR=/dados
+    volumes:
+      - dados:/dados
+    expose:
+      - "8000"
+    depends_on:
+      - coletor
+    networks: [interna]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ------------------------------------------------------------------ Proxy HTTPS
+  caddy:
+    image: caddy:2-alpine
+    container_name: forex_caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    networks: [interna]
+    restart: unless-stopped
+
+networks:
+  interna: {}
+
+volumes:
+  dados: {}
+  mt5_config: {}
+  caddy_data: {}
+  caddy_config: {}

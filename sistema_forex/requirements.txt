@@ -1,0 +1,18 @@
+# Ponte MT5: falamos direto com o servidor RPyC do MT5 (dentro do Wine) via
+# rpyc.classic. NÃO usamos pymt5linux/mt5linux no cliente — a versão do RPyC precisa
+# ser IDÊNTICA à do servidor Wine (5.2.3), senão o protocolo não bate ("invalid
+# message type"). O mt5_bridge.py usa rpyc.classic.connect + conn.modules.MetaTrader5.
+rpyc==5.2.3
+# numpy: rpyc.classic.obtain reconstrói localmente os arrays de candles vindos do MT5.
+numpy>=1.26,<3
+
+# Web / painel
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+jinja2>=3.1,<4
+itsdangerous>=2.1,<3        # assinatura do cookie de sessão
+python-multipart>=0.0.9     # formulário de login
+bcrypt>=4.1,<5              # hash da senha do painel
+
+# Gráficos offline (sem CDN — padrão Empenho)
+plotly>=5.20,<6
