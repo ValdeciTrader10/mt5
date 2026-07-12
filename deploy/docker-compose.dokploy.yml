@@ -14,7 +14,10 @@
 services:
   # ------------------------------------------------------------------ MT5 (Wine)
   mt5:
-    image: gmag11/metatrader5_vnc:latest
+    # Imagem base gmag11 + correção do servidor da ponte (issue #28): fixa mt5linux 0.1.9.
+    build:
+      context: ./mt5
+    image: forex_mt5:latest
     environment:
       CUSTOM_USER: ${VNC_USER:-trader}
       PASSWORD: ${VNC_PASSWORD:?defina VNC_PASSWORD no Environment}

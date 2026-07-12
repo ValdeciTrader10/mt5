@@ -90,6 +90,16 @@ O Dokploy emite o certificado automaticamente.
 
 ---
 
+## Nota: correção do servidor da ponte (issue #28 do gmag11)
+
+A imagem `gmag11/metatrader5_vnc` tem um bug conhecido ([issue #28](https://github.com/gmag11/MetaTrader5-Docker/issues/28)):
+ela instala o `mt5linux` 1.0.3, que removeu o switch `-w` usado no start dela, e o
+servidor da ponte (porta 8001) não sobe (`Error: Unknown switch -w` → os serviços Python
+recebem `Connection refused`). Por isso o serviço `mt5` aqui **não usa a imagem direto**:
+ele é construído a partir de `deploy/mt5/Dockerfile`, que aplica `deploy/mt5/fix-mt5linux.sh`
+(um custom-init que fixa o `mt5linux` em 0.1.9, versão que aceita `-w`). Tudo o mais da
+imagem (Wine 10, MT5, VNC) fica igual.
+
 ## Operação e diagnóstico
 
 - **Logs** de cada container: aba Logs do serviço (veja `coletor` para a coleta em tempo real).
