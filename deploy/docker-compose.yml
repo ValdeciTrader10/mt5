@@ -64,6 +64,24 @@ services:
     networks: [interna]
     restart: unless-stopped
 
+  # ------------------------------------------------------------------ Estrategista (Fase 4 — sombra)
+  estrategista:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    container_name: forex_estrategista
+    command: python -m sistema_forex.decisao
+    env_file: .env
+    environment:
+      - DADOS_DIR=/dados
+    volumes:
+      - dados:/dados          # lê análise/candles e grava as decisões (modo sombra, sem ordens)
+    depends_on:
+      - motor
+    networks: [interna]
+    restart: unless-stopped
+
   # ------------------------------------------------------------------ Painel web
   web:
     build:

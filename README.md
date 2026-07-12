@@ -22,6 +22,7 @@ VPS Hostinger (Docker) — um único docker-compose
   mt5      terminal MT5 sob Wine  ── :3000 (VNC) · :8001 (API Python, interna)
   coletor  Fase 1: coleta candles → mercado.db (SQLite, WAL, em volume)
   motor    Fase 2: lê candles → calcula níveis/estrutura/regime no banco
+  estrateg Fase 4 (sombra): decide entradas por confluências → grava em decisoes
   web      painel FastAPI com login/senha  ── lê o banco, renderiza gráficos
   caddy    HTTPS (autoassinado no IP) + proxy reverso para o painel
 ```
@@ -44,11 +45,18 @@ Entregue:
   S/R e as zonas de FVG desenhados. `sistema_forex/web/`, `sistema_forex/grafico.py`.
 - **Stack Docker** (mt5 + coletor + motor + web + caddy). `deploy/`.
 
-Testes dos indicadores: `python -m sistema_forex.tests.test_indicadores`.
+- **Estrategista (Fase 4 — modo sombra):** a cada candle M5 fechado, monta o snapshot do par
+  (regime + níveis + estrutura) e decide entrada por confluências, com filtros de sessão e
+  spread. Registra CADA decisão (entrou/não entrou + motivo) em `decisoes` — **sem enviar
+  ordens**. Lógica pura e testada. `sistema_forex/estrategias.py`, `sistema_forex/decisao.py`.
+  O painel mostra as decisões recentes ao vivo.
+
+Testes: `python -m sistema_forex.tests.test_indicadores` e `... .test_estrategias`.
 
 A implementar (próximas fases, doc §8):
-- **Fase 4** — regime + 9 estratégias em **modo sombra** (só registra decisões).
-- **Fase 5** — executor + gestão ativa + Telegram completo, em conta **demo por 30 dias**.
+- **Fase 5** — executor + **gestor de saída tick-speed** (força contrária, ~1s) + gestão ativa
+  + Telegram completo, em conta **demo por 30 dias**. O modo sombra da Fase 4 gera as entradas
+  que o gestor passa a gerenciar.
 
 ## Regras inegociáveis (lições do MASMC)
 

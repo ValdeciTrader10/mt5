@@ -47,6 +47,12 @@
     .pill-lateral { color: #d29922; background: #33280d; border-color: #574116; }
     .pill-off { color: #8b949e; background: #1c2128; border-color: #30363d; }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .tag { font-size: .74rem; font-weight: 600; padding: .08rem .45rem; border-radius: 6px; }
+    .tag-compra { color: #3fb950; background: #10331d; }
+    .tag-venda { color: #f85149; background: #3a1618; }
+    .tag-entrou { color: #3fb950; }
+    .tag-nao { color: #8b949e; }
+    .motivo { color: #b9c2cc; font-size: .82rem; }
     #dot { display: inline-block; width: .5rem; height: .5rem; border-radius: 50%;
       background: #3fb950; margin-right: .35rem; vertical-align: middle; transition: opacity .2s; }
   </style>
@@ -65,7 +71,7 @@
       <div class="card">
         <h2>Decisões registradas</h2>
         <div class="big" id="decisoes">—</div>
-        <div class="muted">Modo sombra (Fase 4) — ainda não ativo.</div>
+        <div class="muted">Modo sombra (Fase 4) — registra sem operar.</div>
       </div>
       <div class="card">
         <h2>Trades</h2>
@@ -87,6 +93,17 @@
         <tbody id="tbody-analise"></tbody>
       </table>
       <p class="muted">Recalculado pelo motor a cada ciclo. Os níveis aparecem desenhados no gráfico abaixo.</p>
+    </section>
+
+    <section>
+      <h2>Decisões (Fase 4 — modo sombra)</h2>
+      <table>
+        <thead>
+          <tr><th>Quando (UTC)</th><th>Par</th><th>Estratégia</th><th>Direção</th><th>Resultado</th><th>Motivo</th></tr>
+        </thead>
+        <tbody id="tbody-decisoes"></tbody>
+      </table>
+      <p class="muted">O estrategista avalia a cada candle M5 fechado e registra a decisão — <strong>sem enviar ordens</strong>.</p>
     </section>
 
     <section>
@@ -157,6 +174,16 @@
           '<td class="num">' + a.fvg + '</td><td class="num">' + a.gap + '</td>' +
           '<td class="num">' + a.evento + '</td></tr>';
       }).join('');
+
+      document.getElementById('tbody-decisoes').innerHTML = (s.decisoes_recentes || []).map(function (d) {
+        var dir = d.direcao === 'compra' ? '<span class="tag tag-compra">▲ compra</span>'
+          : d.direcao === 'venda' ? '<span class="tag tag-venda">▼ venda</span>' : '—';
+        var res = d.resultado === 'entrou' ? '<span class="tag-entrou">✓ entrou</span>'
+          : '<span class="tag-nao">✕ não entrou</span>';
+        return '<tr><td>' + esc(d.hora) + '</td><td>' + esc(d.par) + '</td>' +
+          '<td>' + esc(d.estrategia) + '</td><td>' + dir + '</td><td>' + res + '</td>' +
+          '<td class="motivo">' + esc(d.motivo) + '</td></tr>';
+      }).join('') || '<tr><td colspan="6" class="muted">Nenhuma decisão ainda — aguardando o próximo candle M5 fechado.</td></tr>';
 
       document.getElementById('tbody-coleta').innerHTML = (s.pares_tf || []).map(function (r) {
         return '<tr><td>' + esc(r.par) + '</td><td>' + esc(r.tf) + '</td>' +

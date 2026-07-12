@@ -89,6 +89,20 @@ def _status_dados() -> dict:
         decisoes = conn.execute("SELECT COUNT(*) AS n FROM decisoes").fetchone()["n"]
         trades = conn.execute("SELECT COUNT(*) AS n FROM trades").fetchone()["n"]
         analise_pares = [analise.resumo_par(conn, par) for par in config.PARES]
+        decisoes_recentes = [
+            {
+                "par": r["par"],
+                "hora": datetime.utcfromtimestamp(r["time_utc"]).strftime("%m-%d %H:%M"),
+                "estrategia": r["estrategia"],
+                "direcao": r["direcao"] or "—",
+                "resultado": r["resultado"],
+                "motivo": r["motivo"],
+            }
+            for r in conn.execute(
+                "SELECT par, time_utc, estrategia, direcao, resultado, motivo "
+                "FROM decisoes ORDER BY time_utc DESC, id DESC LIMIT 15"
+            ).fetchall()
+        ]
 
     mt5_info = None
     mt5_ok = False
@@ -101,6 +115,7 @@ def _status_dados() -> dict:
     return {
         "pares_tf": pares_tf,
         "analise_pares": analise_pares,
+        "decisoes_recentes": decisoes_recentes,
         "decisoes": decisoes,
         "trades": trades,
         "mt5_ok": mt5_ok,
