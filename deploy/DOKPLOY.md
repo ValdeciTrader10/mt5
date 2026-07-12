@@ -90,14 +90,26 @@ O Dokploy emite o certificado automaticamente.
 
 ---
 
-## Nota: correção do servidor da ponte (issue #28 do gmag11)
+## Nota: correções da imagem gmag11 (ponte RPyC + numpy)
 
-A imagem `gmag11/metatrader5_vnc` tem um bug conhecido ([issue #28](https://github.com/gmag11/MetaTrader5-Docker/issues/28)):
-ela instala o `mt5linux` 1.0.3, que removeu o switch `-w` usado no start dela, e o
-servidor da ponte (porta 8001) não sobe (`Error: Unknown switch -w` → `Connection refused`).
-Por isso o serviço `mt5` aqui **não usa a imagem direto**: ele é construído a partir de
-`deploy/mt5/Dockerfile`, que aplica `deploy/mt5/fix-mt5linux.sh` (custom-init que fixa o
-`mt5linux` em 0.1.9, versão que aceita `-w`). Tudo o mais da imagem (Wine 10, MT5, VNC) fica igual.
+A imagem `gmag11/metatrader5_vnc` precisa de dois ajustes, ambos aplicados pelo
+`deploy/mt5/Dockerfile` (por isso o serviço `mt5` é **construído**, não usa a imagem direto):
+
+1. **Servidor da ponte (issue #28).** A imagem instala o `mt5linux` 1.0.3, que removeu o
+   switch `-w` usado no start dela, e o servidor da ponte (porta 8001) não sobe
+   (`Error: Unknown switch -w` → `Connection refused`). O cont-init
+   `deploy/mt5/fix-mt5linux.sh` fixa o `mt5linux` em 0.1.9 (versão que aceita `-w`).
+
+2. **ABI do numpy no Python do Wine.** O `start.sh` da imagem instala
+   `MetaTrader5==5.0.36` sem fixar o numpy; o pip puxa **numpy 2.x**, mas o módulo
+   compilado do MetaTrader5 (`._core`) foi construído contra numpy 1.x. No 1º import
+   isso quebra com `ImportError: numpy.core.multiarray failed to import` (visto como
+   *remote traceback* nos logs do `coletor`/`web`, que ficam reiniciando).
+   A correção: o cont-init `deploy/mt5/set-autostart.sh` faz o openbox chamar o wrapper
+   `deploy/mt5/forex-start.sh`, que roda o `start.sh` e depois força `numpy<2` no Python
+   do Wine (reiniciando a ponte para recarregar o numpy correto).
+
+Tudo o mais da imagem (Wine 10, MT5, VNC) fica igual.
 
 Além disso, o RPyC do Python do Wine é a versão **5.2.3**; por isso o cliente (coletor/web)
 fixa `rpyc==5.2.3` e roda em Python 3.11, falando direto com o servidor via `rpyc.classic`
