@@ -21,26 +21,32 @@ que expõe o terminal no navegador (VNC, porta 3000) e a **API Python via `mt5li
 VPS Hostinger (Docker) — um único docker-compose
   mt5      terminal MT5 sob Wine  ── :3000 (VNC) · :8001 (API Python, interna)
   coletor  Fase 1: coleta candles → mercado.db (SQLite, WAL, em volume)
+  motor    Fase 2: lê candles → calcula níveis/estrutura/regime no banco
   web      painel FastAPI com login/senha  ── lê o banco, renderiza gráficos
   caddy    HTTPS (autoassinado no IP) + proxy reverso para o painel
 ```
 
-## Estado atual (fundação — Fase 1)
+## Estado atual (Fases 1 e 2)
 
 Entregue:
 - **Coletor (Fase 1):** backfill de 6 meses (M5/M15/H1/D1) + loop coletando a cada candle M5
   fechado, gravando spread. `sistema_forex/coletor_mt5.py`.
+- **Motor de análise (Fase 2):** lê os candles e calcula a "memória" do sistema — suportes/
+  resistências (clusterização de swings), FVGs, gaps, estrutura SMC (HH/HL/LH/LL, BOS/CHOCH)
+  e o regime por ADX. Roda como serviço próprio, só sobre o banco (não fala com o MT5).
+  Indicadores em funções puras e testadas. `sistema_forex/indicadores.py`, `sistema_forex/analise.py`.
 - **Ponte MT5** com lock global (thread-safe), `verificar_margem()` e `preco_pip()` já prontos
   para as próximas fases. `sistema_forex/mt5_bridge.py`.
 - **Banco** com o schema completo do sistema (candles + níveis + estrutura + regime + decisões
   + trades). `sistema_forex/db.py`.
-- **Painel web** com login (bcrypt + sessão assinada), status da coleta e gráfico de candles
-  offline (Plotly embutido). `sistema_forex/web/`.
-- **Stack Docker** (mt5 + coletor + web + caddy). `deploy/`.
+- **Painel web** com login (bcrypt + sessão assinada), status da coleta, quadro de estrutura de
+  mercado (regime + contagem de níveis por par) e gráfico de candles offline com os níveis
+  S/R e as zonas de FVG desenhados. `sistema_forex/web/`, `sistema_forex/grafico.py`.
+- **Stack Docker** (mt5 + coletor + motor + web + caddy). `deploy/`.
+
+Testes dos indicadores: `python -m sistema_forex.tests.test_indicadores`.
 
 A implementar (próximas fases, doc §8):
-- **Fase 2** — motor de análise (níveis/estruturas).
-- **Fase 3** — gráfico com os níveis desenhados.
 - **Fase 4** — regime + 9 estratégias em **modo sombra** (só registra decisões).
 - **Fase 5** — executor + gestão ativa + Telegram completo, em conta **demo por 30 dias**.
 

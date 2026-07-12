@@ -1,8 +1,8 @@
-"""Fase 3 (versão mínima) — Gráfico de candles offline.
+"""Gráfico de candles offline + níveis do motor (Fase 2/3).
 
 Gera HTML com Plotly EMBUTIDO (sem CDN — padrão dos sistemas Empenho), lendo os
-candles do banco. Nesta fundação desenha apenas os candles; os níveis calculados
-(S/R, OB, FVG, swings, labels SMC) entram quando a Fase 2 (motor) estiver pronta.
+candles do banco e desenhando por cima os níveis calculados pelo motor: suportes,
+resistências e FVGs (zonas). Mostra os níveis daquele TF de origem.
 
 Uso:
     python -m sistema_forex.grafico EURUSD# M5
@@ -12,7 +12,7 @@ Uso:
 import logging
 import sys
 
-from . import config, db
+from . import analise, config, db
 
 log = logging.getLogger("grafico")
 
@@ -38,6 +38,7 @@ def grafico_html(par: str, tf: str, limite: int = 500) -> str:
 
     with db.sessao() as conn:
         candles = _buscar_candles(conn, par, tf, limite)
+        niveis = analise.niveis_ativos(conn, par, tf)
 
     if not candles:
         return (
@@ -60,8 +61,31 @@ def grafico_html(par: str, tf: str, limite: int = 500) -> str:
             )
         ]
     )
+    # --- Níveis do motor desenhados por cima ---
+    x0, x1 = tempos[0], tempos[-1]
+    cores = {"suporte": "#3fb950", "resistencia": "#f85149"}
+    for nv in niveis:
+        tipo = nv["tipo"]
+        if tipo in cores:
+            fig.add_hline(
+                y=nv["preco"], line_color=cores[tipo], line_width=1,
+                line_dash="dot", opacity=0.55,
+                annotation_text=f"{tipo[:3].upper()}·{int(nv['forca'])}",
+                annotation_position="right",
+                annotation_font_size=9, annotation_font_color=cores[tipo],
+            )
+        elif tipo.startswith("fvg") and nv.get("preco2") is not None:
+            alta = tipo.endswith("bull")
+            fig.add_shape(
+                type="rect", x0=x0, x1=x1, y0=nv["preco"], y1=nv["preco2"],
+                line_width=0, layer="below",
+                fillcolor="rgba(63,185,80,0.10)" if alta else "rgba(248,81,73,0.10)",
+            )
+
+    fvg_n = sum(1 for nv in niveis if nv["tipo"].startswith("fvg"))
+    sr_n = sum(1 for nv in niveis if nv["tipo"] in cores)
     fig.update_layout(
-        title=f"{par} — {tf} (últimos {len(candles)} candles)",
+        title=f"{par} — {tf} · {len(candles)} candles · {sr_n} níveis S/R · {fvg_n} FVGs",
         xaxis_rangeslider_visible=False,
         template="plotly_dark",
         margin=dict(l=40, r=20, t=50, b=40),
