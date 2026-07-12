@@ -48,16 +48,21 @@ sistema — leva ~5 a 10 min. Acompanhe pelos **Logs** do serviço.
 
 ## 4. Logar no MT5 (uma vez)
 
-O terminal MT5 fica só no localhost da VPS (porta 3100), por segurança. Do seu computador:
+O terminal MT5 abre direto no navegador pelo IP da VPS:
 
-```bash
-ssh -L 3100:localhost:3100 usuario@IP_DA_VPS
-# depois abra no navegador:  http://localhost:3100
+```
+http://IP_DA_VPS:3100
 ```
 
-Faça login na conta **XM demo** (login 84110577, servidor `XMGlobal-MT5 4`), habilite
-**Algo Trading** e deixe conectado. O volume `mt5_config` guarda esse login entre reinícios.
-Assim que o MT5 estiver logado, o coletor inicia o backfill de 6 meses automaticamente.
+Ele pede usuário/senha do VNC (o `CUSTOM_USER`/`VNC_PASSWORD` do Environment). Depois
+aparece o terminal MT5: faça login na conta **XM demo** (login 84110577, servidor
+`XMGlobal-MT5 4`), habilite **Algo Trading** e deixe conectado. O volume `mt5_config`
+guarda esse login entre reinícios. Assim que o MT5 estiver logado, o coletor inicia o
+backfill de 6 meses automaticamente.
+
+> Segurança: a porta 3100 fica protegida só pela senha do VNC. Para uma conta demo tudo
+> bem. Se quiser fechar depois, troque no compose `"3100:3000"` por `"127.0.0.1:3100:3000"`
+> e passe a acessar por túnel SSH (`ssh -L 3100:localhost:3100 usuario@IP_DA_VPS`).
 
 ## 5. Acessar o painel
 

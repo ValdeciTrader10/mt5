@@ -21,9 +21,11 @@ services:
     volumes:
       - mt5_config:/config
     ports:
-      # Terminal MT5 no navegador — só no localhost do host; acesse por túnel SSH.
-      # 3100 (host) → 3000 (container) para não colidir com o Dokploy.
-      - "127.0.0.1:3100:3000"
+      # Terminal MT5 no navegador, acessível direto pelo IP: http://IP_DA_VPS:3100
+      # (protegido pela senha do VNC — CUSTOM_USER/PASSWORD). 3100 no host para não
+      # colidir com o Dokploy (que usa a 3000). Depois de logar e validar, dá para
+      # voltar a "127.0.0.1:3100:3000" e acessar só por túnel SSH, se quiser mais segurança.
+      - "3100:3000"
     expose:
       - "8001"                       # API Python: apenas na rede interna
     networks: [interna]
