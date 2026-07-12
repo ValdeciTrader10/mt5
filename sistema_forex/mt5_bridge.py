@@ -19,7 +19,8 @@ log = logging.getLogger("mt5_bridge")
 
 # Lock global — serializa todo acesso ao MT5 (thread-safe).
 _LOCK = threading.RLock()
-_mt5 = None  # cliente mt5linux (singleton, criado sob demanda)
+_mt5 = None   # módulo remoto MetaTrader5 (proxy rpyc), singleton criado sob demanda
+_conn = None  # conexão rpyc.classic com o servidor da ponte (dentro do Wine)
 
 
 class MT5Erro(RuntimeError):
@@ -30,26 +31,31 @@ class MT5Erro(RuntimeError):
 # Conexão
 # --------------------------------------------------------------------------- #
 def _cliente():
-    """Retorna o cliente mt5linux conectado (cria e inicializa na 1ª chamada)."""
-    global _mt5
+    """Retorna o módulo MetaTrader5 remoto (proxy rpyc), inicializado na 1ª chamada.
+
+    Falamos direto com o servidor RPyC clássico que roda dentro do container "mt5"
+    (Python do Wine, com o pacote MetaTrader5). Usamos rpyc.classic para não depender
+    de mt5linux/pymt5linux no cliente e poder fixar a MESMA versão de RPyC do servidor.
+    """
+    global _mt5, _conn
     with _LOCK:
         if _mt5 is None:
-            # pymt5linux é o fork mantido; mt5linux fica como fallback. Mesma API.
-            try:
-                from pymt5linux import MetaTrader5
-            except ImportError:
-                try:
-                    from mt5linux import MetaTrader5
-                except ImportError as e:  # pragma: no cover - só falta em dev sem deps
-                    raise MT5Erro(
-                        "pymt5linux/mt5linux não instalado. Rode dentro do container "
-                        "ou instale requirements.txt."
-                    ) from e
+            import rpyc  # local: só o cliente precisa
+
             log.info("Conectando à ponte MT5 em %s:%s", config.MT5_HOST, config.MT5_PORT)
-            _mt5 = MetaTrader5(host=config.MT5_HOST, port=config.MT5_PORT)
+            try:
+                _conn = rpyc.classic.connect(config.MT5_HOST, config.MT5_PORT)
+            except Exception as e:  # noqa: BLE001
+                _conn = None
+                raise MT5Erro(f"não conectou ao servidor da ponte: {e}") from e
+            _mt5 = _conn.modules["MetaTrader5"]
             if not _mt5.initialize():
                 erro = _mt5.last_error()
                 _mt5 = None
+                try:
+                    _conn.close()
+                finally:
+                    _conn = None
                 raise MT5Erro(f"initialize() falhou: {erro}")
             log.info("MT5 inicializado.")
         return _mt5
@@ -179,12 +185,16 @@ def copy_rates_range(simbolo: str, tf: str, inicio, fim):
 
     Cada item: {time, open, high, low, close, tick_volume, spread, real_volume}.
     """
+    import rpyc
+
     with _LOCK:
         mt5 = _cliente()
         rates = mt5.copy_rates_range(simbolo, timeframe(tf), inicio, fim)
         if rates is None:
             return []
-        # rates é um numpy structured array (possivelmente via netref). Materializa.
+        # rates vem como netref (numpy no lado do Wine). obtain() traz o array inteiro
+        # de uma vez para o cliente (rápido); iterar o netref direto seria lento.
+        rates = rpyc.classic.obtain(rates)
         return [
             {
                 "time": int(r["time"]),
@@ -201,11 +211,14 @@ def copy_rates_range(simbolo: str, tf: str, inicio, fim):
 
 def copy_rates_from_pos(simbolo: str, tf: str, pos: int, quantidade: int):
     """Últimos `quantidade` candles a partir da posição `pos` (0 = mais recente)."""
+    import rpyc
+
     with _LOCK:
         mt5 = _cliente()
         rates = mt5.copy_rates_from_pos(simbolo, timeframe(tf), pos, quantidade)
         if rates is None:
             return []
+        rates = rpyc.classic.obtain(rates)
         return [
             {
                 "time": int(r["time"]),
@@ -263,8 +276,8 @@ def esta_ok() -> bool:
 
 
 def desligar() -> None:
-    """Fecha a conexão (shutdown do MT5)."""
-    global _mt5
+    """Fecha a conexão (shutdown do MT5 e da conexão rpyc)."""
+    global _mt5, _conn
     with _LOCK:
         if _mt5 is not None:
             try:
@@ -272,3 +285,9 @@ def desligar() -> None:
             except Exception:  # noqa: BLE001
                 pass
             _mt5 = None
+        if _conn is not None:
+            try:
+                _conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+            _conn = None

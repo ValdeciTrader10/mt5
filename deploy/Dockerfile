@@ -1,7 +1,8 @@
 # Imagem única usada pelos serviços "web" e "coletor".
 # O MT5 NÃO roda aqui — roda no container "mt5" (gmag11/metatrader5_vnc), sob Wine.
-# Python 3.13: exigido pelo cliente pymt5linux (ponte RPyC com o MT5).
-FROM python:3.13-slim
+# Python 3.11: compatível com rpyc 5.2.3, que é a versão do RPyC do lado do Wine
+# (o protocolo precisa ser idêntico nos dois lados).
+FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -94,11 +94,15 @@ O Dokploy emite o certificado automaticamente.
 
 A imagem `gmag11/metatrader5_vnc` tem um bug conhecido ([issue #28](https://github.com/gmag11/MetaTrader5-Docker/issues/28)):
 ela instala o `mt5linux` 1.0.3, que removeu o switch `-w` usado no start dela, e o
-servidor da ponte (porta 8001) não sobe (`Error: Unknown switch -w` → os serviços Python
-recebem `Connection refused`). Por isso o serviço `mt5` aqui **não usa a imagem direto**:
-ele é construído a partir de `deploy/mt5/Dockerfile`, que aplica `deploy/mt5/fix-mt5linux.sh`
-(um custom-init que fixa o `mt5linux` em 0.1.9, versão que aceita `-w`). Tudo o mais da
-imagem (Wine 10, MT5, VNC) fica igual.
+servidor da ponte (porta 8001) não sobe (`Error: Unknown switch -w` → `Connection refused`).
+Por isso o serviço `mt5` aqui **não usa a imagem direto**: ele é construído a partir de
+`deploy/mt5/Dockerfile`, que aplica `deploy/mt5/fix-mt5linux.sh` (custom-init que fixa o
+`mt5linux` em 0.1.9, versão que aceita `-w`). Tudo o mais da imagem (Wine 10, MT5, VNC) fica igual.
+
+Além disso, o RPyC do Python do Wine é a versão **5.2.3**; por isso o cliente (coletor/web)
+fixa `rpyc==5.2.3` e roda em Python 3.11, falando direto com o servidor via `rpyc.classic`
+(sem `pymt5linux`). As duas pontas precisam do MESMO RPyC — versões diferentes dão
+`invalid message type`.
 
 ## Operação e diagnóstico
 

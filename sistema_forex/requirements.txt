@@ -1,11 +1,10 @@
-# Ponte MT5 (cliente RPyC que fala com o terminal MT5 sob Wine no container "mt5").
-# pymt5linux é o fork mantido do mt5linux — mesmo protocolo RPyC, sem os pins antigos
-# (o mt5linux 0.1.9 fixa numpy==1.21.4 e quebra o build). Exige Python >= 3.13.
-pymt5linux>=1.0
-# Fixado para bater EXATAMENTE com o RPyC do servidor (lado Wine), alinhado por
-# deploy/mt5/fix-mt5linux.sh. Versões diferentes de RPyC não conversam ("invalid
-# message type").
-rpyc==6.0.2
+# Ponte MT5: falamos direto com o servidor RPyC do MT5 (dentro do Wine) via
+# rpyc.classic. NÃO usamos pymt5linux/mt5linux no cliente — a versão do RPyC precisa
+# ser IDÊNTICA à do servidor Wine (5.2.3), senão o protocolo não bate ("invalid
+# message type"). O mt5_bridge.py usa rpyc.classic.connect + conn.modules.MetaTrader5.
+rpyc==5.2.3
+# numpy: rpyc.classic.obtain reconstrói localmente os arrays de candles vindos do MT5.
+numpy>=1.26,<3
 
 # Web / painel
 fastapi>=0.110,<1
