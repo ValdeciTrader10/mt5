@@ -40,6 +40,13 @@
     iframe { width: 100%; height: 660px; border: 1px solid #21262d; border-radius: 10px;
       margin-top: 1rem; background: #0d1117; }
     .muted { color: #8b949e; font-size: .82rem; }
+    .pill { display: inline-block; padding: .12rem .5rem; border-radius: 999px;
+      font-size: .78rem; font-weight: 600; border: 1px solid transparent; }
+    .pill-alta { color: #3fb950; background: #10331d; border-color: #1c5030; }
+    .pill-baixa { color: #f85149; background: #3a1618; border-color: #5c2226; }
+    .pill-lateral { color: #d29922; background: #33280d; border-color: #574116; }
+    .pill-off { color: #8b949e; background: #1c2128; border-color: #30363d; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -90,6 +97,37 @@
           {% endfor %}
         </tbody>
       </table>
+    </section>
+
+    <section>
+      <h2>Estrutura de mercado (Fase 2)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Par</th><th>Regime (ADX)</th>
+            <th class="num">Suportes</th><th class="num">Resistências</th>
+            <th class="num">FVGs</th><th class="num">Gaps</th><th class="num">Eventos SMC</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in analise_pares %}
+          <tr>
+            <td>{{ a.par }}</td>
+            <td>
+              {% if a.regime == 'tendencia_alta' %}<span class="pill pill-alta">▲ tendência de alta</span>
+              {% elif a.regime == 'tendencia_baixa' %}<span class="pill pill-baixa">▼ tendência de baixa</span>
+              {% elif a.regime == 'lateral' %}<span class="pill pill-lateral">≈ lateral</span>
+              {% elif a.regime == 'transicao' %}<span class="pill pill-off">↔ transição</span>
+              {% else %}<span class="pill pill-off">— indefinido</span>{% endif %}
+              {% if a.adx is not none %}<span class="muted">ADX {{ a.adx }}</span>{% endif %}
+            </td>
+            <td class="num">{{ a.suporte }}</td><td class="num">{{ a.resistencia }}</td>
+            <td class="num">{{ a.fvg }}</td><td class="num">{{ a.gap }}</td><td class="num">{{ a.evento }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="muted">Recalculado pelo motor a cada ciclo. Os níveis aparecem desenhados no gráfico abaixo.</p>
     </section>
 
     <section>

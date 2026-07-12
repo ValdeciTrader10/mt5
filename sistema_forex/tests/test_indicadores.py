@@ -1,0 +1,81 @@
+"""Testes dos indicadores (Fase 2) — sem pytest, rodam com python puro.
+
+    python -m sistema_forex.tests.test_indicadores
+
+Cada caso usa dados sintéticos com resposta conhecida. Falha = AssertionError.
+"""
+
+import itertools
+
+from .. import indicadores as ind
+
+
+def test_atr_plano():
+    # candles planos: high-low=1.0, close no meio, sem tendência → ATR = 1.0
+    a = ind.atr([1.0] * 30, [0.0] * 30, [0.5] * 30, 14)
+    assert a is not None and abs(a - 1.0) < 1e-9, a
+
+
+def test_adx_tendencia_vs_lateral():
+    h = [100 + i * 2 for i in range(60)]
+    l = [99 + i * 2 for i in range(60)]
+    c = [99.5 + i * 2 for i in range(60)]
+    adx_v, pdi, mdi = ind.adx(h, l, c, 14)
+    assert adx_v > 40 and pdi > mdi, (adx_v, pdi, mdi)
+    assert ind.classificar_regime(adx_v, pdi, mdi, 25, 20) == "tendencia_alta"
+
+    chop = list(itertools.islice(itertools.cycle([100, 101, 100, 101]), 60))
+    adx_lat, *_ = ind.adx([x + 0.5 for x in chop], [x - 0.5 for x in chop], chop, 14)
+    assert adx_lat < 30, adx_lat
+    assert ind.classificar_regime(adx_lat, 0, 0, 25, 20) == "lateral"
+
+
+def test_swings_rotulos_e_eventos():
+    seq = [10, 11, 12, 13, 12, 11, 10, 11, 12, 13, 14, 15, 14, 13, 12, 13, 14, 15, 16, 17, 16, 15]
+    H = [x + 0.2 for x in seq]
+    L = [x - 0.2 for x in seq]
+    sw = ind.rotular_swings(ind.swings(H, L, 2))
+    assert any(s["tipo"] == "high" for s in sw) and any(s["tipo"] == "low" for s in sw)
+    assert "HH" in {s["label"] for s in sw}
+    ev = ind.eventos_estrutura(sw)
+    assert any(e["evento"] == "BOS" for e in ev)
+
+
+def test_sr_clusteriza_dois_niveis():
+    sw = [
+        {"i": 0, "tipo": "high", "preco": 1.1000},
+        {"i": 5, "tipo": "high", "preco": 1.1002},
+        {"i": 9, "tipo": "high", "preco": 1.1001},
+        {"i": 3, "tipo": "low", "preco": 1.0900},
+        {"i": 7, "tipo": "low", "preco": 1.0901},
+        {"i": 11, "tipo": "low", "preco": 1.0899},
+    ]
+    sr = ind.niveis_sr(sw, atr_val=0.0010, cluster_atr=0.5, forca_min=3)
+    assert len(sr["resistencia"]) == 1 and sr["resistencia"][0][1] == 3, sr
+    assert len(sr["suporte"]) == 1 and sr["suporte"][0][1] == 3, sr
+    assert abs(sr["resistencia"][0][0] - 1.1001) < 2e-4
+
+
+def test_fvg_bull():
+    fv = ind.fvgs([1.10, 1.115, 1.13], [1.09, 1.105, 1.12], atr_val=0.005, min_atr=0.3)
+    assert any(f["tipo"] == "fvg_bull" for f in fv), fv
+
+
+def test_gaps():
+    g = ind.gaps([1.1000, 1.1000, 1.1015], [1.1000, 1.1000, 1.1000], 0.0001, 5, 20)
+    assert len(g) == 1 and g[0]["direcao"] == "alta" and abs(g[0]["pips"] - 15) < 0.1, g
+    fora = ind.gaps([1.1000, 1.1003, 1.1030], [1.1000, 1.1000, 1.1000], 0.0001, 5, 20)
+    assert fora == [], fora
+
+
+def main() -> int:
+    testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    for t in testes:
+        t()
+        print(f"  ok  {t.__name__}")
+    print(f"\n{len(testes)} testes passaram ✅")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

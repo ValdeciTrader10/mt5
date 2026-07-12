@@ -46,6 +46,24 @@ services:
     networks: [interna]
     restart: unless-stopped
 
+  # ------------------------------------------------------------------ Motor de análise (Fase 2)
+  motor:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    container_name: forex_motor
+    command: python -m sistema_forex.analise
+    env_file: .env
+    environment:
+      - DADOS_DIR=/dados
+    volumes:
+      - dados:/dados          # lê os candles do coletor e grava níveis/estrutura/regime
+    depends_on:
+      - coletor
+    networks: [interna]
+    restart: unless-stopped
+
   # ------------------------------------------------------------------ Painel web
   web:
     build:

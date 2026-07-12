@@ -110,6 +110,21 @@ BACKFILL_TENTATIVAS = int(os.environ.get("BACKFILL_TENTATIVAS", "8"))
 BACKFILL_ESPERA_S = int(os.environ.get("BACKFILL_ESPERA_S", "3"))
 
 # --------------------------------------------------------------------------- #
+# Motor de análise (Fase 2)
+# --------------------------------------------------------------------------- #
+# Intervalo (segundos) entre recálculos do motor (níveis/estrutura/regime).
+ANALISE_POLL_S = int(os.environ.get("ANALISE_POLL_S", "60"))
+# Períodos dos indicadores (padrão de mercado).
+ATR_PERIODO = int(os.environ.get("ATR_PERIODO", "14"))
+ADX_PERIODO = int(os.environ.get("ADX_PERIODO", "14"))
+# Quantos candles ler por TF para a análise (janela deslizante — memória recente).
+ANALISE_JANELA = int(os.environ.get("ANALISE_JANELA", "1500"))
+# TF de referência para o regime (ADX) e para gaps de sessão.
+TF_REGIME = os.environ.get("TF_REGIME", "H1")
+# Nº de swings por TF (fractal) — quantos candles de cada lado confirmam o pivô.
+SWING_N = {"M5": SWING_N_M5, "M15": SWING_N_M15, "H1": SWING_N_H1, "D1": SWING_N_H1}
+
+# --------------------------------------------------------------------------- #
 # Logging
 # --------------------------------------------------------------------------- #
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "DEBUG")  # DEBUG desde a v1 (regra do projeto)

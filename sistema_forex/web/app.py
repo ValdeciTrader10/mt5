@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import config, db, mt5_bridge
+from .. import analise, config, db, mt5_bridge
 from . import auth
 
 logging.basicConfig(
@@ -88,6 +88,7 @@ def _status_dados() -> dict:
                 )
         decisoes = conn.execute("SELECT COUNT(*) AS n FROM decisoes").fetchone()["n"]
         trades = conn.execute("SELECT COUNT(*) AS n FROM trades").fetchone()["n"]
+        analise_pares = [analise.resumo_par(conn, par) for par in config.PARES]
 
     mt5_info = None
     mt5_ok = False
@@ -99,6 +100,7 @@ def _status_dados() -> dict:
 
     return {
         "pares_tf": pares_tf,
+        "analise_pares": analise_pares,
         "decisoes": decisoes,
         "trades": trades,
         "mt5_ok": mt5_ok,
