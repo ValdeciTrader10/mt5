@@ -23,6 +23,7 @@ VPS Hostinger (Docker) — um único docker-compose
   coletor  Fase 1: coleta candles → mercado.db (SQLite, WAL, em volume)
   motor    Fase 2: lê candles → calcula níveis/estrutura/regime no banco
   estrateg Fase 4 (sombra): decide entradas por confluências → grava em decisoes
+  executor Fase 5: abre e gerencia posições (saída tick-speed) — simulação ou demo
   web      painel FastAPI com login/senha  ── lê o banco, renderiza gráficos
   caddy    HTTPS (autoassinado no IP) + proxy reverso para o painel
 ```
@@ -51,12 +52,20 @@ Entregue:
   ordens**. Lógica pura e testada. `sistema_forex/estrategias.py`, `sistema_forex/decisao.py`.
   O painel mostra as decisões recentes ao vivo.
 
-Testes: `python -m sistema_forex.tests.test_indicadores` e `... .test_estrategias`.
+- **Executor + gestor de saída (Fase 5):** abre as entradas do estrategista e as gerencia
+  **tick a tick** — saída por força contrária (evento SMC oposto e reversão do momentum via
+  giveback de R), break-even, tempo máximo e stop de emergência no servidor; teto de drawdown
+  diário. **Trava de segurança `EXECUCAO_ATIVA`**: `false` (padrão) = simulação sobre preço ao
+  vivo, sem enviar ordens; `true` = opera na conta demo. Notifica no Telegram. Lógica de risco
+  pura e testada. `sistema_forex/gestao.py`, `sistema_forex/executor.py`.
 
-A implementar (próximas fases, doc §8):
-- **Fase 5** — executor + **gestor de saída tick-speed** (força contrária, ~1s) + gestão ativa
-  + Telegram completo, em conta **demo por 30 dias**. O modo sombra da Fase 4 gera as entradas
-  que o gestor passa a gerenciar.
+Testes: `python -m sistema_forex.tests.test_{indicadores,estrategias,gestao}`.
+
+### Ligar a execução real (quando decidir operar na demo)
+1. No terminal MT5 (VNC), habilite **Algo Trading**.
+2. No Environment do Dokploy: `EXECUCAO_ATIVA=true` e faça **Redeploy**.
+3. Comece com o `LOTE` mínimo e acompanhe pelo painel/Telegram. Regra do projeto: **30 dias
+   de demo auditados** antes de qualquer conta real.
 
 ## Regras inegociáveis (lições do MASMC)
 

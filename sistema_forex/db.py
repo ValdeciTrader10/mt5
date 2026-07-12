@@ -101,10 +101,22 @@ CREATE TABLE IF NOT EXISTS trades (
     lucro_usd     REAL,
     motivo_saida  TEXT,
     abertura_utc  INTEGER,
-    fechamento_utc INTEGER
+    fechamento_utc INTEGER,
+    simulado      INTEGER DEFAULT 0,   -- 1 = posição do modo simulação (Fase 5 sem EXECUCAO_ATIVA)
+    risco_inicial REAL                 -- |entrada - sl_inicial| em preço; base fixa do R
 );
 CREATE INDEX IF NOT EXISTS idx_trades_par ON trades (par);
+CREATE INDEX IF NOT EXISTS idx_trades_abertos ON trades (fechamento_utc);
 """
+
+
+def _migrar(conn) -> None:
+    """Migrações idempotentes para bancos criados antes de colunas novas."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(trades)").fetchall()}
+    if "simulado" not in cols:
+        conn.execute("ALTER TABLE trades ADD COLUMN simulado INTEGER DEFAULT 0")
+    if "risco_inicial" not in cols:
+        conn.execute("ALTER TABLE trades ADD COLUMN risco_inicial REAL")
 
 
 def conectar(db_path=None) -> sqlite3.Connection:
@@ -138,6 +150,7 @@ def init_db(db_path=None) -> None:
     config.DADOS_DIR.mkdir(parents=True, exist_ok=True)
     with sessao(caminho) as conn:
         conn.executescript(SCHEMA)
+        _migrar(conn)
     log.info("Banco inicializado em %s", caminho)
 
 

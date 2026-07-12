@@ -95,6 +95,30 @@ services:
     networks: [interna]
     restart: unless-stopped
 
+  # ------------------------------------------------------------------ Executor + gestor (Fase 5)
+  executor:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    command: python -m sistema_forex.executor
+    environment:
+      MT5_HOST: mt5
+      MT5_PORT: "8001"
+      DADOS_DIR: /dados
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      # TRAVA: false = simulação sobre preço ao vivo (sem ordens). true = opera na demo.
+      EXECUCAO_ATIVA: ${EXECUCAO_ATIVA:-false}
+      GESTOR_POLL_S: ${GESTOR_POLL_S:-1}
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      TELEGRAM_CHAT: ${TELEGRAM_CHAT:-}
+    volumes:
+      - dados:/dados
+    depends_on:
+      - estrategista
+    networks: [interna]
+    restart: unless-stopped
+
   # ------------------------------------------------------------------ Painel web
   web:
     build:
@@ -110,6 +134,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no Environment}
       SESSAO_HORAS: ${SESSAO_HORAS:-12}
       PAINEL_REFRESH_S: ${PAINEL_REFRESH_S:-5}
+      EXECUCAO_ATIVA: ${EXECUCAO_ATIVA:-false}   # só para o painel exibir o selo correto
     volumes:
       - dados:/dados
     ports:

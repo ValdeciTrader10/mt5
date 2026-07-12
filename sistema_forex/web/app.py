@@ -87,8 +87,35 @@ def _status_dados() -> dict:
                     }
                 )
         decisoes = conn.execute("SELECT COUNT(*) AS n FROM decisoes").fetchone()["n"]
-        trades = conn.execute("SELECT COUNT(*) AS n FROM trades").fetchone()["n"]
+        trades = conn.execute(
+            "SELECT COUNT(*) AS n FROM trades WHERE fechamento_utc IS NOT NULL"
+        ).fetchone()["n"]
         analise_pares = [analise.resumo_par(conn, par) for par in config.PARES]
+        posicoes_abertas = [
+            {
+                "par": r["par"], "direcao": r["direcao"], "estrategia": r["estrategia"],
+                "entrada": round(r["preco_entrada"], 5),
+                "sl": round(r["sl_servidor"], 5) if r["sl_servidor"] else None,
+                "desde": datetime.utcfromtimestamp(r["abertura_utc"]).strftime("%m-%d %H:%M"),
+                "simulado": bool(r["simulado"]),
+            }
+            for r in conn.execute(
+                "SELECT par, direcao, estrategia, preco_entrada, sl_servidor, abertura_utc, simulado "
+                "FROM trades WHERE fechamento_utc IS NULL ORDER BY abertura_utc DESC"
+            ).fetchall()
+        ]
+        trades_recentes = [
+            {
+                "par": r["par"], "direcao": r["direcao"],
+                "pips": r["pips"], "lucro": r["lucro_usd"], "motivo": r["motivo_saida"],
+                "quando": datetime.utcfromtimestamp(r["fechamento_utc"]).strftime("%m-%d %H:%M"),
+                "simulado": bool(r["simulado"]),
+            }
+            for r in conn.execute(
+                "SELECT par, direcao, pips, lucro_usd, motivo_saida, fechamento_utc, simulado "
+                "FROM trades WHERE fechamento_utc IS NOT NULL ORDER BY fechamento_utc DESC LIMIT 15"
+            ).fetchall()
+        ]
         decisoes_recentes = [
             {
                 "par": r["par"],
@@ -118,6 +145,9 @@ def _status_dados() -> dict:
         "decisoes_recentes": decisoes_recentes,
         "decisoes": decisoes,
         "trades": trades,
+        "posicoes_abertas": posicoes_abertas,
+        "trades_recentes": trades_recentes,
+        "execucao_ativa": config.EXECUCAO_ATIVA,
         "mt5_ok": mt5_ok,
         "mt5": mt5_info,
         "pares": config.PARES,

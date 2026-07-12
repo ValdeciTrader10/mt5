@@ -53,6 +53,10 @@
     .tag-entrou { color: #3fb950; }
     .tag-nao { color: #8b949e; }
     .motivo { color: #b9c2cc; font-size: .82rem; }
+    .pos { color: #3fb950; } .neg { color: #f85149; }
+    .badge { font-size: .72rem; font-weight: 700; padding: .12rem .5rem; border-radius: 6px; margin-left: .5rem; }
+    .badge-sim { color: #d29922; background: #33280d; border: 1px solid #574116; }
+    .badge-live { color: #f85149; background: #3a1618; border: 1px solid #5c2226; }
     #dot { display: inline-block; width: .5rem; height: .5rem; border-radius: 50%;
       background: #3fb950; margin-right: .35rem; vertical-align: middle; transition: opacity .2s; }
   </style>
@@ -76,7 +80,7 @@
       <div class="card">
         <h2>Trades</h2>
         <div class="big" id="trades">—</div>
-        <div class="muted">Executor (Fase 5) — ainda não ativo.</div>
+        <div class="muted" id="trades-sub">Executor (Fase 5).</div>
       </div>
     </div>
 
@@ -93,6 +97,24 @@
         <tbody id="tbody-analise"></tbody>
       </table>
       <p class="muted">Recalculado pelo motor a cada ciclo. Os níveis aparecem desenhados no gráfico abaixo.</p>
+    </section>
+
+    <section>
+      <h2>Posições e trades (Fase 5) <span id="exec-badge"></span></h2>
+      <p class="muted" style="margin-top:.2rem">Posições abertas</p>
+      <table>
+        <thead>
+          <tr><th>Par</th><th>Direção</th><th>Estratégia</th><th class="num">Entrada</th><th class="num">Stop</th><th>Desde (UTC)</th></tr>
+        </thead>
+        <tbody id="tbody-posicoes"></tbody>
+      </table>
+      <p class="muted" style="margin-top:1rem">Trades fechados (recentes)</p>
+      <table>
+        <thead>
+          <tr><th>Quando (UTC)</th><th>Par</th><th>Direção</th><th class="num">Pips</th><th class="num">USD</th><th>Motivo de saída</th></tr>
+        </thead>
+        <tbody id="tbody-trades"></tbody>
+      </table>
     </section>
 
     <section>
@@ -167,6 +189,33 @@
       }
       document.getElementById('decisoes').textContent = s.decisoes;
       document.getElementById('trades').textContent = s.trades;
+
+      var abertas = (s.posicoes_abertas || []).length;
+      document.getElementById('trades-sub').innerHTML = abertas + ' aberta(s) · ' +
+        (s.execucao_ativa ? '<span class="badge badge-live">execução ativa</span>'
+                          : '<span class="badge badge-sim">simulação</span>');
+      document.getElementById('exec-badge').innerHTML = s.execucao_ativa
+        ? '<span class="badge badge-live">EXECUÇÃO ATIVA</span>'
+        : '<span class="badge badge-sim">SIMULAÇÃO (preço ao vivo)</span>';
+
+      function dirTag(d) {
+        return d === 'compra' ? '<span class="tag tag-compra">▲ compra</span>'
+          : d === 'venda' ? '<span class="tag tag-venda">▼ venda</span>' : '—';
+      }
+      document.getElementById('tbody-posicoes').innerHTML = (s.posicoes_abertas || []).map(function (p) {
+        return '<tr><td>' + esc(p.par) + (p.simulado ? ' <span class="badge badge-sim">sim</span>' : '') +
+          '</td><td>' + dirTag(p.direcao) + '</td><td>' + esc(p.estrategia) + '</td>' +
+          '<td class="num">' + fmt(p.entrada, 5) + '</td><td class="num">' + (p.sl != null ? fmt(p.sl, 5) : '—') + '</td>' +
+          '<td>' + esc(p.desde) + '</td></tr>';
+      }).join('') || '<tr><td colspan="6" class="muted">Nenhuma posição aberta.</td></tr>';
+
+      document.getElementById('tbody-trades').innerHTML = (s.trades_recentes || []).map(function (t) {
+        var pcls = (t.pips || 0) >= 0 ? 'pos' : 'neg';
+        var usd = t.lucro == null ? '—' : '<span class="' + ((t.lucro >= 0) ? 'pos' : 'neg') + '">' + fmt(t.lucro, 2) + '</span>';
+        return '<tr><td>' + esc(t.quando) + '</td><td>' + esc(t.par) + '</td><td>' + dirTag(t.direcao) + '</td>' +
+          '<td class="num ' + pcls + '">' + (t.pips == null ? '—' : fmt(t.pips, 1)) + '</td>' +
+          '<td class="num">' + usd + '</td><td class="motivo">' + esc(t.motivo || '') + '</td></tr>';
+      }).join('') || '<tr><td colspan="6" class="muted">Nenhum trade fechado ainda.</td></tr>';
 
       document.getElementById('tbody-analise').innerHTML = (s.analise_pares || []).map(function (a) {
         return '<tr><td>' + esc(a.par) + '</td><td>' + regimePill(a) + '</td>' +
