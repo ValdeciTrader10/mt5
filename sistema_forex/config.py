@@ -90,6 +90,9 @@ PAINEL_SENHA = os.environ.get("PAINEL_SENHA", "")
 # Chave para assinar o cookie de sessão. Trocar em produção (.env).
 SECRET_KEY = os.environ.get("SECRET_KEY", "troque-esta-chave-em-producao")
 SESSAO_HORAS = int(os.environ.get("SESSAO_HORAS", "12"))
+# Intervalo (segundos) do auto-refresh do painel — fetch leve do /api/status (sem
+# recarregar o gráfico). Baixo para o status/regime/níveis atualizarem quase ao vivo.
+PAINEL_REFRESH_S = int(os.environ.get("PAINEL_REFRESH_S", "5"))
 
 # --------------------------------------------------------------------------- #
 # Telegram (usado a partir das fases seguintes)
@@ -101,7 +104,8 @@ TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT", "")
 # Coletor
 # --------------------------------------------------------------------------- #
 # Intervalo (segundos) entre verificações de candle M5 fechado no loop.
-COLETOR_POLL_S = int(os.environ.get("COLETOR_POLL_S", "15"))
+# Baixo de propósito: detecta o candle fechado quase na hora (o candle em si é 5 min).
+COLETOR_POLL_S = int(os.environ.get("COLETOR_POLL_S", "5"))
 
 # Backfill: o MT5 baixa o histórico de forma ASSÍNCRONA na 1ª chamada logo após
 # selecionar o símbolo (por isso, sem retry, só chegam ~9 candles). Repetimos a
@@ -113,7 +117,7 @@ BACKFILL_ESPERA_S = int(os.environ.get("BACKFILL_ESPERA_S", "3"))
 # Motor de análise (Fase 2)
 # --------------------------------------------------------------------------- #
 # Intervalo (segundos) entre recálculos do motor (níveis/estrutura/regime).
-ANALISE_POLL_S = int(os.environ.get("ANALISE_POLL_S", "60"))
+ANALISE_POLL_S = int(os.environ.get("ANALISE_POLL_S", "15"))
 # Períodos dos indicadores (padrão de mercado).
 ATR_PERIODO = int(os.environ.get("ATR_PERIODO", "14"))
 ADX_PERIODO = int(os.environ.get("ADX_PERIODO", "14"))

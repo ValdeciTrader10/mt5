@@ -46,7 +46,9 @@
     .pill-baixa { color: #f85149; background: #3a1618; border-color: #5c2226; }
     .pill-lateral { color: #d29922; background: #33280d; border-color: #574116; }
     .pill-off { color: #8b949e; background: #1c2128; border-color: #30363d; }
-    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    #dot { display: inline-block; width: .5rem; height: .5rem; border-radius: 50%;
+      background: #3fb950; margin-right: .35rem; vertical-align: middle; transition: opacity .2s; }
   </style>
 </head>
 <body>
@@ -58,46 +60,19 @@
     <div class="grid">
       <div class="card">
         <h2>Conexão MT5</h2>
-        {% if mt5_ok %}
-          <div class="big ok">● Online</div>
-          <div class="muted">
-            Login {{ mt5.login }} · {{ mt5.servidor }}<br>
-            Saldo {{ "%.2f"|format(mt5.saldo) }} {{ mt5.moeda }}<br>
-            Trade permitido: {{ "sim" if mt5.trade_allowed else "não" }}
-          </div>
-        {% else %}
-          <div class="big bad">● Offline</div>
-          <div class="muted">Terminal não logado ou ponte fora do ar. Acesse /mt5 e faça login.</div>
-        {% endif %}
+        <div id="mt5card"></div>
       </div>
       <div class="card">
         <h2>Decisões registradas</h2>
-        <div class="big">{{ decisoes }}</div>
+        <div class="big" id="decisoes">—</div>
         <div class="muted">Modo sombra (Fase 4) — ainda não ativo.</div>
       </div>
       <div class="card">
         <h2>Trades</h2>
-        <div class="big">{{ trades }}</div>
+        <div class="big" id="trades">—</div>
         <div class="muted">Executor (Fase 5) — ainda não ativo.</div>
       </div>
     </div>
-
-    <section>
-      <h2>Coleta de candles (Fase 1)</h2>
-      <table>
-        <thead>
-          <tr><th>Par</th><th>TF</th><th>Candles</th><th>Último (UTC)</th><th>Spread médio (pts)</th></tr>
-        </thead>
-        <tbody>
-          {% for r in pares_tf %}
-          <tr>
-            <td>{{ r.par }}</td><td>{{ r.tf }}</td><td>{{ r.candles }}</td>
-            <td>{{ r.ultimo }}</td><td>{{ r.spread_medio }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </section>
 
     <section>
       <h2>Estrutura de mercado (Fase 2)</h2>
@@ -109,53 +84,107 @@
             <th class="num">FVGs</th><th class="num">Gaps</th><th class="num">Eventos SMC</th>
           </tr>
         </thead>
-        <tbody>
-          {% for a in analise_pares %}
-          <tr>
-            <td>{{ a.par }}</td>
-            <td>
-              {% if a.regime == 'tendencia_alta' %}<span class="pill pill-alta">▲ tendência de alta</span>
-              {% elif a.regime == 'tendencia_baixa' %}<span class="pill pill-baixa">▼ tendência de baixa</span>
-              {% elif a.regime == 'lateral' %}<span class="pill pill-lateral">≈ lateral</span>
-              {% elif a.regime == 'transicao' %}<span class="pill pill-off">↔ transição</span>
-              {% else %}<span class="pill pill-off">— indefinido</span>{% endif %}
-              {% if a.adx is not none %}<span class="muted">ADX {{ a.adx }}</span>{% endif %}
-            </td>
-            <td class="num">{{ a.suporte }}</td><td class="num">{{ a.resistencia }}</td>
-            <td class="num">{{ a.fvg }}</td><td class="num">{{ a.gap }}</td><td class="num">{{ a.evento }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
+        <tbody id="tbody-analise"></tbody>
       </table>
       <p class="muted">Recalculado pelo motor a cada ciclo. Os níveis aparecem desenhados no gráfico abaixo.</p>
+    </section>
+
+    <section>
+      <h2>Coleta de candles (Fase 1)</h2>
+      <table>
+        <thead>
+          <tr><th>Par</th><th>TF</th><th class="num">Candles</th><th>Último (UTC)</th><th class="num">Spread médio (pts)</th></tr>
+        </thead>
+        <tbody id="tbody-coleta"></tbody>
+      </table>
     </section>
 
     <section>
       <h2>Gráfico</h2>
       <div>
         <select id="par">
-          {% for p in pares %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+          {% for p in status.pares %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
         </select>
         <select id="tf">
-          {% for t in tfs %}<option value="{{ t }}"{% if t == 'M5' %} selected{% endif %}>{{ t }}</option>{% endfor %}
+          {% for t in status.tfs %}<option value="{{ t }}"{% if t == 'M5' %} selected{% endif %}>{{ t }}</option>{% endfor %}
         </select>
         <a class="btn" id="abrir">Ver gráfico</a>
+        <span class="muted">O gráfico é pesado (offline) — recarrega sob demanda, no botão. O status acima atualiza sozinho.</span>
       </div>
-      <iframe id="frame" src="/grafico/{{ pares[0]|urlencode }}/M5"></iframe>
+      <iframe id="frame" src="/grafico/{{ status.pares[0]|urlencode }}/M5"></iframe>
     </section>
 
-    <p class="muted">Atualização automática do status a cada 30s.</p>
+    <p class="muted"><span id="dot"></span>Status atualizado às <span id="atualizado">—</span> · a cada {{ status.painel_refresh_s }}s (sem recarregar o gráfico).</p>
   </main>
 
   <script>
-    // Troca de gráfico
+    var STATUS = {{ status|tojson }};
+
+    function fmt(n, d) {
+      if (n === null || n === undefined) return '—';
+      return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
+    }
+    function esc(s) { return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+    function regimePill(a) {
+      var mapa = {
+        tendencia_alta: ['pill-alta', '▲ tendência de alta'],
+        tendencia_baixa: ['pill-baixa', '▼ tendência de baixa'],
+        lateral: ['pill-lateral', '≈ lateral'],
+        transicao: ['pill-off', '↔ transição']
+      };
+      var m = mapa[a.regime] || ['pill-off', '— indefinido'];
+      var adx = (a.adx !== null && a.adx !== undefined) ? ' <span class="muted">ADX ' + a.adx + '</span>' : '';
+      return '<span class="pill ' + m[0] + '">' + m[1] + '</span>' + adx;
+    }
+
+    function render(s) {
+      var mt5 = document.getElementById('mt5card');
+      if (s.mt5_ok && s.mt5) {
+        mt5.innerHTML = '<div class="big ok">● Online</div><div class="muted">Login ' +
+          esc(s.mt5.login) + ' · ' + esc(s.mt5.servidor) + '<br>Saldo ' + fmt(s.mt5.saldo, 2) +
+          ' ' + esc(s.mt5.moeda) + '<br>Trade permitido: ' + (s.mt5.trade_allowed ? 'sim' : 'não') + '</div>';
+      } else {
+        mt5.innerHTML = '<div class="big bad">● Offline</div><div class="muted">Terminal não logado ou ponte fora do ar.</div>';
+      }
+      document.getElementById('decisoes').textContent = s.decisoes;
+      document.getElementById('trades').textContent = s.trades;
+
+      document.getElementById('tbody-analise').innerHTML = (s.analise_pares || []).map(function (a) {
+        return '<tr><td>' + esc(a.par) + '</td><td>' + regimePill(a) + '</td>' +
+          '<td class="num">' + a.suporte + '</td><td class="num">' + a.resistencia + '</td>' +
+          '<td class="num">' + a.fvg + '</td><td class="num">' + a.gap + '</td>' +
+          '<td class="num">' + a.evento + '</td></tr>';
+      }).join('');
+
+      document.getElementById('tbody-coleta').innerHTML = (s.pares_tf || []).map(function (r) {
+        return '<tr><td>' + esc(r.par) + '</td><td>' + esc(r.tf) + '</td>' +
+          '<td class="num">' + r.candles + '</td><td>' + esc(r.ultimo) + '</td>' +
+          '<td class="num">' + r.spread_medio + '</td></tr>';
+      }).join('');
+
+      document.getElementById('atualizado').textContent = new Date().toLocaleTimeString('pt-BR');
+    }
+
+    // Troca de gráfico (sob demanda — o iframe é pesado).
     document.getElementById('abrir').addEventListener('click', function () {
       var par = document.getElementById('par').value;
       var tf = document.getElementById('tf').value;
       document.getElementById('frame').src = '/grafico/' + encodeURIComponent(par) + '/' + encodeURIComponent(tf);
     });
-    // Auto-refresh leve do status (recarrega a página inteira; simples e suficiente na v1)
-    setTimeout(function () { location.reload(); }, 30000);
+
+    // Primeira pintura instantânea + auto-refresh leve via /api/status (JSON).
+    render(STATUS);
+    var REFRESH = (STATUS.painel_refresh_s || 5) * 1000;
+    var dot = document.getElementById('dot');
+    async function atualizar() {
+      try {
+        var r = await fetch('/api/status', { headers: { 'Accept': 'application/json' } });
+        if (r.ok) { dot.style.opacity = '.3'; render(await r.json()); setTimeout(function () { dot.style.opacity = '1'; }, 150); }
+      } catch (e) { /* rede intermitente: mantém o último estado */ }
+    }
+    setInterval(atualizar, REFRESH);
   </script>
 </body>
 </html>

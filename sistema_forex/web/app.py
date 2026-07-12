@@ -107,6 +107,7 @@ def _status_dados() -> dict:
         "mt5": mt5_info,
         "pares": config.PARES,
         "tfs": config.TFS_COLETA,
+        "painel_refresh_s": config.PAINEL_REFRESH_S,
     }
 
 
@@ -151,7 +152,7 @@ def painel(request: Request):
     if not auth.esta_logado(request):
         return auth.redirecionar_login()
     dados = _status_dados()
-    return templates.TemplateResponse(request, "dashboard.html", dados)
+    return templates.TemplateResponse(request, "dashboard.html", {"status": dados, **dados})
 
 
 @app.get("/api/status")
