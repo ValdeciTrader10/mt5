@@ -82,8 +82,11 @@ SUFIXO_PADRAO = "#"
 # Painel web (autenticação)
 # --------------------------------------------------------------------------- #
 PAINEL_USUARIO = os.environ.get("PAINEL_USUARIO", "admin")
-# Hash bcrypt da senha (gerar com scripts/gerar_hash.py). NUNCA a senha em texto.
+# Duas formas de definir a senha (o hash tem prioridade):
+#  - PAINEL_SENHA_HASH: hash bcrypt (mais seguro; gerar com scripts/gerar_hash.py).
+#  - PAINEL_SENHA: senha em texto — prático para definir direto no painel do Dokploy.
 PAINEL_SENHA_HASH = os.environ.get("PAINEL_SENHA_HASH", "")
+PAINEL_SENHA = os.environ.get("PAINEL_SENHA", "")
 # Chave para assinar o cookie de sessão. Trocar em produção (.env).
 SECRET_KEY = os.environ.get("SECRET_KEY", "troque-esta-chave-em-producao")
 SESSAO_HORAS = int(os.environ.get("SESSAO_HORAS", "12"))

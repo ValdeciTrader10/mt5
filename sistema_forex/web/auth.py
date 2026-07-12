@@ -4,6 +4,7 @@ A sessão em si é gerida pelo SessionMiddleware do Starlette (cookie assinado c
 SECRET_KEY). Aqui ficam a verificação de senha e a dependency que protege as rotas.
 """
 
+import hmac
 import logging
 
 import bcrypt
@@ -17,17 +18,26 @@ log = logging.getLogger("web.auth")
 
 
 def verificar_credenciais(usuario: str, senha: str) -> bool:
-    """True se usuário e senha conferem com o configurado no .env."""
-    if not config.PAINEL_SENHA_HASH:
-        log.error("PAINEL_SENHA_HASH não configurado — login sempre negado.")
-        return False
+    """True se usuário e senha conferem com o configurado no ambiente.
+
+    Prioridade: PAINEL_SENHA_HASH (bcrypt) > PAINEL_SENHA (texto). O texto existe
+    para facilitar o setup no Dokploy; o hash continua sendo o modo recomendado.
+    """
     if usuario != config.PAINEL_USUARIO:
         return False
-    try:
-        return bcrypt.checkpw(senha.encode("utf-8"), config.PAINEL_SENHA_HASH.encode("utf-8"))
-    except ValueError:
-        log.error("PAINEL_SENHA_HASH inválido (não é um hash bcrypt).")
-        return False
+    if config.PAINEL_SENHA_HASH:
+        try:
+            return bcrypt.checkpw(
+                senha.encode("utf-8"), config.PAINEL_SENHA_HASH.encode("utf-8")
+            )
+        except ValueError:
+            log.error("PAINEL_SENHA_HASH inválido (não é um hash bcrypt).")
+            return False
+    if config.PAINEL_SENHA:
+        # Comparação em tempo constante (evita timing attack).
+        return hmac.compare_digest(senha, config.PAINEL_SENHA)
+    log.error("Nem PAINEL_SENHA_HASH nem PAINEL_SENHA configurados — login negado.")
+    return False
 
 
 def esta_logado(request: Request) -> bool:

@@ -55,11 +55,13 @@ A implementar (próximas fases, doc §8):
 
 ## Deploy
 
-Passo a passo completo em [`deploy/LEIA-ME.md`](deploy/LEIA-ME.md). Resumo:
+- **No Dokploy** (o painel de deploy da VPS): siga [`deploy/DOKPLOY.md`](deploy/DOKPLOY.md).
+  Usa `deploy/docker-compose.dokploy.yml` (sem Caddy — o Dokploy já faz proxy/HTTPS).
+- **Standalone** (Docker Compose puro, com Caddy): [`deploy/LEIA-ME.md`](deploy/LEIA-ME.md):
 
 ```bash
 cd deploy
-cp .env.example .env      # preencha PAINEL_SENHA_HASH, SECRET_KEY, VNC_PASSWORD...
+cp .env.example .env      # preencha PAINEL_SENHA (ou _HASH), SECRET_KEY, VNC_PASSWORD...
 docker compose up -d --build
 # logue no MT5 uma vez (túnel SSH → http://localhost:3000)
 # acesse o painel em https://IP_DA_VPS
