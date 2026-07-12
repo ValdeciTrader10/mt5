@@ -1,0 +1,20 @@
+# HTTPS autoassinado (sem domínio) — acesso pelo IP da VPS.
+# O navegador mostrará um aviso de certificado; é esperado. Para HTTPS "verde",
+# aponte um domínio para o IP e troque o bloco :443 por "seu.dominio.com { ... }"
+# (o Caddy pega o certificado Let's Encrypt automaticamente).
+
+{
+	auto_https disable_redirects
+}
+
+# Painel na 443 com certificado interno (autoassinado).
+:443 {
+	tls internal
+	encode gzip
+	reverse_proxy web:8000
+}
+
+# Redireciona HTTP → HTTPS.
+:80 {
+	redir https://{host}{uri} permanent
+}
