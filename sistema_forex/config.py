@@ -129,6 +129,14 @@ TF_REGIME = os.environ.get("TF_REGIME", "H1")
 SWING_N = {"M5": SWING_N_M5, "M15": SWING_N_M15, "H1": SWING_N_H1, "D1": SWING_N_H1}
 
 # --------------------------------------------------------------------------- #
+# Estrategista / decisão (Fase 4 — modo sombra)
+# --------------------------------------------------------------------------- #
+# Intervalo (segundos) entre verificações de candle M5 novo para decidir.
+DECISAO_POLL_S = int(os.environ.get("DECISAO_POLL_S", "5"))
+# Proximidade (em ATR) do preço a um nível para contar como confluência.
+NIVEL_PROX_ATR = float(os.environ.get("NIVEL_PROX_ATR", "0.5"))
+
+# --------------------------------------------------------------------------- #
 # Logging
 # --------------------------------------------------------------------------- #
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "DEBUG")  # DEBUG desde a v1 (regra do projeto)
