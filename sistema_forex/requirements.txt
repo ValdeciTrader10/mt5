@@ -2,7 +2,10 @@
 # pymt5linux é o fork mantido do mt5linux — mesmo protocolo RPyC, sem os pins antigos
 # (o mt5linux 0.1.9 fixa numpy==1.21.4 e quebra o build). Exige Python >= 3.13.
 pymt5linux>=1.0
-rpyc>=5.3
+# Fixado para bater EXATAMENTE com o RPyC do servidor (lado Wine), alinhado por
+# deploy/mt5/fix-mt5linux.sh. Versões diferentes de RPyC não conversam ("invalid
+# message type").
+rpyc==6.0.2
 
 # Web / painel
 fastapi>=0.110,<1
