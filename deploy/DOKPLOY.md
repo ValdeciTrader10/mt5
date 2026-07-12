@@ -32,8 +32,8 @@ PAINEL_USUARIO=admin
 PAINEL_SENHA=<escolha-a-senha-do-painel>
 SECRET_KEY=8d44ed544112592315b8336272d230b2d0b31908b53bbc2c9d674caff49a6cf6
 
-MT5_LOGIN=84110577
-MT5_SERVER=XMGlobal-MT5 4
+MT5_LOGIN=336082748
+MT5_SERVER=XMGlobal-MT5 9
 LOG_LEVEL=DEBUG
 ```
 
@@ -55,8 +55,8 @@ http://IP_DA_VPS:3100
 ```
 
 Ele pede usuário/senha do VNC (o `CUSTOM_USER`/`VNC_PASSWORD` do Environment). Depois
-aparece o terminal MT5: faça login na conta **XM demo** (login 84110577, servidor
-`XMGlobal-MT5 4`), habilite **Algo Trading** e deixe conectado. O volume `mt5_config`
+aparece o terminal MT5: faça login na conta **XM demo** (login 336082748, servidor
+`XMGlobal-MT5 9`), habilite **Algo Trading** e deixe conectado. O volume `mt5_config`
 guarda esse login entre reinícios. Assim que o MT5 estiver logado, o coletor inicia o
 backfill de 6 meses automaticamente.
 

@@ -51,7 +51,7 @@ ssh -L 3000:localhost:3000 usuario@IP_DA_VPS
 # depois abra no navegador:  http://localhost:3000
 ```
 
-Faça login (login 84110577, servidor `XMGlobal-MT5 4`, conta **demo**), habilite
+Faça login (login 336082748, servidor `XMGlobal-MT5 9`, conta **demo**), habilite
 **Algo Trading** (botão na barra) e deixe o terminal conectado. O volume `mt5_config`
 guarda esse login entre reinícios.
 

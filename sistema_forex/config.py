@@ -63,8 +63,8 @@ MT5_HOST = os.environ.get("MT5_HOST", "mt5")
 MT5_PORT = int(os.environ.get("MT5_PORT", "8001"))
 # Credenciais do terminal — o login é feito uma vez pela tela VNC (:3000).
 # Mantidas aqui apenas para referência/health; o terminal já fica logado.
-MT5_LOGIN = os.environ.get("MT5_LOGIN", "")            # ex: 84110577
-MT5_SERVER = os.environ.get("MT5_SERVER", "")          # ex: XMGlobal-MT5 4
+MT5_LOGIN = os.environ.get("MT5_LOGIN", "")            # ex: 336082748 (demo)
+MT5_SERVER = os.environ.get("MT5_SERVER", "")          # ex: XMGlobal-MT5 9 (demo)
 MT5_PASSWORD = os.environ.get("MT5_PASSWORD", "")      # segredo — só no .env
 
 # Timeout (segundos) para chamadas à ponte antes de considerar falha.
