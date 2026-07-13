@@ -131,7 +131,7 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
 
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
-  `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`). **106
+  `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`). **120
   testes, todos passando.** Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
@@ -296,22 +296,30 @@ máx/mín asiática/semana/**mês**; VWAP+bandas; **fuzzy_score**; **sync line**
 scores + candles pintados; **Variante B**; **Variante C**; relatório multi-variante (split-half,
 vw_performance); **módulo B3/WIN**. As "9 estratégias" do doc ≠ as 7 atuais: mapeiam ~7 (sr_m15≈
 confluencia, smc_estrutura≈sweep_choch, order_block, fecha_gap, pullback_rompimento, max_min_m15≈
-rompimento_extremos, tendencia≈pullback_tendencia); **faltam 2**: `pullback_medias` (EMAs) e
-`pivot_confluencia` (pivots) → ETAPA 2.
+rompimento_extremos, tendencia≈pullback_tendencia); as 2 que faltavam (`pullback_medias` EMAs e
+`pivot_confluencia` pivots) foram entregues na ETAPA 2 — matriz completa de 9 estratégias.
 
 ## ETAPAS (codar na ordem; cada uma = 1 pedido do dono)
 
-**⬜ ETAPA 1 — Fundação de dados do laboratório.** (a) coluna `variante` em `decisoes`/`trades`
-(default `A_ORIGINAL`, migração idempotente) → matriz passa a ser (variante × estratégia × par × tf);
-(b) níveis que faltam no motor, gravados em `niveis`: **pivots diários clássicos** (PP/R1-3/S1-3) e
-**máx/mín** da sessão asiática (00–07 servidor), semana e **mês** anteriores (tipos `pivot_*`,
-`max/min_semana`, `max/min_mes`); (c) **EMAs 9/20/45 + SMA50/200** puros e testados em `indicadores.py`.
-Aceite: migração sem perder dado; níveis novos aparecem no /grafico; testes dos indicadores passam.
+**✅ ETAPA 1 — FEITO (13/07).** Fundação de dados do laboratório. (a) coluna `variante` em
+`decisoes`/`trades` (default `A_ORIGINAL`, migração idempotente em `db._migrar`) → matriz agora é
+(variante × estratégia × par × tf); a decisão carrega `variante` (`estrategias._decisao`), o
+`decisao._gravar_decisao` a grava e o `executor._abrir_trade` a HERDA da decisão de origem. (b) novos
+níveis no motor (`analise.niveis_periodo`, gravados em `niveis`): **pivots diários** PP/R1-3/S1-3
+(`indicadores.pivots_classicos`, tipos `pivot_pp`/`pivot_r*`/`pivot_s*`) + **máx/mín** da sessão
+ASIÁTICA (00–07 servidor, do M15), da SEMANA e do MÊS anteriores (dos D1; tipos `max/min_asia`,
+`max/min_semana`, `max/min_mes`). Boundaries no relógio do servidor (último candle do par). (c)
+**EMAs 9/20/45 + SMA50/200** puras em `indicadores.py` (`sma`/`ema`/`medias`). O `/api/candles` +
+`grafico.html` (`estiloNivel`) desenham os novos níveis (pivot laranja, ásia roxo, semana azul, mês
+ciano). Testes: `test_indicadores` (sma/ema/pivots), `test_multitf` (migração variante + niveis_periodo).
 
-**⬜ ETAPA 2 — Completar a Variante A p/ as 9 estratégias.** Adicionar (sem tocar nas 7) `pullback_medias`
-(toque EMA9/EMA20 do TF acima em tendência; FVG/OB dobram o score) e `pivot_confluencia` (toque em
-PP/R1/S1 a <0,5×ATR de zona S/R/OB + rejeição; lateral = fade). Marcadas `variante=A_ORIGINAL`.
-Aceite: 9 livros/TF na sombra; funções puras testadas.
+**✅ ETAPA 2 — FEITO (13/07).** Variante A completada p/ **9 estratégias** (sem tocar nas 7). Novas:
+`pullback_medias_v1` (a favor da tendência, toque na EMA9/EMA20 do **TF acima** — `config.TF_ACIMA`;
+FVG/OB coincidente DOBRA o score) e `pivot_confluencia_v1` (fade de pivot que está a <`PIVOT_SR_ATR`×ATR
+de zona S/R/OB + rejeição; lateral = terreno natural). Ambas `variante=A_ORIGINAL`, desligáveis
+(`MEDIAS_HABILITADA`/`PIVOT_HABILITADA`). Snapshot ganhou `pivots` (níveis `pivot_*`) e `medias_acima`
+(EMAs do TF superior, `MEDIAS_JANELA=260`). Agora são **9 livros por TF** (M1/M5/M15). Funções puras
+testadas em `test_estrategias` (8 novos casos). **106→120 testes, todos passando.**
 
 **⬜ ETAPA 3 — fuzzy_score.py + VWAP + tabelas base.** VWAP diária + bandas ±1σ/±2σ (reset 00:00
 servidor, nível `vwap`); `fuzzy_score.py` (inputs delta/range/vol/corpo/seq → fuzzificação triangular →

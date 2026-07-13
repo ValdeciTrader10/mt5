@@ -83,6 +83,21 @@
     }
     function fmt(v) { return v == null ? '—' : Number(v).toFixed(casas(v)); }
 
+    // Cor/estilo/título de cada tipo de nível na régua de preço.
+    function estiloNivel(tipo) {
+      if (tipo === 'suporte') return { color: '#238636', style: LC.LineStyle.Dotted, title: 'S' };
+      if (tipo === 'resistencia') return { color: '#8b2c26', style: LC.LineStyle.Dotted, title: 'R' };
+      if (tipo && tipo.indexOf('pivot_') === 0)                       // pivots diários (laranja)
+        return { color: '#b7791f', style: LC.LineStyle.Dashed, title: tipo.replace('pivot_', 'P·').toUpperCase() };
+      if (tipo && tipo.indexOf('asia') >= 0)                         // sessão asiática (roxo)
+        return { color: '#8957e5', style: LC.LineStyle.LargeDashed, title: tipo.indexOf('max') === 0 ? 'Ásia↑' : 'Ásia↓' };
+      if (tipo && tipo.indexOf('semana') >= 0)                       // semana anterior (azul)
+        return { color: '#1f6feb', style: LC.LineStyle.LargeDashed, title: tipo.indexOf('max') === 0 ? 'Sem↑' : 'Sem↓' };
+      if (tipo && tipo.indexOf('mes') >= 0)                          // mês anterior (ciano)
+        return { color: '#0e7490', style: LC.LineStyle.LargeDashed, title: tipo.indexOf('max') === 0 ? 'Mês↑' : 'Mês↓' };
+      return { color: '#6e7681', style: LC.LineStyle.Dotted, title: tipo || '' };
+    }
+
     function pintarOHLC(c) {
       var e = document.getElementById('ohlc');
       if (!c) { e.textContent = ''; return; }
@@ -106,11 +121,12 @@
         linhas.forEach(function (l) { serie.removePriceLine(l); });
         linhas = [];
         (d.niveis || []).forEach(function (nv) {
+          var est = estiloNivel(nv.tipo);
           linhas.push(serie.createPriceLine({
             price: nv.preco,
-            color: nv.tipo === 'suporte' ? '#238636' : '#8b2c26',
-            lineWidth: 1, lineStyle: LC.LineStyle.Dotted,
-            axisLabelVisible: true, title: nv.tipo === 'suporte' ? 'S' : 'R',
+            color: est.color,
+            lineWidth: 1, lineStyle: est.style,
+            axisLabelVisible: true, title: est.title,
           }));
         });
         var ult = (d.candles || [])[(d.candles || []).length - 1];

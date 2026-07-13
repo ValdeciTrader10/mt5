@@ -568,8 +568,12 @@ def api_candles(request: Request, par: str, tf: str, n: int = 500):
         niveis = analise.niveis_ativos(conn, par)
     candles = [{"time": r["time_utc"], "open": r["open"], "high": r["high"],
                 "low": r["low"], "close": r["close"]} for r in rows]
+    # S/R do motor + níveis de liquidez por período (pivots diários, máx/mín asiática/semana/mês).
+    LINHAS = ("suporte", "resistencia", "pivot_pp", "pivot_r1", "pivot_r2", "pivot_r3",
+              "pivot_s1", "pivot_s2", "pivot_s3", "max_asia", "min_asia", "max_semana",
+              "min_semana", "max_mes", "min_mes")
     sr = [{"preco": nv["preco"], "tipo": nv["tipo"], "forca": nv.get("forca") or 1}
-          for nv in niveis if nv["tipo"] in ("suporte", "resistencia")]
+          for nv in niveis if nv["tipo"] in LINHAS]
     return JSONResponse({"par": par, "tf": tf, "candles": candles, "niveis": sr})
 
 

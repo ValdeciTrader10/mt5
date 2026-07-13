@@ -391,6 +391,92 @@ def test_extremos_sem_extremos_nao_entra():
     assert d["resultado"] == "nao_entrou" and "máx/mín" in d["motivo"], d
 
 
+# --------------------------------------------------------------------------- #
+# Estratégia 8 — pullback a médias (EMA9/EMA20 do TF acima) em tendência
+# --------------------------------------------------------------------------- #
+CFG_MED = dict(sessao_utc=(7, 20), spread_max_pips=2.0, nivel_prox_atr=0.5, pavio_min=0.5)
+
+
+def _snap_med(**kw):
+    # tendência de alta; preço recua e toca a EMA20 do TF acima (1.1000), rejeitando (pavio inf.).
+    base = dict(close=1.1003, open=1.1004, high=1.1006, low=1.0998,
+                atr=0.0010, regime="tendencia_alta", hora_utc=10, spread_pips=1.0,
+                suportes=[], resistencias=[], fvgs=[], obs=[],
+                medias_acima={"ema9": 1.1020, "ema20": 1.1000, "ema45": 1.1050,
+                              "sma50": 1.1080, "sma200": 1.1200})
+    base.update(kw)
+    return base
+
+
+def test_medias_entra_no_toque_da_ema():
+    d = e.avaliar_pullback_medias(_snap_med(), **CFG_MED)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["estrategia"] == "pullback_medias_v1" and d["variante"] == "A_ORIGINAL", d
+    assert "toque_ema20" in d["confluencias"] and "rejeicao" in d["confluencias"], d
+
+
+def test_medias_fora_de_tendencia_nao_entra():
+    d = e.avaliar_pullback_medias(_snap_med(regime="lateral"), **CFG_MED)
+    assert d["resultado"] == "nao_entrou" and "tendência" in d["motivo"], d
+
+
+def test_medias_longe_das_medias_nao_entra():
+    d = e.avaliar_pullback_medias(_snap_med(close=1.1500, open=1.1499, high=1.1502,
+                                            low=1.1498), **CFG_MED)
+    assert d["resultado"] == "nao_entrou" and "longe" in d["motivo"], d
+
+
+def test_medias_fvg_confluente_dobra_score():
+    base = e.avaliar_pullback_medias(_snap_med(), **CFG_MED)
+    dobrado = e.avaliar_pullback_medias(
+        _snap_med(fvgs=[{"tipo": "fvg_bull", "base": 1.0995, "topo": 1.1005}]), **CFG_MED)
+    assert "fvg_confluente" in dobrado["confluencias"], dobrado
+    assert dobrado["score"] > base["score"], (dobrado["score"], base["score"])
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia 9 — toque em pivot confluente com S/R/OB + rejeição
+# --------------------------------------------------------------------------- #
+CFG_PIV = dict(sessao_utc=(7, 20), spread_max_pips=2.0, nivel_prox_atr=0.5, pivot_sr_atr=0.5,
+               pavio_min=0.5)
+
+
+def _snap_piv(**kw):
+    # pivot S1 em 1.1000 confluente com um suporte forte; preço toca por cima e REJEITA → compra.
+    base = dict(close=1.1003, open=1.1004, high=1.1006, low=1.0998,
+                atr=0.0010, regime="lateral", hora_utc=10, spread_pips=1.0,
+                suportes=[(1.1000, 4)], resistencias=[], obs=[],
+                pivots=[(1.1000, "s1"), (1.1090, "r1")])
+    base.update(kw)
+    return base
+
+
+def test_pivot_entra_com_confluencia_e_rejeicao():
+    d = e.avaliar_pivot_confluencia(_snap_piv(), **CFG_PIV)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["estrategia"] == "pivot_confluencia_v1", d
+    assert "pivot" in d["confluencias"] and "rejeicao" in d["confluencias"], d
+    assert any(c.startswith("confluencia_sr") for c in d["confluencias"]), d
+
+
+def test_pivot_sem_confluencia_sr_nao_entra():
+    d = e.avaliar_pivot_confluencia(_snap_piv(suportes=[], obs=[]), **CFG_PIV)
+    assert d["resultado"] == "nao_entrou" and "confluência" in d["motivo"], d
+
+
+def test_pivot_longe_de_pivot_nao_entra():
+    d = e.avaliar_pivot_confluencia(_snap_piv(close=1.1050, open=1.1051, high=1.1053,
+                                              low=1.1049), **CFG_PIV)
+    assert d["resultado"] == "nao_entrou" and "longe de pivot" in d["motivo"], d
+
+
+def test_pivot_sem_rejeicao_nao_entra():
+    # preço no pivot mas fecha no fundo (sem pavio inferior) → não confirma o fade de compra.
+    d = e.avaliar_pivot_confluencia(_snap_piv(close=1.1000, open=1.1004, high=1.1005,
+                                              low=1.1000), **CFG_PIV)
+    assert d["resultado"] == "nao_entrou" and "rejeição" in d["motivo"], d
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

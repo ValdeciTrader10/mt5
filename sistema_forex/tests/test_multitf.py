@@ -58,6 +58,73 @@ def test_migracao_adiciona_tf():
         os.remove(caminho)
 
 
+def test_variante_migracao_e_default():
+    """A coluna `variante` é adicionada a bancos antigos (decisoes/trades), sem perder dados."""
+    fd, caminho = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        conn = db.conectar(caminho)
+        conn.execute("CREATE TABLE trades (id INTEGER PRIMARY KEY, par TEXT)")
+        conn.execute("CREATE TABLE decisoes (id INTEGER PRIMARY KEY, par TEXT)")
+        conn.commit()
+        db._migrar(conn)
+        tcols = {r["name"] for r in conn.execute("PRAGMA table_info(trades)").fetchall()}
+        dcols = {r["name"] for r in conn.execute("PRAGMA table_info(decisoes)").fetchall()}
+        assert "variante" in tcols and "variante" in dcols, (tcols, dcols)
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
+def test_niveis_periodo_grava_pivots_e_extremos():
+    """analise.niveis_periodo grava pivots diários + máx/mín asiática/semana/mês em `niveis`."""
+    caminho = _tmp_db()
+    try:
+        conn = db.conectar(caminho)
+        par = "EURUSD#"
+        dia0 = 40 * 86400
+        for i in range(40):                       # 40 dias de D1 (meia-noite de servidor)
+            t = dia0 + i * 86400
+            conn.execute(
+                "INSERT INTO candles (par, tf, time_utc, open, high, low, close, tick_volume, spread) "
+                "VALUES (?, 'D1', ?, 1.10, ?, ?, 1.10, 100, 8)",
+                (par, t, 1.11 + i * 0.001, 1.09 - i * 0.001))
+        ult_dia = dia0 + 40 * 86400
+        for h in range(0, 7):                     # M15 da sessão asiática (00–07) do dia corrente
+            conn.execute(
+                "INSERT INTO candles (par, tf, time_utc, open, high, low, close, tick_volume, spread) "
+                "VALUES (?, 'M15', ?, 1.10, 1.105, 1.095, 1.10, 100, 8)",
+                (par, ult_dia + h * 3600))
+        conn.commit()
+        agora_srv = ult_dia + 8 * 3600            # já passou das 07h → sessão asiática de hoje
+        n = analise.niveis_periodo(conn, par, agora_srv, agora_srv)
+        assert n > 0, n
+        tipos = {r["tipo"] for r in conn.execute("SELECT DISTINCT tipo FROM niveis WHERE par=?", (par,))}
+        assert {"pivot_pp", "pivot_r1", "pivot_s1"} <= tipos, tipos
+        assert {"max_asia", "min_asia", "max_semana", "max_mes"} <= tipos, tipos
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
+def test_snapshot_tem_pivots_e_medias():
+    """O snapshot carrega `pivots` (do motor) e `medias_acima` (EMAs do TF superior)."""
+    caminho = _tmp_db()
+    try:
+        conn = db.conectar(caminho)
+        par = "EURUSD#"
+        for tf in ("M1", "M5"):
+            _inserir_candles(conn, par, tf, 30)
+        candle = decisao._ultimo(conn, par, "M1")
+        snap = decisao.montar_snapshot(conn, par, "M1", candle)
+        assert "pivots" in snap and "medias_acima" in snap
+        # M1 lê as médias do M5; com 30 closes a EMA9/EMA20 já saem preenchidas.
+        assert snap["medias_acima"].get("ema9") is not None, snap["medias_acima"]
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
 def test_decisao_grava_tf_por_livro():
     """avaliar_par em M1 e M15 grava decisões marcadas com o TF de cada livro."""
     caminho = _tmp_db()

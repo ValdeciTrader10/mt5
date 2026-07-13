@@ -118,6 +118,34 @@ def test_order_block_mitigado_nao_conta():
     assert obs == [], obs
 
 
+def test_sma_e_ema():
+    vals = [float(i) for i in range(1, 21)]        # 1..20
+    assert abs(ind.sma(vals, 5) - 18.0) < 1e-9, ind.sma(vals, 5)   # média de 16..20
+    assert ind.sma([1, 2], 5) is None
+    # EMA de série crescente fica entre a SMA e o último valor, e responde mais ao recente.
+    e = ind.ema(vals, 10)
+    assert e is not None and 15.0 < e < 20.0, e
+    # Série constante: EMA = a própria constante.
+    assert abs(ind.ema([5.0] * 30, 10) - 5.0) < 1e-9
+
+
+def test_medias_conjunto():
+    closes = [float(i) for i in range(1, 61)]      # 60 closes → SMA200 fica None
+    m = ind.medias(closes)
+    assert m["ema9"] is not None and m["ema20"] is not None and m["sma50"] is not None
+    assert m["sma200"] is None, m["sma200"]
+
+
+def test_pivots_classicos():
+    pv = ind.pivots_classicos(110.0, 90.0, 100.0)
+    assert abs(pv["pp"] - 100.0) < 1e-9, pv        # (110+90+100)/3
+    assert abs(pv["r1"] - 110.0) < 1e-9, pv        # 2*100 - 90
+    assert abs(pv["s1"] - 90.0) < 1e-9, pv         # 2*100 - 110
+    assert abs(pv["r2"] - 120.0) < 1e-9, pv        # pp + (h-l)
+    assert abs(pv["s2"] - 80.0) < 1e-9, pv
+    assert pv["r3"] > pv["r2"] and pv["s3"] < pv["s2"]
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

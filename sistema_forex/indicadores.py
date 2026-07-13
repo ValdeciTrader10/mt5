@@ -94,6 +94,65 @@ def adx(highs, lows, closes, periodo: int = 14):
 
 
 # --------------------------------------------------------------------------- #
+# Médias móveis — SMA e EMA (funções PURAS). Base da estratégia `pullback_medias`
+# (Variante A) e do painel de médias. Retornam o VALOR ATUAL (último da série).
+# --------------------------------------------------------------------------- #
+def sma(valores: list, periodo: int):
+    """Média móvel simples do último bloco de `periodo` valores. None se faltam dados."""
+    if periodo <= 0 or len(valores) < periodo:
+        return None
+    return fmean(valores[-periodo:])
+
+
+def ema(valores: list, periodo: int):
+    """Média móvel exponencial (semente = SMA dos `periodo` primeiros). None se faltam dados."""
+    if periodo <= 0 or len(valores) < periodo:
+        return None
+    k = 2.0 / (periodo + 1)
+    e = fmean(valores[:periodo])
+    for v in valores[periodo:]:
+        e = v * k + e * (1 - k)
+    return e
+
+
+def medias(closes: list) -> dict:
+    """Conjunto de médias do doc (EMA 9/20/45 + SMA 50/200) a partir dos closes.
+
+    Cada chave vem None quando não há candles suficientes para aquele período. Usadas como
+    LEITURA (toque de média em tendência, filtro de localização) — nunca como número mágico.
+    """
+    return {
+        "ema9": ema(closes, 9),
+        "ema20": ema(closes, 20),
+        "ema45": ema(closes, 45),
+        "sma50": sma(closes, 50),
+        "sma200": sma(closes, 200),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Pivots clássicos (PP/R1-3/S1-3) do período FECHADO anterior — função PURA.
+# --------------------------------------------------------------------------- #
+def pivots_classicos(high: float, low: float, close: float) -> dict:
+    """Pivots clássicos a partir do H/L/C do período FECHADO anterior (fórmula padrão).
+
+    PP = (H+L+C)/3 é a referência; R1-3/S1-3 são as projeções. São níveis de liquidez que o
+    mercado respeita muito no intraday (confluência com S/R/OB — estratégia `pivot_confluencia`).
+    """
+    pp = (high + low + close) / 3.0
+    amp = high - low
+    return {
+        "pp": pp,
+        "r1": 2 * pp - low,
+        "s1": 2 * pp - high,
+        "r2": pp + amp,
+        "s2": pp - amp,
+        "r3": high + 2 * (pp - low),
+        "s3": low - 2 * (high - pp),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Swings fractais + rótulos SMC
 # --------------------------------------------------------------------------- #
 def swings(highs, lows, n: int) -> list:

@@ -29,6 +29,12 @@ ESTRATEGIA_PULLBACK = "pullback_tendencia_v1"
 ESTRATEGIA_GAP = "fecha_gap_v1"
 ESTRATEGIA_ROMPIMENTO = "pullback_rompimento_v1"
 ESTRATEGIA_EXTREMOS = "rompimento_extremos_v1"
+ESTRATEGIA_MEDIAS = "pullback_medias_v1"
+ESTRATEGIA_PIVOT = "pivot_confluencia_v1"
+
+# Variante do laboratório multi-variante. As estratégias deste módulo são o GRUPO DE CONTROLE
+# (Variante A). B_FUZZY_PURO / C_HIBRIDA marcam a decisão via este campo (ETAPAS 5-6).
+VARIANTE_A = "A_ORIGINAL"
 
 
 def _mais_forte_perto(preco: float, niveis: list, tol: float):
@@ -62,7 +68,8 @@ def candle_rejeicao(snap: dict, direcao: str, nivel: float, tol: float, pavio_mi
     return tocou and pavio >= pavio_min and fechou_a_favor
 
 
-def _decisao(resultado, direcao, regime, score, confluencias, motivo, estrategia=ESTRATEGIA):
+def _decisao(resultado, direcao, regime, score, confluencias, motivo, estrategia=ESTRATEGIA,
+             variante=VARIANTE_A):
     return {
         "resultado": resultado,           # entrou | nao_entrou
         "direcao": direcao,               # compra | venda | None
@@ -71,6 +78,7 @@ def _decisao(resultado, direcao, regime, score, confluencias, motivo, estrategia
         "score": score,
         "confluencias": confluencias,
         "motivo": motivo,
+        "variante": variante,             # laboratório multi-variante (A_ORIGINAL por padrão)
     }
 
 
@@ -568,3 +576,144 @@ def avaliar_rompimento_extremos(snap: dict, *, sessao_utc, spread_max_pips, nive
                         estrategia=ESTRATEGIA_EXTREMOS)
     return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
                     estrategia=ESTRATEGIA_EXTREMOS)
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia 8 — pullback a médias (toque EMA9/EMA20 do TF acima) em tendência
+# --------------------------------------------------------------------------- #
+def _perto_media(close: float, medias: dict, tol: float):
+    """Média (EMA9/EMA20) mais próxima do preço dentro de `tol`, ou None. Retorna (chave, valor)."""
+    cand = [(k, medias[k]) for k in ("ema9", "ema20") if medias.get(k) is not None
+            and abs(close - medias[k]) <= tol]
+    return min(cand, key=lambda x: abs(close - x[1])) if cand else None
+
+
+def avaliar_pullback_medias(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_atr,
+                            pavio_min=0.5) -> dict:
+    """A FAVOR da tendência (regime), o preço RECUA e toca a EMA9/EMA20 do TF ACIMA (a média
+    como suporte/resistência dinâmica) e retoma. O toque na média é o setup; FVG/OB coincidente
+    DOBRA o score (confluência forte — doc); rejeição no candle e regime são reforço. Gates duros:
+    sessão + spread. Contra a tendência: nem avalia. `medias_acima` no snapshot = médias do TF
+    superior (ex.: M5 opera, lê as médias do M15)."""
+    regime = snap.get("regime", "indefinido")
+    atr = snap.get("atr")
+    close = snap["close"]
+    medias = snap.get("medias_acima") or {}
+    if atr is None or not medias:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem médias/ATR",
+                        estrategia=ESTRATEGIA_MEDIAS)
+    if regime == "tendencia_alta":
+        direcao = "compra"
+    elif regime == "tendencia_baixa":
+        direcao = "venda"
+    else:
+        return _decisao("nao_entrou", None, regime, 0, [], f"sem tendência (regime={regime})",
+                        estrategia=ESTRATEGIA_MEDIAS)
+    tol = nivel_prox_atr * atr
+    perto = _perto_media(close, medias, tol)
+    if perto is None:
+        return _decisao("nao_entrou", direcao, regime, 0, ["regime"],
+                        "preço longe das médias", estrategia=ESTRATEGIA_MEDIAS)
+    chave, nivel = perto
+    conf = ["regime", f"toque_{chave}"]
+    rejeitou = candle_rejeicao(snap, direcao, nivel, tol, pavio_min)
+    if rejeitou:
+        conf.append("rejeicao")
+    # FVG ou OB coincidente com a zona da média DOBRA o score (confluência forte — doc).
+    dobra = False
+    for f in snap.get("fvgs", []):
+        if f["tipo"].endswith("bull") == (direcao == "compra") and \
+           (f["base"] - tol) <= nivel <= (f["topo"] + tol):
+            dobra = True
+            conf.append("fvg_confluente")
+            break
+    for ob in snap.get("obs", []):
+        d2 = "compra" if ob["tipo"] == "ob_bull" else "venda"
+        if d2 == direcao and ob["base"] - tol <= nivel <= ob["topo"] + tol:
+            dobra = True
+            if "ob_confluente" not in conf:
+                conf.append("ob_confluente")
+            break
+    score = len(conf) * 2 if dobra else len(conf)
+
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"fora da sessão ({hora}h UTC)", estrategia=ESTRATEGIA_MEDIAS)
+    spread = snap.get("spread_pips", 0.0)
+    if spread > spread_max_pips:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
+                        estrategia=ESTRATEGIA_MEDIAS)
+    return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
+                    estrategia=ESTRATEGIA_MEDIAS)
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia 9 — toque em pivot (PP/R1/S1) confluente com S/R/OB + rejeição
+# --------------------------------------------------------------------------- #
+def _pivot_perto(close: float, pivots: list, tol: float):
+    """Pivot (preco, tipo) mais próximo do preço dentro de `tol`, ou None."""
+    cand = [(p, t) for p, t in pivots if abs(close - p) <= tol]
+    return min(cand, key=lambda x: abs(close - x[0])) if cand else None
+
+
+def _zona_perto(preco: float, snap: dict, tol: float) -> bool:
+    """Há uma zona de S/R ou de OB dentro de `tol` de `preco`? (a confluência exigida)."""
+    for p, _f in list(snap.get("suportes", [])) + list(snap.get("resistencias", [])):
+        if abs(p - preco) <= tol:
+            return True
+    for ob in snap.get("obs", []):
+        if ob["base"] - tol <= preco <= ob["topo"] + tol:
+            return True
+    return False
+
+
+def avaliar_pivot_confluencia(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_atr,
+                              pivot_sr_atr=0.5, pavio_min=0.5) -> dict:
+    """Toque num pivot clássico (PP/R1-3/S1-3) que está a < `pivot_sr_atr`×ATR de uma zona de
+    S/R ou OB (confluência OBRIGATÓRIA — o que dá força ao pivot) e REJEITA (gatilho). É um FADE
+    do nível: pivot acima do preço = resistência → venda; abaixo = suporte → compra (brilha no
+    lateral). Regime a favor = reforço. Gates duros: sessão + spread. `pivots` no snapshot =
+    [(preco, tipo)] dos níveis pivot_* do motor."""
+    regime = snap.get("regime", "indefinido")
+    atr = snap.get("atr")
+    close = snap["close"]
+    pivots = snap.get("pivots", [])
+    if atr is None or not pivots:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem pivots/ATR",
+                        estrategia=ESTRATEGIA_PIVOT)
+    tol = nivel_prox_atr * atr
+    perto = _pivot_perto(close, pivots, tol)
+    if perto is None:
+        return _decisao("nao_entrou", None, regime, 0, [], "preço longe de pivot",
+                        estrategia=ESTRATEGIA_PIVOT)
+    nivel, tipo_pivot = perto
+    if not _zona_perto(nivel, snap, pivot_sr_atr * atr):
+        return _decisao("nao_entrou", None, regime, 0, ["pivot"],
+                        "pivot sem confluência S/R/OB", estrategia=ESTRATEGIA_PIVOT)
+    # Fade: pivot atua como suporte (abaixo/no preço) → compra; como resistência (acima) → venda.
+    direcao = "compra" if close >= nivel else "venda"
+    conf = ["pivot", f"confluencia_sr_{tipo_pivot}"]
+    rejeitou = candle_rejeicao(snap, direcao, nivel, tol, pavio_min)
+    if rejeitou:
+        conf.append("rejeicao")
+    if (direcao == "compra" and regime == "tendencia_alta") or \
+       (direcao == "venda" and regime == "tendencia_baixa"):
+        conf.append("a_favor_regime")
+    score = len(conf)
+
+    if not rejeitou:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        "sem rejeição no pivot", estrategia=ESTRATEGIA_PIVOT)
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"fora da sessão ({hora}h UTC)", estrategia=ESTRATEGIA_PIVOT)
+    spread = snap.get("spread_pips", 0.0)
+    if spread > spread_max_pips:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
+                        estrategia=ESTRATEGIA_PIVOT)
+    return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
+                    estrategia=ESTRATEGIA_PIVOT)

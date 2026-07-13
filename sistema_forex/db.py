@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS decisoes (
     resultado  TEXT,                   -- entrou / nao_entrou
     motivo     TEXT,
     dados_json TEXT,
-    criada_utc INTEGER                 -- wall-clock da gravação da decisão (p/ medir delay decisão→fill)
+    criada_utc INTEGER,                -- wall-clock da gravação da decisão (p/ medir delay decisão→fill)
+    variante   TEXT DEFAULT 'A_ORIGINAL'  -- laboratório multi-variante (A_ORIGINAL / B_FUZZY_PURO / C_HIBRIDA)
 );
 CREATE INDEX IF NOT EXISTS idx_decisoes_par_time ON decisoes (par, time_utc);
 
@@ -115,7 +116,8 @@ CREATE TABLE IF NOT EXISTS trades (
     preco_sinal    REAL,               -- preço que a SOMBRA assume (ask/bid no momento da decisão)
     spread_entrada REAL,               -- spread (pips) no instante do fill real
     derrapagem_pips REAL,              -- fill real vs preço-sinal, em pips (adverso = positivo)
-    delay_s        REAL                -- segundos entre a gravação da decisão e o fill real
+    delay_s        REAL,               -- segundos entre a gravação da decisão e o fill real
+    variante       TEXT DEFAULT 'A_ORIGINAL'  -- variante do laboratório (herda da decisão de origem)
 );
 CREATE INDEX IF NOT EXISTS idx_trades_par ON trades (par);
 CREATE INDEX IF NOT EXISTS idx_trades_abertos ON trades (fechamento_utc);
@@ -143,11 +145,15 @@ def _migrar(conn) -> None:
             conn.execute(f"ALTER TABLE trades ADD COLUMN {coluna} REAL")
     if "decisao_id" not in cols:  # FK p/ a decisão de origem (raio-X "por que entrou")
         conn.execute("ALTER TABLE trades ADD COLUMN decisao_id INTEGER")
+    if "variante" not in cols:    # laboratório multi-variante (herda da decisão de origem)
+        conn.execute("ALTER TABLE trades ADD COLUMN variante TEXT DEFAULT 'A_ORIGINAL'")
     dcols = {r["name"] for r in conn.execute("PRAGMA table_info(decisoes)").fetchall()}
     if "tf" not in dcols:
         conn.execute("ALTER TABLE decisoes ADD COLUMN tf TEXT DEFAULT 'M5'")
     if "criada_utc" not in dcols:
         conn.execute("ALTER TABLE decisoes ADD COLUMN criada_utc INTEGER")
+    if "variante" not in dcols:
+        conn.execute("ALTER TABLE decisoes ADD COLUMN variante TEXT DEFAULT 'A_ORIGINAL'")
 
 
 def conectar(db_path=None) -> sqlite3.Connection:

@@ -13,12 +13,13 @@ zero por par (snapshot idempotente): apaga o que era daquele par e regrava.
     python -m sistema_forex.analise --uma-vez # um ciclo e sai (debug)
 """
 
+import calendar
 import json
 import logging
 import signal
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from . import config, db, indicadores
 
@@ -124,6 +125,73 @@ def _marcar_confluencia(conn, par: str, atr_ref: float) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Níveis de liquidez POR PERÍODO — pivots diários + máx/mín asiática/semana/mês
+# --------------------------------------------------------------------------- #
+def _extremo_janela(conn, par: str, tf: str, inicio: int, fim: int):
+    """(max high, min low) dos candles de `tf` com inicio <= time_utc < fim. None se vazio."""
+    r = conn.execute(
+        "SELECT MAX(high) mx, MIN(low) mn FROM candles WHERE par=? AND tf=? "
+        "AND time_utc >= ? AND time_utc < ?",
+        (par, tf, inicio, fim),
+    ).fetchone()
+    return (r["mx"], r["mn"]) if r and r["mx"] is not None else None
+
+
+def niveis_periodo(conn, par: str, agora_srv: int, criado_em: int) -> int:
+    """Pivots diários clássicos (PP/R1-3/S1-3) e máx/mín da sessão ASIÁTICA (00–07 servidor),
+    da SEMANA e do MÊS anteriores — liquidez que o mercado respeita muito (doc ETAPA 1).
+
+    Grava em `niveis` (tipos pivot_pp/pivot_r*/pivot_s*, max/min_asia|semana|mes). `agora_srv` é a
+    hora do SERVIDOR (epoch do último candle) — os candles vêm carimbados em hora de servidor, então
+    `utcfromtimestamp` devolve o relógio de servidor e `%86400` dá a meia-noite do servidor. Retorna
+    a contagem gravada."""
+    n = 0
+    dia_inicio = agora_srv - (agora_srv % 86400)
+
+    # Pivots do último D1 FECHADO (< meia-noite do dia corrente = evita o dia em formação).
+    d1 = conn.execute(
+        "SELECT high, low, close FROM candles WHERE par=? AND tf='D1' AND time_utc < ? "
+        "ORDER BY time_utc DESC LIMIT 1",
+        (par, dia_inicio),
+    ).fetchone()
+    if d1:
+        for chave, preco in indicadores.pivots_classicos(d1["high"], d1["low"], d1["close"]).items():
+            _grava_nivel(conn, par, f"pivot_{chave}", preco, "D1", criado_em, 1)
+            n += 1
+
+    # Sessão asiática (00–07 servidor) do último período COMPLETO (se já passou das 07h hoje,
+    # usa hoje; senão, ontem). Lida do M15 (mais fina que H1; disponível na coleta).
+    hora = (agora_srv % 86400) // 3600
+    asia_ini = dia_inicio if hora >= 7 else dia_inicio - 86400
+    asia = _extremo_janela(conn, par, "M15", asia_ini, asia_ini + 7 * 3600)
+    if asia:
+        _grava_nivel(conn, par, "max_asia", asia[0], "M15", criado_em, 1)
+        _grava_nivel(conn, par, "min_asia", asia[1], "M15", criado_em, 1)
+        n += 2
+
+    # Semana e mês anteriores, agregados dos D1 (fronteiras no relógio do servidor).
+    hoje = datetime.utcfromtimestamp(agora_srv).date()
+    ini_semana = hoje - timedelta(days=hoje.weekday())          # segunda desta semana
+    sem = _extremo_janela(conn, par, "D1",
+                          calendar.timegm((ini_semana - timedelta(days=7)).timetuple()),
+                          calendar.timegm(ini_semana.timetuple()))
+    if sem:
+        _grava_nivel(conn, par, "max_semana", sem[0], "D1", criado_em, 1)
+        _grava_nivel(conn, par, "min_semana", sem[1], "D1", criado_em, 1)
+        n += 2
+    prim_mes = hoje.replace(day=1)
+    ini_mes_ant = (prim_mes - timedelta(days=1)).replace(day=1)  # 1º dia do mês anterior
+    mes = _extremo_janela(conn, par, "D1",
+                          calendar.timegm(ini_mes_ant.timetuple()),
+                          calendar.timegm(prim_mes.timetuple()))
+    if mes:
+        _grava_nivel(conn, par, "max_mes", mes[0], "D1", criado_em, 1)
+        _grava_nivel(conn, par, "min_mes", mes[1], "D1", criado_em, 1)
+        n += 2
+    return n
+
+
+# --------------------------------------------------------------------------- #
 # Análise de um par
 # --------------------------------------------------------------------------- #
 def analisar_par(conn, par: str) -> dict:
@@ -211,6 +279,12 @@ def analisar_par(conn, par: str) -> dict:
                 "INSERT INTO regime_log (par, time_utc, regime, adx, atr) VALUES (?, ?, ?, ?, ?)",
                 (par, agora, regime, adx_v, atr_ref),
             )
+
+    # Níveis de liquidez por período (pivots diários + máx/mín asiática/semana/mês). Usa a hora
+    # do SERVIDOR (último candle do par), pois os candles vêm em hora de servidor.
+    ult = conn.execute("SELECT MAX(time_utc) t FROM candles WHERE par=?", (par,)).fetchone()
+    agora_srv = ult["t"] if ult and ult["t"] else agora
+    resumo["periodo"] = niveis_periodo(conn, par, agora_srv, agora)
 
     # Reforça as zonas de CONFLUÊNCIA de S/R (topos/fundos alinhados de TFs diferentes) — as
     # marcações que o preço mais respeita (pedido do dono). Roda sobre o snapshot recém-gravado.

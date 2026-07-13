@@ -242,6 +242,8 @@ NOMES_ESTRATEGIAS = {
     "fecha_gap_v1": "Fechamento de gap",
     "pullback_rompimento_v1": "Pullback ao rompimento",
     "rompimento_extremos_v1": "Rompimento máx/mín do dia",
+    "pullback_medias_v1": "Pullback a médias (EMA)",
+    "pivot_confluencia_v1": "Pivot + confluência S/R",
 }
 
 
@@ -296,6 +298,22 @@ ROMPIMENTO_HABILITADA = os.environ.get("ROMPIMENTO_HABILITADA", "true").lower() 
 # Preço rompe a máxima/mínima do dia anterior (liquidez clássica) e retesta o nível rompido,
 # rejeitando. A rejeição no reteste é o gatilho; regime a favor = reforço.
 EXTREMOS_HABILITADA = os.environ.get("EXTREMOS_HABILITADA", "true").lower() in ("1", "true", "sim")
+
+# --- 8ª estratégia: pullback a médias (EMA9/EMA20 do TF acima) em tendência ---
+# A favor da tendência, o preço recua e toca a EMA9/EMA20 do TF SUPERIOR e retoma. FVG/OB
+# coincidente DOBRA o score; rejeição/regime = reforço. Variante A (grupo de controle).
+MEDIAS_HABILITADA = os.environ.get("MEDIAS_HABILITADA", "true").lower() in ("1", "true", "sim")
+# TF de operação → TF ACIMA lido para as médias de contexto (tendência do timeframe maior).
+TF_ACIMA = {"M1": "M5", "M5": "M15", "M15": "H1", "H1": "D1"}
+# Quantos closes do TF acima ler para as médias (>= 200 p/ a SMA200 fechar).
+MEDIAS_JANELA = int(os.environ.get("MEDIAS_JANELA", "260"))
+
+# --- 9ª estratégia: toque em pivot (PP/R1/S1) confluente com S/R/OB + rejeição ---
+# Fade de um pivot clássico que coincide (< PIVOT_SR_ATR×ATR) com uma zona de S/R ou OB, com
+# rejeição no candle. Lateral é o terreno natural (fade); regime a favor = reforço.
+PIVOT_HABILITADA = os.environ.get("PIVOT_HABILITADA", "true").lower() in ("1", "true", "sim")
+# Distância máxima (fração do ATR) entre o pivot e a zona de S/R/OB para contar como confluência.
+PIVOT_SR_ATR = float(os.environ.get("PIVOT_SR_ATR", "0.5"))
 
 # --------------------------------------------------------------------------- #
 # Executor + gestor de saída (Fase 5)

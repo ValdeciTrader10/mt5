@@ -130,7 +130,7 @@ def pode_abrir(abertas_vals, par: str, tf: str, estrategia: str, *, livro: str, 
 
 def _decisoes_novas(conn, desde_id: int):
     return conn.execute(
-        "SELECT id, par, tf, direcao, estrategia, criada_utc FROM decisoes "
+        "SELECT id, par, tf, direcao, estrategia, criada_utc, variante FROM decisoes "
         "WHERE id > ? AND resultado='entrou' ORDER BY id",
         (desde_id,),
     ).fetchall()
@@ -154,16 +154,16 @@ def _regime_atual(conn, par: str):
 
 
 def _abrir_trade(conn, par, tf, estrategia, direcao, lote, entrada, sl, ticket, simulado, risco,
-                 regime, fill=None, decisao_id=None) -> int:
+                 regime, fill=None, decisao_id=None, variante="A_ORIGINAL") -> int:
     fill = fill or {}
     cur = conn.execute(
         "INSERT INTO trades (ticket, par, tf, estrategia, direcao, lote, preco_entrada, sl_servidor, "
         "abertura_utc, simulado, risco_inicial, regime_entrada, decisao_id, "
-        "preco_sinal, spread_entrada, derrapagem_pips, delay_s) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "preco_sinal, spread_entrada, derrapagem_pips, delay_s, variante) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (ticket, par, tf, estrategia, direcao, lote, entrada, sl, _agora(), simulado, risco, regime,
          decisao_id, fill.get("preco_sinal"), fill.get("spread_entrada"),
-         fill.get("derrapagem_pips"), fill.get("delay_s")),
+         fill.get("derrapagem_pips"), fill.get("delay_s"), variante),
     )
     conn.commit()
     return cur.lastrowid
@@ -492,9 +492,10 @@ class Executor:
         simulado = 0 if real else 1
         risco = abs(entrada - sl)
         regime = _regime_atual(conn, par)
+        variante = (d["variante"] if d and d["variante"] else "A_ORIGINAL")
         trade_id = _abrir_trade(conn, par, tf, estrategia, direcao, config.LOTE, entrada, sl,
                                 ticket, simulado, risco, regime, fill=fill,
-                                decisao_id=(d["id"] if d else None))
+                                decisao_id=(d["id"] if d else None), variante=variante)
         if ticket is None:
             ticket = -trade_id  # id sintético para o modo simulação
             conn.execute("UPDATE trades SET ticket=? WHERE id=?", (ticket, trade_id))

@@ -80,6 +80,29 @@ def _niveis(conn, par: str):
     return sup, res, fvgs, obs, gaps
 
 
+def _pivots(conn, par: str) -> list:
+    """Níveis pivot do motor (pivot_pp/pivot_r*/pivot_s*) como [(preco, tipo)] — p/ a estratégia
+    `pivot_confluencia`. `tipo` sem o prefixo (pp/r1/s1…) para logar mais curto."""
+    rows = conn.execute(
+        "SELECT tipo, preco FROM niveis WHERE par=? AND ativo=1 AND tipo LIKE 'pivot_%'", (par,)
+    ).fetchall()
+    return [(r["preco"], r["tipo"].replace("pivot_", "")) for r in rows]
+
+
+def _medias_tf_acima(conn, par: str, tf: str) -> dict:
+    """Médias (EMA9/20/45 + SMA50/200) do TF ACIMA do de operação (contexto de tendência da
+    estratégia `pullback_medias`). M1→M5, M5→M15, M15→H1. Sem TF acima mapeado → {}."""
+    tf_acima = config.TF_ACIMA.get(tf)
+    if not tf_acima:
+        return {}
+    rows = conn.execute(
+        "SELECT close FROM candles WHERE par=? AND tf=? ORDER BY time_utc DESC LIMIT ?",
+        (par, tf_acima, config.MEDIAS_JANELA),
+    ).fetchall()
+    closes = [r["close"] for r in reversed(rows)]
+    return indicadores.medias(closes) if closes else {}
+
+
 def _extremos_dia(conn, par: str, agora_utc: int):
     """Máxima/mínima do último dia FECHADO (D1) — liquidez PDH/PDL. `agora_utc` é a hora do
     candle (= hora do SERVIDOR), então a fronteira já é meia-noite do servidor: pega o D1 cujo
@@ -154,6 +177,8 @@ def montar_snapshot(conn, par: str, tf: str, candle) -> dict:
         "gaps": gaps,
         "max_dia": max_dia,
         "min_dia": min_dia,
+        "pivots": _pivots(conn, par),
+        "medias_acima": _medias_tf_acima(conn, par, tf),
         "ultimo_evento": _ultimo_evento(conn, par),
         # Janela do TF de operação p/ o sweep+CHoCH (chave histórica "m5_janela" mantida
         # para as estratégias/tests; aqui contém a janela do `tf` corrente).
@@ -168,14 +193,15 @@ def _gravar_decisao(conn, par: str, tf: str, time_utc: int, dec: dict) -> None:
     conn.execute(
         """
         INSERT INTO decisoes (par, time_utc, tf, estrategia, direcao, resultado, motivo, dados_json,
-                              criada_utc)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              criada_utc, variante)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             par, time_utc, tf, dec["estrategia"], dec["direcao"], dec["resultado"], dec["motivo"],
             json.dumps({"score": dec["score"], "confluencias": dec["confluencias"],
                         "regime": dec["regime"]}),
             int(time.time()),
+            dec.get("variante", "A_ORIGINAL"),
         ),
     )
 
@@ -257,6 +283,23 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
             sessao_utc=config.SESSAO_UTC,
             spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
+            pavio_min=config.REJEICAO_PAVIO_MIN,
+        ))
+    if config.MEDIAS_HABILITADA:
+        decs.append(estrategias.avaliar_pullback_medias(
+            snap,
+            sessao_utc=config.SESSAO_UTC,
+            spread_max_pips=spread_max,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            pavio_min=config.REJEICAO_PAVIO_MIN,
+        ))
+    if config.PIVOT_HABILITADA:
+        decs.append(estrategias.avaliar_pivot_confluencia(
+            snap,
+            sessao_utc=config.SESSAO_UTC,
+            spread_max_pips=spread_max,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            pivot_sr_atr=config.PIVOT_SR_ATR,
             pavio_min=config.REJEICAO_PAVIO_MIN,
         ))
     for dec in decs:
