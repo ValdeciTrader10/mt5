@@ -105,10 +105,14 @@ a sombra (regra: demo/sombra primeiro).
   vale mexer na saída ANTES de mexer. Param `AUDITORIA_INVALIDACAO_TRADES`.
 - Banco: `sistema_forex/db.py` (SQLite WAL, migrações idempotentes em `_migrar`).
 - **Reset de dados** (`manutencao.py`): `python -m sistema_forex.manutencao [status|reset]`. `reset`
-  faz BACKUP consistente (API de backup do SQLite) e apaga `trades`/`decisoes` + derivadas
-  (`niveis`/`estrutura`/`regime_log`, que o motor regenera); **preserva `candles`** (mercado). Usado
-  em 13/07 p/ zerar os dados pré-fix-de-fuso e recomeçar limpo. Sequência: fechar posições do robô no
-  MT5 (magic) → `reset` → redeploy (executor reinicia sem estado velho). Testes em `test_manutencao.py`.
+  faz TUDO em ordem: (1) FECHA as posições do robô no broker (`fechar_posicoes_robo`, magic, p/ não
+  ficarem órfãs); (2) BACKUP consistente (API de backup do SQLite); (3) apaga `trades`/`decisoes` +
+  derivadas (`niveis`/`estrutura`/`regime_log`, que o motor regenera). **Preserva `candles`** (mercado).
+  Depois: **redeploy** no Dokploy (executor reinicia sem estado velho). Usado em 13/07 p/ zerar os
+  dados pré-fix-de-fuso e recomeçar limpo. Testes em `test_manutencao.py`.
+- **Janela de negociação** = HORA DO SERVIDOR, `SESSAO_UTC=(4,21)` (env `SESSAO_INICIO`/`SESSAO_FIM`),
+  alargada de (7,20) p/ 04:00–21:00 a pedido do dono (mais operações/horários p/ auditar). O nome
+  `SESSAO_UTC` é legado; o valor é hora de servidor (o filtro usa a hora do candle=servidor).
 
 **3 bugs da imagem MT5 já corrigidos** (ver `deploy/mt5/`): (1) `mt5linux 1.0.3` sem
 `-w` → fixado `mt5linux==0.1.9`; (2) RPyC do Wine é **5.2.3** → cliente fixado em

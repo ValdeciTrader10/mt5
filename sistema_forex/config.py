@@ -77,7 +77,11 @@ GAP_MAX_PIPS = 20
 ADX_TENDENCIA = 25
 ADX_LATERAL = 20
 
-SESSAO_UTC = (7, 20)
+# Janela de negociação — HORA DO SERVIDOR (MetaTrader), pois o filtro usa a hora do candle
+# (=servidor). Só abre trades com `inicio <= hora < fim`. Alargada p/ 04:00–21:00 (pedido do
+# dono, 13/07) para catalogar mais operações e mais horários. Env-configurável no Dokploy.
+# (Nome SESSAO_UTC mantido por compatibilidade; o VALOR é hora de servidor.)
+SESSAO_UTC = (int(os.environ.get("SESSAO_INICIO", "4")), int(os.environ.get("SESSAO_FIM", "21")))
 SPREAD_MAX_PIPS = 2.0
 
 LOTE = 0.01

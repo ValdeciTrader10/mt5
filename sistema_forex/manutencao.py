@@ -15,12 +15,11 @@ O que PRESERVA:
 Antes de apagar, faz um BACKUP consistente do banco (API de backup do SQLite, segura em WAL).
 
     python -m sistema_forex.manutencao status   # só conta as linhas (não apaga)
-    python -m sistema_forex.manutencao reset     # BACKUP + apaga trades/decisões/derivados
+    python -m sistema_forex.manutencao reset     # fecha posições do robô + BACKUP + limpa
 
-⚠️ SEQUÊNCIA SEGURA (para não deixar posição órfã nem estado velho na memória):
-  1) No MT5 (VNC), feche as posições do robô abertas (magic 500250), se houver.
-  2) Rode `reset` (faz backup e limpa).
-  3) Redeploy no Dokploy — o executor reinicia com estado limpo e recomeça a catalogar.
+`reset` faz tudo em ordem segura: (1) FECHA as posições do robô no broker (magic, p/ não
+ficarem órfãs); (2) BACKUP do banco; (3) apaga trades/decisões/derivados. Depois, REDEPLOY
+no Dokploy para o executor reiniciar com estado limpo e recomeçar a catalogar.
 """
 
 import sqlite3
@@ -56,6 +55,26 @@ def _backup(db_path) -> str:
     return dst
 
 
+def fechar_posicoes_robo() -> int:
+    """Fecha no broker as posições do robô (magic), para não ficarem órfãs após o reset.
+    Precisa do MT5 (roda dentro do stack). Sem MT5/erro → não derruba o reset, só avisa."""
+    try:
+        from . import mt5_bridge
+        posic = mt5_bridge.posicoes(magic=config.MAGIC)
+    except Exception as e:  # noqa: BLE001 - sem MT5 aqui: siga o reset e feche manualmente no VNC
+        print(f"  (MT5 indisponível para fechar posições: {e} — feche manualmente no MT5 se houver)")
+        return 0
+    fechadas = 0
+    for p in posic:
+        try:
+            mt5_bridge.fechar(p["ticket"], config.MAGIC)
+            fechadas += 1
+            print(f"  fechada posição {p['ticket']} {p['simbolo']} {p['direcao']}")
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! falha ao fechar {p['ticket']}: {e}")
+    return fechadas
+
+
 def resetar(conn) -> dict:
     """Apaga as tabelas de operação + derivadas; PRESERVA `candles`. Retorna o nº apagado
     por tabela. (Função separada do backup para ser testável isoladamente.)"""
@@ -76,6 +95,9 @@ def main() -> int:
         return 0
 
     if cmd == "reset":
+        print("Fechando posições do robô no broker (magic %d)…" % config.MAGIC)
+        n_fechadas = fechar_posicoes_robo()
+        print(f"Posições fechadas: {n_fechadas}")
         bak = _backup(config.DB_PATH)
         print(f"Backup criado: {bak}")
         with db.sessao() as conn:
@@ -86,8 +108,8 @@ def main() -> int:
         print(f"trades {antes['trades']}→{depois['trades']} · "
               f"decisoes {antes['decisoes']}→{depois['decisoes']} · "
               f"candles PRESERVADOS: {depois['candles']}")
-        print("\n⚠️ Agora: (1) feche no MT5 as posições do robô (magic %d), se houver; "
-              "(2) redeploy no Dokploy para o executor reiniciar limpo." % config.MAGIC)
+        print("\n⚠️ Agora: REDEPLOY no Dokploy para o executor reiniciar com estado limpo "
+              "(a memória de posições zera e ele recomeça a catalogar).")
         return 0
 
     print("uso: python -m sistema_forex.manutencao [status|reset]")
