@@ -144,18 +144,20 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
   mas `gestao._moedas("GOLD")` não sabe parsear metal — tratar antes de religar `GUARDA_CORRELACAO`
   para real.
 
-## ⚠️ BUG ABERTO — fuso horário (candle server-time vs trade UTC)
-A medição de invalidação (13/07) expôs: `candles.time_utc` = hora do SERVIDOR XM (UTC+3, vem cru
-de `r["time"]` do MT5); mas `trades.abertura_utc`/`fechamento_utc` e `decisoes.criada_utc` usam
-`time.time()` (UTC real). Diferença ~3h. Efeito: `grafico._janela_trade` desalinha a janela ~3h →
-**raio-X (visual+texto) e a simulação de invalidação ficam com candles que não batem com a entrada**
-(vela de entrada a +15 pips, MFE recomputado contradiz o `mfe_r` ao vivo). O `mfe_r`/`mae_r` gravados
-TICK A TICK são a fonte confiável; a reconstrução por candle NÃO. Guarda paliativa: `simular_saida_
-invalidacao` marca `janela_suspeita` (descarta da medição) quando a vela de entrada está >0.5R do
-preço de entrada. Também afeta: filtro de sessão em `decisao` (usa hora do candle=servidor) vs
-`/analitico` (usa abertura_utc=UTC) — inconsistente; `_extremos_dia` (fronteira de dia). **CORRIGIR:**
-normalizar candles p/ UTC real na ingestão (offset = tick.time − time.time(), re-backfill) OU carimbar
-trades/decisões com a MESMA hora dos candles (server) — decisão do dono pendente (afeta live).
+## Fuso horário — trades carimbados na HORA DO SERVIDOR (MetaTrader) ✅ (13/07)
+Era um bug: `candles.time_utc` = hora do SERVIDOR XM (UTC+3, cru de `r["time"]` do MT5), mas
+`trades.abertura_utc`/`fechamento_utc` usavam `time.time()` (UTC) → `grafico._janela_trade`
+desalinhava a janela ~3h (raio-X e simulação de invalidação com candles que não batem com a entrada).
+**Correção (opção B, pedido do dono "horário do MetaTrader"):** o executor mede o offset servidor↔UTC
+de um tick (`_atualizar_offset`, arredonda à hora; atualizado a cada `_tick` e no `carregar`) e
+`_agora()` passa a devolver a HORA DO SERVIDOR → `abertura_utc`/`fechamento_utc` alinham com os candles.
+Assim o filtro de sessão do `decisao` (hora do candle=servidor) e o `_sessao` do /analitico
+(hora do abertura_utc=agora servidor) ficam CONSISTENTES, e o display mostra a hora do MetaTrader.
+`decisoes.criada_utc` fica em UTC de propósito (só serve p/ `delay_s`, medido contra `time.time()`,
+não contra `_agora()`). ⚠️ Trades ANTIGOS (pré-fix) têm `abertura_utc` em UTC → o raio-X deles ainda
+desalinha; a guarda `janela_suspeita` (`simular_saida_invalidacao` descarta quando a vela de entrada
+está >0.5R do preço de entrada) cobre isso. `mfe_r`/`mae_r` gravados TICK A TICK sempre foram a fonte
+confiável. Ressalva: `DD_DIARIO` ainda reseta em meia-noite UTC (`_checar_dia`) — não afeta o raio-X.
 
 ## Regras inegociáveis (lições MASMC — NÃO repetir)
 Verificar margem antes de order_send (retcode 10019); pips por `price_open`/`price_current`

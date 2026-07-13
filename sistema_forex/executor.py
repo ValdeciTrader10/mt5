@@ -34,8 +34,22 @@ def _tratar_sinal(signum, frame):  # pragma: no cover
     _parar = True
 
 
+# Offset (segundos) entre a hora do SERVIDOR do MT5 e o UTC real. Os candles são gravados na
+# hora do servidor (r["time"] do MT5, XM = UTC+3); para os trades ALINHAREM com os candles (e o
+# raio-X/janelas baterem), carimbamos abertura/fechamento na MESMA hora — a do MetaTrader.
+_OFFSET_SERVIDOR = 0
+
+
+def _atualizar_offset(hora_servidor: int) -> None:
+    """Recalcula o offset servidor↔UTC a partir de um tick (arredondado à HORA cheia, que é o
+    formato de um fuso de broker — evita ruído de latência do tick)."""
+    global _OFFSET_SERVIDOR
+    _OFFSET_SERVIDOR = int(round((hora_servidor - int(time.time())) / 3600.0) * 3600)
+
+
 def _agora() -> int:
-    return int(time.time())
+    """Epoch na hora do SERVIDOR do broker (a mesma dos candles / do MetaTrader)."""
+    return int(time.time()) + _OFFSET_SERVIDOR
 
 
 # --------------------------------------------------------------------------- #
@@ -211,7 +225,10 @@ class Executor:
         (par,tf,estrategia) sobre os mesmos 3 símbolos, evita N chamadas RPyC/lock por segundo
         (3 leituras/ciclo em vez de uma por posição). O cache é limpo no topo de `ciclo`."""
         if simbolo not in self._tick_cache:
-            self._tick_cache[simbolo] = mt5_bridge.tick_atual(simbolo)
+            t = mt5_bridge.tick_atual(simbolo)
+            self._tick_cache[simbolo] = t
+            if t and t.get("time"):        # mantém o offset servidor↔UTC fresco (alinha trades↔candles)
+                _atualizar_offset(t["time"])
         return self._tick_cache[simbolo]
 
     def _preco_saida(self, simbolo, direcao):
@@ -245,6 +262,17 @@ class Executor:
                 "mae_r": r["mae_r"] or 0.0, "mfe_r": r["mfe_r"] or 0.0,
                 "real": not r["simulado"],   # livro da posição (real=demo, else sombra)
             }
+        # Alinha o relógio dos trades ao do SERVIDOR (candles/MetaTrader): mede o offset uma vez
+        # no arranque a partir de um tick; depois `_tick` o mantém fresco.
+        try:
+            if config.PARES:
+                t = mt5_bridge.tick_atual(self._simbolo(config.PARES[0]))
+                if t and t.get("time"):
+                    _atualizar_offset(t["time"])
+        except Exception:  # noqa: BLE001 - sem tick no arranque, offset fica 0 até o 1º tick
+            pass
+        log.info("Offset servidor↔UTC: %+dh (trades carimbados na hora do MetaTrader)",
+                 _OFFSET_SERVIDOR // 3600)
         mx = conn.execute("SELECT MAX(id) m FROM decisoes").fetchone()["m"]
         self.ultima_decisao_id = mx or 0
         if self.ativa:
@@ -454,7 +482,9 @@ class Executor:
                 "preco_sinal": round(assumido, 5),
                 "spread_entrada": round((t["ask"] - t["bid"]) / pip, 2) if t and pip else None,
                 "derrapagem_pips": round(derr, 2),
-                "delay_s": (_agora() - d["criada_utc"]) if d and d["criada_utc"] else None,
+                # delay em segundos REAIS: decisoes.criada_utc é UTC (time.time()); medimos
+                # contra o UTC de agora (NÃO _agora(), que é hora de servidor).
+                "delay_s": (int(time.time()) - d["criada_utc"]) if d and d["criada_utc"] else None,
             }
         simulado = 0 if real else 1
         risco = abs(entrada - sl)

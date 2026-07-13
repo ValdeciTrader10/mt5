@@ -138,6 +138,20 @@ def test_pode_abrir_livros_sombra_e_real_sao_independentes():
     assert pode_abrir(reais_cheio, "USDCAD", "M5", "r2", livro="real", cap=2) is False
 
 
+def test_agora_carimba_hora_do_servidor():
+    """`_agora()` devolve a hora do SERVIDOR (candles/MetaTrader): offset arredondado à hora."""
+    import time as _t
+    from ..executor import _atualizar_offset, _agora
+    from .. import executor as ex
+    try:
+        _atualizar_offset(int(_t.time()) + 3 * 3600 + 41)   # servidor +3h (com 41s de latência)
+        assert ex._OFFSET_SERVIDOR == 3 * 3600
+        assert abs((_agora() - int(_t.time())) - 3 * 3600) <= 1
+    finally:
+        _atualizar_offset(int(_t.time()))                   # reset p/ não afetar outros testes
+        assert ex._OFFSET_SERVIDOR == 0
+
+
 def test_combo_real_so_curadas():
     """O livro real curado só aceita as (estratégia, tf) configuradas (positivas, sem M1)."""
     assert config.combo_real("confluencia_v1", "M5") is True
