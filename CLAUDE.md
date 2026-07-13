@@ -268,6 +268,15 @@ Consultar SEMPRE a skill `trading-quant-expert` ao mexer em estratégia/risco/ex
 > **módulo B3/WIN** (fase posterior). Metodologia: sombra antes de demo; nunca calibrar e validar no
 > mesmo período; sem look-ahead. **Consultar a skill `trading-quant-expert` em TODA etapa de estratégia/risco.**
 
+## PRINCÍPIO GOVERNANTE (definido pelo dono) — TUDO É ADITIVO, NADA É ALTERADO
+Toda estratégia/variante nova é **acrescentada ao lado**, nunca reescreve as existentes. As 7
+estratégias atuais (Variante A) são **grupo de controle intocável**. Cada combinação
+`(variante × estratégia × par × TF)` é um **livro de sombra independente** rodando sobre o preço
+real ao vivo. Até a Variante C (que LÊ o fuzzy para filtrar/ajustar as mesmas 9 estratégias) é uma
+**cópia paralela** marcada `C_HIBRIDA` — a lógica interna da estratégia original NÃO é tocada.
+Objetivo: catalogar o MÁXIMO de estratégias testadas em mercado real e, só ao fim, a auditoria
+estatística decide o que vale ligar em demo/real. Nunca remover/alterar um livro para criar outro.
+
 ## PROTOCOLO DE EXECUÇÃO POR ETAPA (para o dono limpar o contexto entre passos)
 O dono coda **uma etapa por vez** ("coda a ETAPA N"). Ao terminar CADA etapa, ANTES/junto do deploy:
 1. rodar os testes + `py_compile`; 2. commit + push (Dokploy redeploya); 3. **atualizar ESTE roadmap**:
