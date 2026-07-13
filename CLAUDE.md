@@ -67,7 +67,7 @@ a sombra (regra: demo/sombra primeiro).
   Plotly estático no `/grafico/{par}/{tf}` (o antigo `grafico.grafico_html` ficou legado; o raio-X
   do trade segue em Plotly). Usa **TradingView lightweight-charts** (CDN, v4.1.7): candles com
   zoom/scroll/arrastar, crosshair OHLC, tela cheia (⛶), enquadrar (⤢), troca de par/TF sem recarregar
-  e auto-refresh 20s. Linhas de S/R do motor como price lines. `time` = time_utc (hora do servidor).
+  e auto-refresh 5s. Linhas de S/R do motor como price lines. `time` = time_utc (hora do servidor).
   O dashboard embute via iframe (`allow="fullscreen"`) + "Abrir em tela cheia".
 - **web** (`web/app.py`): painel + `/analitico` + **`/trade/{id}` ("Raio-X do trade")** +
   **`/auditoria` ("Auditoria IA")**. Caddy
