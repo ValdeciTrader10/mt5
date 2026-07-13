@@ -452,6 +452,26 @@ def api_auditoria(request: Request, de: str = "", ate: str = "", formato: str = 
     return JSONResponse(d)
 
 
+@app.get("/api/raiox/{trade_id}")
+def api_raiox(request: Request, trade_id: int, formato: str = "texto",
+              antes: int = None, depois: int = None):
+    """Raio-X TEXTUAL de um trade (candles em pips + fatos) para a IA ler o price action.
+    `?formato=texto` (default, pronto para colar) ou `?formato=json`."""
+    if not auth.esta_logado(request):
+        raise HTTPException(status_code=401, detail="login necessário")
+    from .. import auditoria as aud
+
+    with db.sessao() as conn:
+        dados = aud.raiox_de_id(conn, trade_id, antes, depois)
+    if dados is None:
+        raise HTTPException(status_code=404, detail=f"trade #{trade_id} não encontrado")
+    if formato == "json":
+        return JSONResponse(dados)
+    from fastapi.responses import PlainTextResponse
+
+    return PlainTextResponse(aud.raiox_texto(dados))
+
+
 @app.get("/grafico/{par}/{tf}", response_class=HTMLResponse)
 def grafico(request: Request, par: str, tf: str):
     if not auth.esta_logado(request):

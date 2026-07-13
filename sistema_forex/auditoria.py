@@ -41,7 +41,7 @@ import re
 import sys
 from datetime import datetime, timezone
 
-from . import config, db, gestao
+from . import analise, config, db, gestao
 
 log = logging.getLogger("auditoria")
 
@@ -199,7 +199,7 @@ def _buscar_perdedores(conn, de_e, ate_e, limite_detalhe):
     where = " AND ".join(cond)
     rows = conn.execute(
         f"SELECT id, par, tf, estrategia, direcao, pips, lucro_usd, motivo_saida, "
-        f"preco_entrada, preco_saida, risco_inicial, mae_r, mfe_r, regime_entrada, "
+        f"preco_entrada, preco_saida, sl_servidor, risco_inicial, mae_r, mfe_r, regime_entrada, "
         f"abertura_utc, fechamento_utc FROM trades WHERE {where} ORDER BY fechamento_utc DESC",
         args,
     ).fetchall()
@@ -268,10 +268,15 @@ def _por_estrategia_tf(trades: list, perdedores: list) -> list:
     return linhas
 
 
-def dossie_perdedores(conn, de: str = "", ate: str = "", limite_detalhe: int = 60) -> dict:
-    """Monta o dossiê completo de auditoria das perdedoras no intervalo [de, ate]."""
+def dossie_perdedores(conn, de: str = "", ate: str = "", limite_detalhe: int = 60,
+                      raiox_trades: int = None) -> dict:
+    """Monta o dossiê completo de auditoria das perdedoras no intervalo [de, ate].
+
+    `raiox_trades` = quantas das perdedoras mais recentes recebem o RAIO-X TEXTUAL embutido
+    (candles em pips) para a IA ler o price action; o resto sai sob demanda em /api/raiox/{id}."""
     de_e, ate_e = _epoch(de), _epoch(ate, fim=True)
     trades, perdedores = _buscar_perdedores(conn, de_e, ate_e, limite_detalhe)
+    raiox_trades = raiox_trades if raiox_trades is not None else config.AUDITORIA_RAIOX_TRADES
 
     flags_totais = _classificacao_grupo(perdedores)
     detalhe = [{
@@ -284,6 +289,9 @@ def dossie_perdedores(conn, de: str = "", ate: str = "", limite_detalhe: int = 6
         "score": (t["ctx"] or {}).get("score"),
         "confluencias": (t["ctx"] or {}).get("confluencias") or [],
     } for t in perdedores[:limite_detalhe]]
+
+    # Raio-x textual (candles em pips) das K perdedoras mais recentes — a leitura de gráfico.
+    raiox = [raiox_dados(conn, t) for t in perdedores[:raiox_trades]]
 
     return {
         "periodo": {"de": de or "início", "ate": ate or "hoje"},
@@ -298,6 +306,7 @@ def dossie_perdedores(conn, de: str = "", ate: str = "", limite_detalhe: int = 6
         "perdas_por_motivo": _por(perdedores, "motivo_norm"),
         "perdedores": detalhe,
         "detalhe_limitado_a": limite_detalhe,
+        "raiox": raiox,
     }
 
 
@@ -370,9 +379,220 @@ def dossie_texto(d: dict) -> str:
                  f"{t['mfe_r']} | {t['flag']} | {t['regime']} | {t['sessao']} | "
                  f"{t['score']} | {confl} | {t['motivo_saida']}")
     L.append("")
-    L.append("— fim do dossiê. Peça à IA: 'analise e diga, por (estratégia × TF), o que manter, "
-             "o que calibrar (saída vs. gatilho) e o que retirar, justificando pelos padrões de falha'.")
+
+    # Raio-x textual (candles em pips) — a "visão do gráfico" para a IA ler o price action.
+    raiox = d.get("raiox") or []
+    if raiox:
+        L.append("## Raio-X das perdedoras (gráfico em texto — leia o price action)")
+        L.append(f"As {len(raiox)} perdedoras mais recentes com os candles em pips relativos à "
+                 "entrada. Use para julgar o STOP REAL (furou por ruído?), se o padrão confirmou "
+                 "antes da entrada, se a entrada foi adiantada e o que o preço fez após a saída.")
+        L.append("")
+        for r in raiox:
+            L.append(raiox_texto(r))
+            L.append("")
+
+    L.append("— fim do dossiê. Peça à IA: 'analise cada perdedora pelo raio-x (candles) e, por "
+             "(estratégia × TF), diga o que manter, o que calibrar (stop / ponto de entrada / "
+             "saída) e o que retirar, justificando pelo price action e pelos padrões de falha'.")
     return "\n".join(L)
+
+
+# --------------------------------------------------------------------------- #
+# Raio-X TEXTUAL — os candles do gráfico em pips, para a IA LER o price action
+# --------------------------------------------------------------------------- #
+# É o que transforma a auditoria de "números" em "leitura de gráfico": para cada perdedora,
+# serializa a janela de candles (antes/durante/depois) em PIPS relativos à entrada, marca
+# SL/saída e recomputa dos próprios candles os fatos que decidem a análise — furou o stop e
+# por quanto (stop no ruído?), quanto andou a favor antes de virar (alvo curto/saída cedo?),
+# e o que o preço fez DEPOIS da saída (continuou a favor = stop apertado; seguiu contra =
+# entrada/estratégia errada). A IA lê os candles e conclui; aqui só entregamos o gráfico em
+# texto + fatos objetivos verificáveis contra os candles.
+
+def _pip_de_trade(t) -> float:
+    """Tamanho exato de 1 pip que o sistema usou no trade (back-out de |saída−entrada|/|pips|).
+
+    Usa os pips GRAVADOS (respeitam params por símbolo — JPY, ouro); cai na heurística por
+    nº de casas só se faltar pips/saída (ex.: trade aberto)."""
+    ent, sai, p = t.get("preco_entrada"), t.get("preco_saida"), t.get("pips")
+    if ent is not None and sai is not None and p:
+        d = abs(sai - ent) / abs(p)
+        if d > 0:
+            return d
+    return analise._tamanho_pip(ent or 1.0)
+
+
+def _niveis_perto(niveis, entrada, pip, tf, max_pips=50.0, limite=10):
+    """S/R, FVG e OB ativos a até `max_pips` da entrada, com distância em pips (contexto do setup)."""
+    perto = []
+    for nv in niveis:
+        tipo = nv["tipo"]
+        preco = nv.get("preco")
+        if preco is None:
+            continue
+        # FVG/OB só do TF do trade (outros são ruído aqui); S/R valem de qualquer TF forte.
+        if (tipo.startswith("fvg") or tipo.startswith("ob")) and nv.get("tf_origem") != tf:
+            continue
+        dist = (preco - entrada) / pip
+        if abs(dist) <= max_pips:
+            m = nv.get("meta") or {}
+            perto.append({"tipo": tipo, "dist_pips": round(dist, 1),
+                          "tf": m.get("tf") or nv.get("tf_origem") or "—",
+                          "forca": nv.get("forca")})
+    perto.sort(key=lambda x: abs(x["dist_pips"]))
+    return perto[:limite]
+
+
+def raiox_dados(conn, t: dict, antes: int = None, depois: int = None) -> dict:
+    """Dados estruturados do raio-x textual de UM trade: candles em pips + fatos recomputados.
+
+    Reaproveita a MESMA janela e os MESMOS níveis do gráfico visual (grafico._janela_trade,
+    analise.niveis_ativos) para o texto e o gráfico contarem a mesma história."""
+    from .grafico import _janela_trade
+
+    antes = antes if antes is not None else config.AUDITORIA_RAIOX_ANTES
+    depois = depois if depois is not None else config.AUDITORIA_RAIOX_DEPOIS
+    par, tf = t["par"], t.get("tf") or "M5"
+    ent, sl, sai = t["preco_entrada"], t.get("sl_servidor"), t.get("preco_saida")
+    direcao = t["direcao"]
+    compra = direcao == "compra"
+    pip = _pip_de_trade(t)
+    ab, fe = t.get("abertura_utc"), t.get("fechamento_utc")
+
+    candles = _janela_trade(conn, par, tf, ab, fe, antes, depois)
+    niveis = analise.niveis_ativos(conn, par)
+
+    def em_pips(preco):
+        return round((preco - ent) / pip, 1)  # + = acima da entrada (sinal cru, vs. entrada)
+
+    def favor(preco):
+        # Excursão a FAVOR em pips (compra: subir; venda: descer). ≥0 é bom.
+        return round(((preco - ent) if compra else (ent - preco)) / pip, 1)
+
+    linhas, mfe_fav, mfe_off, mae_adv, mae_off = [], 0.0, None, 0.0, None
+    furou_sl, pico_pos_saida, fundo_pos_saida = 0.0, 0.0, 0.0
+    idx_ent = idx_sai = None
+    off = 0
+    for i, c in enumerate(candles):
+        tempo = c["time_utc"]
+        # candle de entrada = primeiro com time >= abertura; saída = primeiro com time >= fechamento
+        if idx_ent is None and ab is not None and tempo >= ab:
+            idx_ent = i
+        if idx_sai is None and fe is not None and tempo >= fe:
+            idx_sai = i
+    base_ent = idx_ent if idx_ent is not None else 0
+    for i, c in enumerate(candles):
+        off = i - base_ent
+        durante = (idx_ent is not None and i >= idx_ent and
+                   (idx_sai is None or i <= idx_sai))
+        pos_saida = idx_sai is not None and i > idx_sai
+        fav_h, fav_l = favor(c["high"]), favor(c["low"])
+        if durante:
+            mfe_i = max(fav_h, fav_l)      # melhor a favor tocado no candle
+            mae_i = min(fav_h, fav_l)      # pior contra (≤0)
+            if mfe_i > mfe_fav:
+                mfe_fav, mfe_off = mfe_i, off
+            if mae_i < mae_adv:
+                mae_adv, mae_off = mae_i, off
+            if sl is not None:  # furou o stop dentro da vida do trade?
+                estourou = (c["low"] <= sl) if compra else (c["high"] >= sl)
+                if estourou:
+                    prof = ((sl - c["low"]) if compra else (c["high"] - sl)) / pip
+                    furou_sl = max(furou_sl, round(prof, 1))
+        if pos_saida:
+            pico_pos_saida = max(pico_pos_saida, max(fav_h, fav_l))
+            fundo_pos_saida = min(fundo_pos_saida, min(fav_h, fav_l))
+        marca = ("E" if i == idx_ent else "") + ("X" if i == idx_sai else "")
+        linhas.append({
+            "off": off, "hora": datetime.utcfromtimestamp(tempo).strftime("%m-%d %H:%M"),
+            "o": em_pips(c["open"]), "h": em_pips(c["high"]),
+            "l": em_pips(c["low"]), "c": em_pips(c["close"]), "marca": marca,
+        })
+
+    sl_pips = em_pips(sl) if sl is not None else None
+    sai_pips = em_pips(sai) if sai is not None else None
+    return {
+        "id": t.get("id"), "par": par, "tf": tf, "direcao": direcao,
+        "estrategia": config.nome_estrategia(t.get("estrategia")),
+        "pip": pip, "entrada": ent, "sl": sl, "saida": sai,
+        "sl_pips": sl_pips, "saida_pips": sai_pips,
+        "pips_gravado": t.get("pips"), "R": t.get("r_result") or _res_r(t),
+        "mae_r": t.get("mae_r"), "mfe_r": t.get("mfe_r"),
+        "regime": t.get("regime_entrada") or "—",
+        "motivo_saida": t.get("motivo_saida"),
+        "flag": t.get("flag") or classificar_perda(t.get("mae_r"), t.get("mfe_r")),
+        # Fatos recomputados dos candles (verificáveis na tabela):
+        "mfe_pips": round(mfe_fav, 1), "mfe_offset": mfe_off,
+        "mae_pips": round(mae_adv, 1), "mae_offset": mae_off,
+        "furou_sl_pips": furou_sl,
+        "pos_saida_favor_pips": round(pico_pos_saida, 1),
+        "pos_saida_contra_pips": round(fundo_pos_saida, 1),
+        "niveis": _niveis_perto(niveis, ent, pip, tf),
+        "candles": linhas, "antes": antes, "depois": depois,
+        "ctx": t.get("ctx") or _contexto_decisao(conn, t),
+    }
+
+
+def raiox_texto(dados: dict) -> str:
+    """Bloco de texto do raio-x de um trade: fatos + níveis + candles em pips (a IA lê e analisa)."""
+    d = dados
+    L = []
+    seta = "↑ compra (a favor = ACIMA da entrada, +)" if d["direcao"] == "compra" \
+        else "↓ venda (a favor = ABAIXO da entrada, −)"
+    L.append(f"### RAIO-X #{d['id']} · {d['par']} {d['tf']} · {d['estrategia']} · {seta}")
+    L.append(f"Entrada=0 (preço {d['entrada']}). SL={d['sl_pips']} pips · "
+             f"Saída={d['saida_pips']} pips · pips gravado={d['pips_gravado']} · R={d['R']} · "
+             f"regime={d['regime']} · flag={d['flag']}")
+    L.append(f"Motivo da saída: {d['motivo_saida']}")
+    # Contexto da decisão (por que entrou)
+    if d.get("ctx"):
+        confl = "; ".join(str(c) for c in (d["ctx"].get("confluencias") or [])) or "—"
+        L.append(f"Por que entrou: score={d['ctx'].get('score')} · confluências: {confl}")
+    if not d["candles"]:
+        L.append("(sem candles na janela ainda — o coletor não gravou o contexto deste par/TF; "
+                 "reabra depois que o 'futuro' se preencher.)")
+        return "\n".join(L)
+
+    def _off(v):
+        return "—" if v is None else f"{v:+}"
+
+    # Fatos recomputados dos candles
+    L.append("FATOS (recomputados dos candles abaixo):")
+    L.append(f"  • Andou a favor até +{d['mfe_pips']} pips (no candle {_off(d['mfe_offset'])}) "
+             f"antes de virar — MFE.")
+    L.append(f"  • Pior contra: {d['mae_pips']} pips (candle {_off(d['mae_offset'])}) — MAE.")
+    if d["furou_sl_pips"] > 0:
+        L.append(f"  • O preço FUROU o SL em {d['furou_sl_pips']} pips (o stop foi tocado/"
+                 "ultrapassado dentro da vida do trade).")
+    else:
+        L.append("  • O preço NÃO furou o SL na janela durante o trade "
+                 "(saída por outro motivo, não stop de preço).")
+    L.append(f"  • DEPOIS da saída: foi até +{d['pos_saida_favor_pips']} pips a favor e "
+             f"{d['pos_saida_contra_pips']} pips contra (na direção do trade). "
+             "Muito a favor após sair = stop apertado/saída cedo; muito contra = "
+             "entrada/estratégia errada.")
+    # Níveis do motor perto da entrada
+    if d["niveis"]:
+        nv = " · ".join(f"{n['tipo']}({n['tf']}) {n['dist_pips']:+}p" for n in d["niveis"])
+        L.append(f"Níveis do motor perto da entrada (dist em pips): {nv}")
+    # Tabela de candles (pips vs entrada)
+    L.append(f"CANDLES (janela {d['antes']} antes / {d['depois']} depois; pips vs entrada; "
+             "off=candles desde a entrada; E=entrada, X=saída):")
+    L.append("off | hora | O | H | L | C | marca")
+    for c in d["candles"]:
+        L.append(f"{c['off']:+4d} | {c['hora']} | {c['o']:+6.1f} | {c['h']:+6.1f} | "
+                 f"{c['l']:+6.1f} | {c['c']:+6.1f} | {c['marca']}")
+    return "\n".join(L)
+
+
+def raiox_de_id(conn, trade_id: int, antes: int = None, depois: int = None) -> dict:
+    """Raio-x textual de um trade por id (para /api/raiox/{id} e o botão no /trade/{id})."""
+    r = conn.execute("SELECT * FROM trades WHERE id=?", (trade_id,)).fetchone()
+    if not r:
+        return None
+    t = dict(r)
+    t["tf"] = t["tf"] or "M5"
+    return raiox_dados(conn, t, antes, depois)
 
 
 # --------------------------------------------------------------------------- #
@@ -383,6 +603,16 @@ def main() -> None:
     args = [a for a in sys.argv[1:]]
     como_json = "--json" in args
     args = [a for a in args if not a.startswith("--")]
+    # `raiox <id>` → raio-x textual de UM trade; senão, dossiê do período [de, ate].
+    if args and args[0] == "raiox":
+        trade_id = int(args[1])
+        with db.sessao() as conn:
+            dados = raiox_de_id(conn, trade_id)
+        if dados is None:
+            print(f"Trade #{trade_id} não encontrado.")
+            return
+        print(json.dumps(dados, ensure_ascii=False, indent=2) if como_json else raiox_texto(dados))
+        return
     de = args[0] if len(args) > 0 else ""
     ate = args[1] if len(args) > 1 else ""
     with db.sessao() as conn:

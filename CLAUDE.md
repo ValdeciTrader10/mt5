@@ -71,6 +71,17 @@ a sombra (regra: demo/sombra primeiro).
   dossiê para a IA"** gera um bloco Markdown (`dossie_texto`) que o dono cola no chat — é a ponte
   para eu revisar o que manter/mudar/retirar. Também há `python -m sistema_forex.auditoria [de] [ate]
   [--json]` (CLI) e `/api/auditoria?formato=texto`. Funções puras testadas em `test_auditoria.py`.
+  **Raio-X TEXTUAL (a "visão do gráfico" p/ a IA):** além dos números, o dossiê embute, para as
+  `AUDITORIA_RAIOX_TRADES` perdedoras mais recentes, os candles da janela antes/durante/depois em
+  **pips relativos à entrada** (`raiox_dados`/`raiox_texto`, reaproveitando `grafico._janela_trade`
+  e `analise.niveis_ativos` — mesma história do gráfico visual). Recomputa dos próprios candles os
+  fatos que decidem a análise: **furou o SL e por quantos pips** (stop no ruído?), quanto andou a
+  favor antes de virar (MFE), o pior contra (MAE) e **o que o preço fez DEPOIS da saída** (muito a
+  favor = stop apertado/saída cedo; muito contra = entrada/estratégia errada), além dos níveis do
+  motor perto da entrada. Pip exato via back-out `|saída−entrada|/|pips|` (respeita JPY/ouro). Assim
+  a IA LÊ o price action e conclui sobre stop real / confirmação do padrão / ponto de entrada — não
+  só os agregados. Qualquer trade sob demanda: `/api/raiox/{id}?formato=texto` (link 📄 na tabela) ou
+  `python -m sistema_forex.auditoria raiox <id>`. Params `AUDITORIA_RAIOX_ANTES/DEPOIS/TRADES`.
 - Banco: `sistema_forex/db.py` (SQLite WAL, migrações idempotentes em `_migrar`).
 
 **3 bugs da imagem MT5 já corrigidos** (ver `deploy/mt5/`): (1) `mt5linux 1.0.3` sem
@@ -80,7 +91,7 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
 
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
-  `test_indicadores`, `test_multitf`). **85 testes, todos passando.** Rodar sempre antes de commitar.
+  `test_indicadores`, `test_multitf`). **93 testes, todos passando.** Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
 - Env sensíveis (senha do painel, VNC, MT5) só no Environment do Dokploy — nunca no git.

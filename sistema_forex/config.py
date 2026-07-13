@@ -321,6 +321,14 @@ SALDO_SIMULADO = float(os.environ.get("SALDO_SIMULADO", "1000"))
 GRAFICO_TRADE_BARRAS_ANTES = int(os.environ.get("GRAFICO_TRADE_BARRAS_ANTES", "60"))
 GRAFICO_TRADE_BARRAS_DEPOIS = int(os.environ.get("GRAFICO_TRADE_BARRAS_DEPOIS", "40"))
 
+# Auditoria IA — "raio-x textual" das perdedoras: candles em pips relativos à entrada que a IA
+# lê para analisar o price action (stop real, confirmação do padrão, entrada adiantada). Janela
+# menor que a do gráfico visual porque a IA lê candle a candle; nº de perdedoras com raio-x
+# embutido no dossiê é limitado (o resto sai sob demanda em /api/raiox/{id}).
+AUDITORIA_RAIOX_ANTES = int(os.environ.get("AUDITORIA_RAIOX_ANTES", "30"))
+AUDITORIA_RAIOX_DEPOIS = int(os.environ.get("AUDITORIA_RAIOX_DEPOIS", "30"))
+AUDITORIA_RAIOX_TRADES = int(os.environ.get("AUDITORIA_RAIOX_TRADES", "6"))
+
 # --------------------------------------------------------------------------- #
 # Logging
 # --------------------------------------------------------------------------- #

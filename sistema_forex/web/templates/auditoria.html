@@ -68,9 +68,13 @@
     <section>
       <h2>Como usar</h2>
       <p class="muted">O banco vive na VPS; esta página <b>exporta</b> as perdedoras já
-        classificadas por padrão de falha. Clique em <b>Copiar dossiê para a IA</b> e cole no chat
-        do assistente — peça: <i>"analise e diga, por (estratégia × TF), o que manter, o que
-        calibrar (saída ou gatilho) e o que retirar"</i>. Também há
+        classificadas por padrão de falha, <b>com os candles em torno de cada ordem (o gráfico em
+        texto, em pips)</b> — assim a IA lê o price action e diz o stop real, se o padrão confirmou
+        e se a entrada foi adiantada. Clique em <b>Copiar dossiê para a IA</b> e cole no chat do
+        assistente — peça: <i>"analise cada perdedora pelo raio-x (candles) e diga, por
+        (estratégia × TF), o que manter, o que calibrar (stop/entrada/saída) e o que retirar"</i>.
+        O dossiê já traz o raio-x das perdedoras mais recentes; para qualquer outra, o link 📄 na
+        tabela abre o raio-x textual dela. Também há
         <a href="/api/auditoria?formato=texto{% if de %}&de={{ de }}{% endif %}{% if ate %}&ate={{ ate }}{% endif %}" style="color:#2f81f7">texto puro</a>
         e <a href="/api/auditoria{% if de %}?de={{ de }}{% endif %}" style="color:#2f81f7">JSON</a>.</p>
     </section>
@@ -151,7 +155,8 @@
         </tr>
         {% for t in dados.perdedores %}
         <tr>
-          <td><a href="/trade/{{ t.id }}" target="_blank" style="color:#2f81f7" title="Raio-X">{{ t.id }}🔍</a></td>
+          <td><a href="/trade/{{ t.id }}" target="_blank" style="color:#2f81f7" title="Raio-X visual (gráfico)">{{ t.id }}🔍</a>
+            <a href="/api/raiox/{{ t.id }}?formato=texto" target="_blank" style="color:#8b949e" title="Raio-X textual (candles em pips p/ a IA)">📄</a></td>
           <td class="muted">{{ t.quando }}</td>
           <td>{{ t.par }}</td><td>{{ t.tf }}</td>
           <td>{{ t.estrategia }}</td>

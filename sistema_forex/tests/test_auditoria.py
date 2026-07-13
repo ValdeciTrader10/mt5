@@ -17,15 +17,20 @@ def _conn():
     c = sqlite3.connect(":memory:")
     c.row_factory = sqlite3.Row
     c.execute(
-        "CREATE TABLE trades (id INTEGER PRIMARY KEY AUTOINCREMENT, par TEXT, tf TEXT, "
-        "estrategia TEXT, direcao TEXT, pips REAL, lucro_usd REAL, motivo_saida TEXT, "
-        "preco_entrada REAL, preco_saida REAL, risco_inicial REAL, mae_r REAL, mfe_r REAL, "
-        "regime_entrada TEXT, abertura_utc INTEGER, fechamento_utc INTEGER)"
+        "CREATE TABLE trades (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket INTEGER, par TEXT, "
+        "tf TEXT, estrategia TEXT, direcao TEXT, lote REAL, pips REAL, lucro_usd REAL, "
+        "motivo_saida TEXT, sl_servidor REAL, preco_entrada REAL, preco_saida REAL, "
+        "risco_inicial REAL, mae_r REAL, mfe_r REAL, regime_entrada TEXT, "
+        "abertura_utc INTEGER, fechamento_utc INTEGER, simulado INTEGER)"
     )
     c.execute(
         "CREATE TABLE decisoes (id INTEGER PRIMARY KEY AUTOINCREMENT, par TEXT, time_utc INTEGER, "
         "tf TEXT, estrategia TEXT, direcao TEXT, resultado TEXT, motivo TEXT, dados_json TEXT)"
     )
+    c.execute("CREATE TABLE candles (par TEXT, tf TEXT, time_utc INTEGER, open REAL, "
+              "high REAL, low REAL, close REAL)")
+    c.execute("CREATE TABLE niveis (par TEXT, tipo TEXT, preco REAL, preco2 REAL, "
+              "tf_origem TEXT, forca REAL, n_toques INTEGER, meta_json TEXT, ativo INTEGER)")
     return c
 
 
@@ -165,6 +170,117 @@ def test_filtro_datas_exclui_fora_do_intervalo():
     _trade(c, lucro_usd=-10.0, fechamento_utc=1_752_000_000)      # 2025-07 (dentro)
     d = aud.dossie_perdedores(c, de="2025-01-01")
     assert d["resumo"]["n_perdedoras"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# Raio-X textual (candles em pips) — a "visão do gráfico" para a IA
+# --------------------------------------------------------------------------- #
+def _cndl(c, par, tf, t, o, h, l, cl):
+    c.execute("INSERT INTO candles VALUES (?,?,?,?,?,?,?)", (par, tf, t, o, h, l, cl))
+
+
+def _cenario_stop_apertado(c):
+    """Compra parada no ruído: anda +8 a favor, o preço FURA o SL em 2 pips e sai; DEPOIS
+    da saída recupera +15 pips a favor (clássico stop apertado / saída cedo)."""
+    P = "EURUSD#"
+    _trade(c, id=None, direcao="compra", preco_entrada=1.1000, sl_servidor=1.0990,
+           preco_saida=1.0990, risco_inicial=0.0010, pips=-10, lucro_usd=-10.0,
+           mae_r=-1.2, mfe_r=0.8, abertura_utc=1000, fechamento_utc=1300,
+           motivo_saida="stop (r=-1.0)")
+    velas = [
+        (820, 1.0999, 1.1001, 1.0998, 1.1000), (880, 1.1000, 1.1001, 1.0999, 1.1000),
+        (940, 1.1000, 1.1001, 1.0999, 1.1000), (1000, 1.1000, 1.1002, 1.0999, 1.1001),  # entrada
+        (1060, 1.1001, 1.1008, 1.1001, 1.1006),  # +8 a favor
+        (1120, 1.1004, 1.1006, 1.1003, 1.1004),
+        (1180, 1.1004, 1.1004, 1.0995, 1.0996),
+        (1240, 1.0996, 1.0997, 1.0988, 1.0991),  # low 1.0988 < SL 1.0990 → furou 2 pips
+        (1300, 1.0991, 1.0992, 1.0989, 1.0990),  # saída (stop)
+        (1360, 1.0991, 1.1010, 1.0991, 1.1008),  # recupera +10
+        (1420, 1.1008, 1.1015, 1.1006, 1.1012),  # +15 a favor após sair
+        (1480, 1.1012, 1.1013, 1.1009, 1.1011),
+    ]
+    for v in velas:
+        _cndl(c, P, "M5", *v)
+    c.commit()
+
+
+def test_pip_de_trade_back_out():
+    # |1.0990-1.1000| / |−10| = 0.0001 (respeita o pip real gravado)
+    t = {"preco_entrada": 1.1000, "preco_saida": 1.0990, "pips": -10}
+    assert abs(aud._pip_de_trade(t) - 0.0001) < 1e-12
+    # sem pips → heurística por casas (ouro ~2000 → 0.01)
+    assert aud._pip_de_trade({"preco_entrada": 2000.0, "preco_saida": None, "pips": None}) == 0.01
+
+
+def test_raiox_candles_em_pips_e_marcas():
+    c = _conn(); _cenario_stop_apertado(c)
+    d = aud.raiox_de_id(c, 1)
+    assert d["sl_pips"] == -10.0        # SL 10 pips abaixo da entrada
+    # candle de entrada e de saída marcados
+    marcas = {cd["marca"] for cd in d["candles"]}
+    assert "E" in marcas and "X" in marcas
+    # o candle +1 tem high a +8 pips vs entrada
+    c1 = [cd for cd in d["candles"] if cd["off"] == 1][0]
+    assert c1["h"] == 8.0, c1
+
+
+def test_raiox_detecta_furo_de_stop():
+    c = _conn(); _cenario_stop_apertado(c)
+    d = aud.raiox_de_id(c, 1)
+    # low 1.0988 vs SL 1.0990 → furou 2 pips
+    assert d["furou_sl_pips"] == 2.0, d["furou_sl_pips"]
+
+
+def test_raiox_mfe_mae_recomputados():
+    c = _conn(); _cenario_stop_apertado(c)
+    d = aud.raiox_de_id(c, 1)
+    assert d["mfe_pips"] == 8.0 and d["mfe_offset"] == 1
+    assert d["mae_pips"] == -12.0 and d["mae_offset"] == 4
+
+
+def test_raiox_excursao_pos_saida():
+    c = _conn(); _cenario_stop_apertado(c)
+    d = aud.raiox_de_id(c, 1)
+    # após a saída o preço foi a +15 a favor → sinal de stop apertado
+    assert d["pos_saida_favor_pips"] == 15.0, d["pos_saida_favor_pips"]
+
+
+def test_raiox_venda_favor_e_niveis():
+    c = _conn()
+    _trade(c, direcao="venda", preco_entrada=1.2000, sl_servidor=1.2010, preco_saida=1.2010,
+           risco_inicial=0.0010, pips=-10, lucro_usd=-10.0, abertura_utc=1000,
+           fechamento_utc=1120, mae_r=-1.0, mfe_r=0.2)
+    for v in [(1000, 1.2000, 1.2001, 1.1999, 1.2000), (1060, 1.2000, 1.2004, 1.1997, 1.2003),
+              (1120, 1.2003, 1.2011, 1.2002, 1.2010), (1180, 1.2009, 1.2010, 1.2005, 1.2006)]:
+        _cndl(c, "EURUSD#", "M5", *v)
+    # nível de resistência 3 pips acima da entrada
+    c.execute("INSERT INTO niveis VALUES (?,?,?,?,?,?,?,?,?)",
+              ("EURUSD#", "resistencia", 1.2003, None, "H1", 5, 3, None, 1))
+    c.commit()
+    d = aud.raiox_de_id(c, 1)
+    # venda: a favor = descer; no candle +1 o low 1.1997 = +3 pips a favor (MFE)
+    assert d["mfe_pips"] == 3.0, d["mfe_pips"]
+    # furou o SL (high 1.2011 > 1.2010) por 1 pip
+    assert d["furou_sl_pips"] == 1.0, d["furou_sl_pips"]
+    # nível perto aparece com distância +3 pips
+    tipos = {(n["tipo"], n["dist_pips"]) for n in d["niveis"]}
+    assert ("resistencia", 3.0) in tipos, d["niveis"]
+
+
+def test_raiox_texto_tem_fatos_e_candles():
+    c = _conn(); _cenario_stop_apertado(c)
+    txt = aud.raiox_texto(aud.raiox_de_id(c, 1))
+    assert "RAIO-X #1" in txt
+    assert "FUROU o SL" in txt
+    assert "FATOS" in txt and "CANDLES" in txt
+
+
+def test_dossie_embute_raiox():
+    c = _conn(); _cenario_stop_apertado(c)
+    d = aud.dossie_perdedores(c, raiox_trades=3)
+    assert len(d["raiox"]) == 1
+    assert d["raiox"][0]["furou_sl_pips"] == 2.0
+    assert "Raio-X das perdedoras" in aud.dossie_texto(d)
 
 
 def run():
