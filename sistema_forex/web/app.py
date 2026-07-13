@@ -516,6 +516,43 @@ def api_raiox(request: Request, trade_id: int, formato: str = "texto",
     return PlainTextResponse(aud.raiox_texto(dados))
 
 
+def _html_reset(msg: str, ok: bool = True) -> str:
+    cor = "#3fb950" if ok else "#f85149"
+    return f"""<!doctype html><html lang="pt-br"><head><meta charset="utf-8">
+<title>Manutenção</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{{background:#0d1117;color:#e6e6e6;font-family:system-ui,Arial;max-width:640px;
+margin:3rem auto;padding:0 1rem;line-height:1.6}}a{{color:#2f81f7}}
+.card{{border:1px solid #30363d;border-radius:12px;padding:1.4rem;border-left:4px solid {cor}}}
+code{{background:#161b22;padding:.1rem .3rem;border-radius:4px;font-size:.85em}}</style></head>
+<body><div class="card"><h2 style="margin-top:0">Manutenção — reset de dados</h2>
+<p>{msg}</p></div><p><a href="/auditoria">← voltar à Auditoria IA</a></p></body></html>"""
+
+
+@app.post("/manutencao/reset", response_class=HTMLResponse)
+def manutencao_reset(request: Request, confirmacao: str = Form("")):
+    """Zera trades/decisões (fecha posições do robô + BACKUP automático; preserva candles).
+    Destrutivo: guardado por login + confirmação digitada 'LIMPAR'."""
+    if not auth.esta_logado(request):
+        return auth.redirecionar_login()
+    from .. import manutencao as manut
+
+    if confirmacao.strip().upper() != "LIMPAR":
+        return HTMLResponse(_html_reset(
+            'Confirmação incorreta — digite <b>LIMPAR</b>. <b>Nada foi apagado.</b>', ok=False),
+            status_code=400)
+    fechadas = manut.fechar_posicoes_robo()
+    bak = manut._backup(config.DB_PATH)
+    with db.sessao() as conn:
+        apagados = manut.resetar(conn)
+    corpo = (f"✅ Limpeza concluída.<br>Posições do robô fechadas: <b>{fechadas}</b>.<br>"
+             f"Backup: <code>{bak}</code><br>"
+             f"Apagados: trades <b>{apagados.get('trades', 0)}</b>, "
+             f"decisões <b>{apagados.get('decisoes', 0)}</b> (níveis/estrutura/regime também). "
+             f"<b>Candles preservados.</b><br><br>"
+             f"⚠️ Agora faça um <b>REDEPLOY no Dokploy</b> para o executor reiniciar limpo.")
+    return HTMLResponse(_html_reset(corpo, ok=True))
+
+
 @app.get("/grafico/{par}/{tf}", response_class=HTMLResponse)
 def grafico(request: Request, par: str, tf: str):
     if not auth.esta_logado(request):

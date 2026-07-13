@@ -109,7 +109,10 @@ a sombra (regra: demo/sombra primeiro).
   ficarem órfãs); (2) BACKUP consistente (API de backup do SQLite); (3) apaga `trades`/`decisoes` +
   derivadas (`niveis`/`estrutura`/`regime_log`, que o motor regenera). **Preserva `candles`** (mercado).
   Depois: **redeploy** no Dokploy (executor reinicia sem estado velho). Usado em 13/07 p/ zerar os
-  dados pré-fix-de-fuso e recomeçar limpo. Testes em `test_manutencao.py`.
+  dados pré-fix-de-fuso e recomeçar limpo. Testes em `test_manutencao.py`. **Botão no painel:** a
+  aba **Auditoria IA** tem "🧹 Zerar dados" → `POST /manutencao/reset` (guardado por login +
+  confirmação digitada "LIMPAR" + `confirm()` JS); chama a mesma lógica (fecha posições + backup +
+  limpa) e mostra o resultado + lembrete de redeploy.
 - **Janela de negociação** = HORA DO SERVIDOR, `SESSAO_UTC=(4,21)` (env `SESSAO_INICIO`/`SESSAO_FIM`),
   alargada de (7,20) p/ 04:00–21:00 a pedido do dono (mais operações/horários p/ auditar). O nome
   `SESSAO_UTC` é legado; o valor é hora de servidor (o filtro usa a hora do candle=servidor).
