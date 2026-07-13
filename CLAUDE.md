@@ -63,6 +63,12 @@ a sombra (regra: demo/sombra primeiro).
   por ciclo (aguenta dezenas de posições sem martelar a ponte).
 - **coletor**: agora coleta **M1** também (cap de backfill via `BACKFILL_M1_BARRAS`, default
   3000) e o loop dispara pelo TF de operação MAIS FINO (M1 chega ao banco a cada minuto).
+- **Gráfico interativo** (`web/templates/grafico.html` + `/api/candles/{par}/{tf}`): substitui o
+  Plotly estático no `/grafico/{par}/{tf}` (o antigo `grafico.grafico_html` ficou legado; o raio-X
+  do trade segue em Plotly). Usa **TradingView lightweight-charts** (CDN, v4.1.7): candles com
+  zoom/scroll/arrastar, crosshair OHLC, tela cheia (⛶), enquadrar (⤢), troca de par/TF sem recarregar
+  e auto-refresh 20s. Linhas de S/R do motor como price lines. `time` = time_utc (hora do servidor).
+  O dashboard embute via iframe (`allow="fullscreen"`) + "Abrir em tela cheia".
 - **web** (`web/app.py`): painel + `/analitico` + **`/trade/{id}` ("Raio-X do trade")** +
   **`/auditoria` ("Auditoria IA")**. Caddy
   NÃO é usado no Dokploy (o Traefik dele faz proxy). Compose do Dokploy:

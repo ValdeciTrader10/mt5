@@ -150,10 +150,10 @@
         <select id="tf">
           {% for t in status.tfs %}<option value="{{ t }}"{% if t == 'M5' %} selected{% endif %}>{{ t }}</option>{% endfor %}
         </select>
-        <a class="btn" id="abrir">Ver gráfico</a>
-        <span class="muted">O gráfico é pesado (offline) — recarrega sob demanda, no botão. O status acima atualiza sozinho.</span>
+        <a class="btn" id="abrir" target="_blank" rel="noopener">Abrir em tela cheia ↗</a>
+        <span class="muted">Gráfico interativo: arraste para mover, pinça/scroll para zoom, ⛶ tela cheia. Troque par/TF aqui ou dentro do gráfico.</span>
       </div>
-      <iframe id="frame" src="/grafico/{{ status.pares[0]|urlencode }}/M5"></iframe>
+      <iframe id="frame" src="/grafico/{{ status.pares[0]|urlencode }}/M5" allow="fullscreen"></iframe>
     </section>
 
     <p class="muted"><span id="dot"></span>Status atualizado às <span id="atualizado">—</span> · a cada {{ status.painel_refresh_s }}s (sem recarregar o gráfico).</p>
@@ -246,12 +246,17 @@
       document.getElementById('atualizado').textContent = new Date().toLocaleTimeString('pt-BR');
     }
 
-    // Troca de gráfico (sob demanda — o iframe é pesado).
-    document.getElementById('abrir').addEventListener('click', function () {
-      var par = document.getElementById('par').value;
-      var tf = document.getElementById('tf').value;
-      document.getElementById('frame').src = '/grafico/' + encodeURIComponent(par) + '/' + encodeURIComponent(tf);
-    });
+    // Gráfico interativo: par/TF trocam o iframe na hora; "Abrir em tela cheia" abre a página inteira.
+    function _urlGrafico() {
+      return '/grafico/' + encodeURIComponent(document.getElementById('par').value) + '/' +
+        encodeURIComponent(document.getElementById('tf').value);
+    }
+    function _trocarFrame() { document.getElementById('frame').src = _urlGrafico(); }
+    document.getElementById('par').addEventListener('change', _trocarFrame);
+    document.getElementById('tf').addEventListener('change', _trocarFrame);
+    var abrir = document.getElementById('abrir');
+    abrir.href = _urlGrafico();
+    abrir.addEventListener('click', function () { abrir.href = _urlGrafico(); });
 
     // Primeira pintura instantânea + auto-refresh leve via /api/status (JSON).
     render(STATUS);

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Gráfico {{ par }} · {{ tf }}</title>
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.7/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #0d1117; color: #e6e6e6;
+      font-family: system-ui, -apple-system, Arial, sans-serif; }
+    body { display: flex; flex-direction: column; }
+    .bar { display: flex; gap: .5rem; align-items: center; padding: .5rem .6rem;
+      border-bottom: 1px solid #21262d; flex-wrap: wrap; }
+    .btn, select { background: #161b22; color: #e6e6e6; border: 1px solid #30363d;
+      border-radius: 8px; padding: .45rem .7rem; font-size: .95rem; cursor: pointer;
+      text-decoration: none; }
+    .btn:hover, select:hover { border-color: #2f81f7; }
+    .ohlc { font-size: .82rem; color: #9aa4b2; margin-left: auto; white-space: nowrap; }
+    .ohlc b { color: #e6e6e6; }
+    .msg { font-size: .8rem; color: #9aa4b2; }
+    #wrap { position: relative; flex: 1; min-height: 0; }
+    #chart { position: absolute; inset: 0; }
+    #wrap:fullscreen { background: #0d1117; }
+    #load { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #9aa4b2; font-size: .95rem; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <a href="/" class="btn">← Painel</a>
+    <select id="par" title="Par">
+      {% for p in pares %}<option value="{{ p }}" {{ 'selected' if p == par else '' }}>{{ p }}</option>{% endfor %}
+    </select>
+    <select id="tf" title="Timeframe">
+      {% for t in tfs %}<option value="{{ t }}" {{ 'selected' if t == tf else '' }}>{{ t }}</option>{% endfor %}
+    </select>
+    <button class="btn" id="full" title="Tela cheia">⛶</button>
+    <button class="btn" id="fit" title="Enquadrar tudo">⤢</button>
+    <button class="btn" id="reload" title="Atualizar">↻</button>
+    <span class="ohlc" id="ohlc"></span>
+  </div>
+  <div id="wrap">
+    <div id="chart"></div>
+    <div id="load">carregando…</div>
+  </div>
+
+  <script>
+    var CFG = { par: {{ par|tojson }}, tf: {{ tf|tojson }} };
+
+    if (!window.LightweightCharts) {
+      document.getElementById('load').textContent =
+        'Não foi possível carregar a biblioteca do gráfico (sem internet?). Tente recarregar.';
+    }
+
+    var LC = window.LightweightCharts;
+    var el = document.getElementById('chart');
+    var chart = LC.createChart(el, {
+      autoSize: true,
+      layout: { background: { color: '#0d1117' }, textColor: '#c9d1d9', fontSize: 12 },
+      grid: { vertLines: { color: '#161b22' }, horzLines: { color: '#161b22' } },
+      rightPriceScale: { borderColor: '#30363d' },
+      timeScale: { borderColor: '#30363d', timeVisible: true, secondsVisible: false },
+      crosshair: { mode: LC.CrosshairMode.Normal },
+      localization: {
+        // time_utc é hora do SERVIDOR (MetaTrader); mostramos como está (sem re-fuso).
+        timeFormatter: function (t) { return new Date(t * 1000).toISOString().slice(5, 16).replace('T', ' '); },
+      },
+    });
+    var serie = chart.addCandlestickSeries({
+      upColor: '#3fb950', downColor: '#f85149',
+      borderUpColor: '#3fb950', borderDownColor: '#f85149',
+      wickUpColor: '#3fb950', wickDownColor: '#f85149',
+    });
+
+    var linhas = [];   // price lines de S/R (para limpar ao recarregar)
+
+    function fmt(v) { return v == null ? '—' : Number(v).toFixed(v >= 20 ? 2 : 5); }
+
+    function pintarOHLC(c) {
+      var e = document.getElementById('ohlc');
+      if (!c) { e.textContent = ''; return; }
+      e.innerHTML = 'O <b>' + fmt(c.open) + '</b>  A <b>' + fmt(c.high) + '</b>  B <b>' +
+        fmt(c.low) + '</b>  F <b>' + fmt(c.close) + '</b>';
+    }
+
+    chart.subscribeCrosshairMove(function (p) {
+      if (p && p.seriesData && p.seriesData.get(serie)) pintarOHLC(p.seriesData.get(serie));
+    });
+
+    async function carregar(manterZoom) {
+      document.getElementById('load').style.display = 'flex';
+      try {
+        var r = await fetch('/api/candles/' + encodeURIComponent(CFG.par) + '/' + CFG.tf + '?n=500',
+          { headers: { 'Accept': 'application/json' } });
+        if (!r.ok) throw new Error('http ' + r.status);
+        var d = await r.json();
+        serie.setData(d.candles || []);
+        // S/R do motor como linhas de preço
+        linhas.forEach(function (l) { serie.removePriceLine(l); });
+        linhas = [];
+        (d.niveis || []).forEach(function (nv) {
+          linhas.push(serie.createPriceLine({
+            price: nv.preco,
+            color: nv.tipo === 'suporte' ? '#238636' : '#8b2c26',
+            lineWidth: 1, lineStyle: LC.LineStyle.Dotted,
+            axisLabelVisible: true, title: nv.tipo === 'suporte' ? 'S' : 'R',
+          }));
+        });
+        if (!manterZoom) chart.timeScale().fitContent();
+        var ult = (d.candles || [])[(d.candles || []).length - 1];
+        pintarOHLC(ult);
+        document.getElementById('load').style.display = 'none';
+      } catch (e) {
+        document.getElementById('load').textContent = 'Falha ao carregar candles: ' + e.message;
+        document.getElementById('load').style.display = 'flex';
+      }
+    }
+
+    function trocar() {
+      CFG.par = document.getElementById('par').value;
+      CFG.tf = document.getElementById('tf').value;
+      history.replaceState(null, '', '/grafico/' + encodeURIComponent(CFG.par) + '/' + CFG.tf);
+      document.title = 'Gráfico ' + CFG.par + ' · ' + CFG.tf;
+      carregar(false);
+    }
+    document.getElementById('par').addEventListener('change', trocar);
+    document.getElementById('tf').addEventListener('change', trocar);
+    document.getElementById('reload').addEventListener('click', function () { carregar(true); });
+    document.getElementById('fit').addEventListener('click', function () { chart.timeScale().fitContent(); });
+    document.getElementById('full').addEventListener('click', function () {
+      var w = document.getElementById('wrap');
+      if (document.fullscreenElement) document.exitFullscreen();
+      else if (w.requestFullscreen) w.requestFullscreen();
+    });
+
+    carregar(false);
+    setInterval(function () { carregar(true); }, 20000);   // atualiza sozinho (mantém o zoom)
+  </script>
+</body>
+</html>

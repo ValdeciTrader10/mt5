@@ -553,15 +553,36 @@ def manutencao_reset(request: Request, confirmacao: str = Form("")):
     return HTMLResponse(_html_reset(corpo, ok=True))
 
 
+@app.get("/api/candles/{par}/{tf}")
+def api_candles(request: Request, par: str, tf: str, n: int = 500):
+    """OHLC + níveis S/R de (par, tf) em JSON, para o gráfico interativo (lightweight-charts).
+    `time` é o time_utc do candle (hora do servidor/MetaTrader), em segundos."""
+    if not auth.esta_logado(request):
+        raise HTTPException(status_code=401, detail="login necessário")
+    if par not in config.PARES or tf not in config.TFS_COLETA:
+        raise HTTPException(status_code=404, detail="par/tf inválido")
+    from ..grafico import _buscar_candles
+
+    with db.sessao() as conn:
+        rows = _buscar_candles(conn, par, tf, max(20, min(n, 5000)))
+        niveis = analise.niveis_ativos(conn, par)
+    candles = [{"time": r["time_utc"], "open": r["open"], "high": r["high"],
+                "low": r["low"], "close": r["close"]} for r in rows]
+    sr = [{"preco": nv["preco"], "tipo": nv["tipo"], "forca": nv.get("forca") or 1}
+          for nv in niveis if nv["tipo"] in ("suporte", "resistencia")]
+    return JSONResponse({"par": par, "tf": tf, "candles": candles, "niveis": sr})
+
+
 @app.get("/grafico/{par}/{tf}", response_class=HTMLResponse)
 def grafico(request: Request, par: str, tf: str):
     if not auth.esta_logado(request):
         return auth.redirecionar_login()
-    from ..grafico import grafico_html
-
     if par not in config.PARES or tf not in config.TFS_COLETA:
         raise HTTPException(status_code=404, detail="par/tf inválido")
-    return HTMLResponse(grafico_html(par, tf))
+    return templates.TemplateResponse(
+        request, "grafico.html",
+        {"par": par, "tf": tf, "pares": config.PARES, "tfs": config.TFS_COLETA},
+    )
 
 
 @app.get("/trade/{trade_id}", response_class=HTMLResponse)
