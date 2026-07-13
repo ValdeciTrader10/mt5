@@ -314,6 +314,13 @@ SAIDA_ESPACO_SEGURAR_R = float(os.environ.get("SAIDA_ESPACO_SEGURAR_R", "1.0"))
 MAGIC = int(os.environ.get("MAGIC", "500250"))
 SALDO_SIMULADO = float(os.environ.get("SALDO_SIMULADO", "1000"))
 
+# Raio-X do trade (/trade/{id}): quantos candles do PRÓPRIO TF do trade desenhar ANTES da
+# entrada (contexto que levou à decisão) e DEPOIS do fechamento (o que o preço fez em seguida
+# — revela stop no ruído, alvo curto, entrada adiantada). Como os candles ficam no banco, o
+# "futuro" se preenche sozinho com o tempo; auditar dias depois mostra o desfecho completo.
+GRAFICO_TRADE_BARRAS_ANTES = int(os.environ.get("GRAFICO_TRADE_BARRAS_ANTES", "60"))
+GRAFICO_TRADE_BARRAS_DEPOIS = int(os.environ.get("GRAFICO_TRADE_BARRAS_DEPOIS", "40"))
+
 # --------------------------------------------------------------------------- #
 # Logging
 # --------------------------------------------------------------------------- #

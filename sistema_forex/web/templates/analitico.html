@@ -152,7 +152,8 @@
           <th class="num">Pips</th><th class="num">USD</th>
           <th class="num" title="Maximum Adverse Excursion (R)">MAE</th>
           <th class="num" title="Maximum Favorable Excursion (R)">MFE</th>
-          <th>Motivo de saída</th></tr></thead>
+          <th>Motivo de saída</th>
+          <th title="Raio-X: gráfico com o contexto antes/depois para auditar o trade">Raio-X</th></tr></thead>
         <tbody id="tb-trades"></tbody>
       </table>
     </section>
@@ -274,8 +275,9 @@
           '<td class="num ' + sign(t.lucro) + '">' + fmt(t.lucro, 2) + '</td>' +
           '<td class="num neg">' + fmt(t.mae_r, 2) + '</td>' +
           '<td class="num pos">' + fmt(t.mfe_r, 2) + '</td>' +
-          '<td class="muted">' + esc(t.motivo) + '</td></tr>';
-      }).join('') || '<tr><td colspan="10" class="muted">Sem trades no período.</td></tr>';
+          '<td class="muted">' + esc(t.motivo) + '</td>' +
+          '<td>' + (t.id != null ? '<a href="/trade/' + t.id + '" target="_blank" title="Abrir raio-X do trade">🔍</a>' : '—') + '</td></tr>';
+      }).join('') || '<tr><td colspan="11" class="muted">Sem trades no período.</td></tr>';
       var p = (d.de || 'início') + ' → ' + (d.ate || 'agora');
       document.getElementById('periodo').textContent = 'Período: ' + p;
       document.getElementById('de').value = d.de || '';

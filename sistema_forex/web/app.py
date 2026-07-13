@@ -304,7 +304,7 @@ def _analitico(de: str = "", ate: str = "") -> dict:
     where = " AND ".join(cond)
     with db.sessao() as conn:
         rows = conn.execute(
-            f"SELECT par, tf, estrategia, direcao, pips, lucro_usd, motivo_saida, simulado, "
+            f"SELECT id, par, tf, estrategia, direcao, pips, lucro_usd, motivo_saida, simulado, "
             f"mae_r, mfe_r, regime_entrada, abertura_utc, fechamento_utc FROM trades "
             f"WHERE {where} ORDER BY fechamento_utc DESC",
             args,
@@ -323,6 +323,7 @@ def _analitico(de: str = "", ate: str = "") -> dict:
 
     lista = [
         {
+            "id": t["id"],
             "quando": _hora(t["fechamento_utc"]), "par": t["par"], "tf": t["tf"] or "M5",
             "estrategia": config.nome_estrategia(t["estrategia"]),
             "direcao": t["direcao"], "pips": t["pips"], "lucro": t["lucro_usd"],
@@ -428,6 +429,17 @@ def grafico(request: Request, par: str, tf: str):
     if par not in config.PARES or tf not in config.TFS_COLETA:
         raise HTTPException(status_code=404, detail="par/tf inválido")
     return HTMLResponse(grafico_html(par, tf))
+
+
+@app.get("/trade/{trade_id}", response_class=HTMLResponse)
+def raio_x_trade(request: Request, trade_id: int, antes: int = None, depois: int = None):
+    """Raio-X de um trade: contexto (candles antes/depois), entrada/SL/saída, MAE/MFE e o
+    'porquê entrou' — para auditar POR QUE perdeu e se cabe calibração ou ajuste técnico."""
+    if not auth.esta_logado(request):
+        return auth.redirecionar_login()
+    from ..grafico import grafico_trade_html
+
+    return HTMLResponse(grafico_trade_html(trade_id, antes=antes, depois=depois))
 
 
 # --------------------------------------------------------------------------- #
