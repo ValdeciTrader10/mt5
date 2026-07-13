@@ -253,3 +253,92 @@ Skill em `.claude/skills/trading-quant-expert/` (referências+roadmap).
    fiquem negativas — a sombra existe justamente para cortar as ruins e manter as boas por TF.
 
 Consultar SEMPRE a skill `trading-quant-expert` ao mexer em estratégia/risco/execução.
+
+---
+
+# ROADMAP MESTRE — LABORATÓRIO SOMBRA MULTI-VARIANTE (a partir de 13/07)
+
+> Doc-fonte: `CONTEXTO_MESTRE_TRADING.md` (enviado pelo dono, consolida e SUBSTITUI os contextos
+> antigos). Ele expande o sistema atual (que é essencialmente a **Variante A**) para um **laboratório
+> de 3 variantes rodando em sombra ao mesmo tempo**: **A_ORIGINAL** (as estratégias como já estão —
+> grupo de controle, não recriar), **B_FUZZY_PURO** (Fuzzy Wyckoff fiel à didática) e **C_HIBRIDA**
+> (as estratégias + 7 integrações fuzzy). Objetivo: após 4–8 semanas de coleta, a auditoria estatística
+> diz qual (variante × estratégia × par × TF × mercado) tem edge real e vai p/ demo. Inclui ainda
+> **fuzzy_score**, **VWAP**, **Sync Line micro/macro**, **EV score**, **candles pintados** e um
+> **módulo B3/WIN** (fase posterior). Metodologia: sombra antes de demo; nunca calibrar e validar no
+> mesmo período; sem look-ahead. **Consultar a skill `trading-quant-expert` em TODA etapa de estratégia/risco.**
+
+## PROTOCOLO DE EXECUÇÃO POR ETAPA (para o dono limpar o contexto entre passos)
+O dono coda **uma etapa por vez** ("coda a ETAPA N"). Ao terminar CADA etapa, ANTES/junto do deploy:
+1. rodar os testes + `py_compile`; 2. commit + push (Dokploy redeploya); 3. **atualizar ESTE roadmap**:
+marcar a etapa `✅ FEITO` com 1 linha do que entrou (arquivos/tabelas/env) e o que ficou pendente;
+4. relatar e liberar o dono p/ **limpar a conversa**. Assim cada sessão é curta e a memória carrega o estado.
+Status: `⬜ pendente` · `🔧 em andamento` · `✅ feito`.
+
+## AUDITORIA (ETAPA 0) — ✅ FEITO (13/07)
+**JÁ PRONTO (= Variante A, forex, no ar):** coletor M1/M5/M15/H1/D1/W1 + spread; motor (ATR, ADX,
+swings, estrutura SMC BOS/CHoCH, S/R por qualidade, FVG, order blocks, gaps, regime, máx/mín do DIA);
+**7 estratégias** em sombra (`confluencia_v1`, `sweep_choch_v1`, `order_block_v1`, `pullback_tendencia_v1`,
+`fecha_gap_v1`, `pullback_rompimento_v1`, `rompimento_extremos_v1`) catalogadas por TF (M1/M5/M15);
+simulador de resultado tick-a-tick com MAE/MFE; executor (sombra + real curado paralelo demo);
+/analitico + /auditoria + raio-X + simulação de invalidação; gráfico interativo (lightweight-charts).
+**FALTA vs doc-mestre** (vira o roadmap abaixo): dimensão `variante`; pivots diários; EMAs/SMA;
+máx/mín asiática/semana/**mês**; VWAP+bandas; **fuzzy_score**; **sync line**; **EV score**; painel de
+scores + candles pintados; **Variante B**; **Variante C**; relatório multi-variante (split-half,
+vw_performance); **módulo B3/WIN**. As "9 estratégias" do doc ≠ as 7 atuais: mapeiam ~7 (sr_m15≈
+confluencia, smc_estrutura≈sweep_choch, order_block, fecha_gap, pullback_rompimento, max_min_m15≈
+rompimento_extremos, tendencia≈pullback_tendencia); **faltam 2**: `pullback_medias` (EMAs) e
+`pivot_confluencia` (pivots) → ETAPA 2.
+
+## ETAPAS (codar na ordem; cada uma = 1 pedido do dono)
+
+**⬜ ETAPA 1 — Fundação de dados do laboratório.** (a) coluna `variante` em `decisoes`/`trades`
+(default `A_ORIGINAL`, migração idempotente) → matriz passa a ser (variante × estratégia × par × tf);
+(b) níveis que faltam no motor, gravados em `niveis`: **pivots diários clássicos** (PP/R1-3/S1-3) e
+**máx/mín** da sessão asiática (00–07 servidor), semana e **mês** anteriores (tipos `pivot_*`,
+`max/min_semana`, `max/min_mes`); (c) **EMAs 9/20/45 + SMA50/200** puros e testados em `indicadores.py`.
+Aceite: migração sem perder dado; níveis novos aparecem no /grafico; testes dos indicadores passam.
+
+**⬜ ETAPA 2 — Completar a Variante A p/ as 9 estratégias.** Adicionar (sem tocar nas 7) `pullback_medias`
+(toque EMA9/EMA20 do TF acima em tendência; FVG/OB dobram o score) e `pivot_confluencia` (toque em
+PP/R1/S1 a <0,5×ATR de zona S/R/OB + rejeição; lateral = fade). Marcadas `variante=A_ORIGINAL`.
+Aceite: 9 livros/TF na sombra; funções puras testadas.
+
+**⬜ ETAPA 3 — fuzzy_score.py + VWAP + tabelas base.** VWAP diária + bandas ±1σ/±2σ (reset 00:00
+servidor, nível `vwap`); `fuzzy_score.py` (inputs delta/range/vol/corpo/seq → fuzzificação triangular →
+regras SE-ENTÃO → score 0–100 + estados lima/verde/branco/fúcsia/vermelho + flags absorcao/exaustao/
+transicao_causa), tabela `fuzzy_scores`, **cache por (par,tf,candle)**; **Sync Line** micro/macro +
+tabela `sync_line`; **EV score** (4 componentes, gravado no `scores_json` do sinal, NÃO bloqueia na v1).
+Aceite: testes sintéticos (rally c/ volume → >76; absorção → flag; exaustão → puxa p/ 50) passam.
+
+**⬜ ETAPA 4 — Painel de scores no gráfico.** No gráfico interativo: linhas de score M15/M5/M1 +
+**Sync Line** no rodapé (verde/vermelho/amarelo) + VWAP e bandas + **candles pintados pelo estado fuzzy**.
+Aceite: validação visual do dono em 3 dias distintos.
+
+**⬜ ETAPA 5 — Variante B (Fuzzy Puro).** Checklist de 6 itens (compra/venda espelhados), desvio-padrão
+manual sobre 20 closes, pirâmide MTF estrita (M15 maré / M5 correnteza / M1 timing), cenários nomeados
+(ESTOURO/ABSORÇÃO DE TOPO/EXAUSTÃO/PULLBACK VWAP → logar), saída técnica (SMA50/VWAP oposta), ordem-stop
+expira em 3 candles. Roda em sombra marcada `variante=B_FUZZY_PURO`. Aceite: reproduz o operacional fiel.
+
+**⬜ ETAPA 6 — Variante C (Híbrida).** As 9 estratégias + 7 integrações fuzzy como LEITURA de
+`fuzzy_scores` (sem alterar a lógica interna): veto de absorção; score M15 confluência/veto; virada de
+score na zona (OB/sr_m15); sweep validado por esforço; saída antecipada por score M5 contra; exaustão
+aperta stop; filtro VWAP de localização. Marca `variante=C_HIBRIDA`. Aceite: A vs C comparável no relatório.
+
+**⬜ ETAPA 7 — Relatório sombra multi-variante.** `vw_performance` (view SQL ou agregação Python):
+ranking por expectância em R (mín. 30–50 sinais/célula), heatmap estratégia×TF por par, **A vs C**
+(trades ruins evitados vs bons perdidos pelo filtro fuzzy), curva de equity por variante, distribuição
+de motivos de bloqueio, **split-half** (edge estável nas duas metades). Resumo semanal via Telegram.
+Aceite: 1º relatório auditável.
+
+**⬜ ETAPA 8 — Módulo B3/WIN (fase posterior).** `coletor_b3` (WIN + WDO/DIs), tabela `correlacao_b3`,
+painel MACRO TRADE, `config_b3`, WIN na matriz (demo BR), **veto de correlação só no B3** (NUNCA no forex),
+alerta de rollover. Aceite: WIN logando com correlações.
+
+**⬜ ETAPA 9 — Auditoria estatística → executor demo.** Só após 4–8 semanas de coleta. Critério de
+aprovação por célula: expectância >0 com ≥50 sinais, profit factor ≥1,3, **estável no split-half**. Liga
+a célula aprovada no executor demo (nunca real antes disso). Aceite: decisão POR DADOS.
+
+**Regras que valem em todas as etapas:** nenhuma variante executa ordem real na sombra; chamadas MT5 sob
+lock global; candle em formação nunca entra na análise; gravar spread do sinal; no forex NÃO coletar/usar
+correlação (só B3); cache de scores por candle (CPU da VPS); nunca calibrar e validar no mesmo período.
