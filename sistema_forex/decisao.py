@@ -81,8 +81,9 @@ def _niveis(conn, par: str):
 
 
 def _extremos_dia(conn, par: str, agora_utc: int):
-    """Máxima/mínima do último dia FECHADO (D1) — liquidez PDH/PDL. Pega o candle D1 cujo
-    início é ANTERIOR à meia-noite UTC do dia corrente, evitando o dia em formação."""
+    """Máxima/mínima do último dia FECHADO (D1) — liquidez PDH/PDL. `agora_utc` é a hora do
+    candle (= hora do SERVIDOR), então a fronteira já é meia-noite do servidor: pega o D1 cujo
+    início é ANTERIOR à meia-noite do dia corrente, evitando o dia em formação."""
     dia_inicio = agora_utc - (agora_utc % 86400)
     r = conn.execute(
         "SELECT high, low FROM candles WHERE par=? AND tf='D1' AND time_utc < ? "

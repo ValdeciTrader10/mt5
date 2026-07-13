@@ -157,7 +157,10 @@ Assim o filtro de sessão do `decisao` (hora do candle=servidor) e o `_sessao` d
 não contra `_agora()`). ⚠️ Trades ANTIGOS (pré-fix) têm `abertura_utc` em UTC → o raio-X deles ainda
 desalinha; a guarda `janela_suspeita` (`simular_saida_invalidacao` descarta quando a vela de entrada
 está >0.5R do preço de entrada) cobre isso. `mfe_r`/`mae_r` gravados TICK A TICK sempre foram a fonte
-confiável. Ressalva: `DD_DIARIO` ainda reseta em meia-noite UTC (`_checar_dia`) — não afeta o raio-X.
+confiável. **DD diário e PDH/PDL também no relógio do servidor:** `_checar_dia`/`_equity` usam
+`_agora()` (meia-noite do servidor, `_agora()%86400`) em vez de `datetime.now(UTC)` — consistente com
+`fechamento_utc` (server); `_extremos_dia` já usava a hora do candle (server). Assim o sistema inteiro
+opera no relógio do MetaTrader. (`decisoes.criada_utc` segue em UTC só p/ o `delay_s`.)
 
 ## Regras inegociáveis (lições MASMC — NÃO repetir)
 Verificar margem antes de order_send (retcode 10019); pips por `price_open`/`price_current`

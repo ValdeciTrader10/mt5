@@ -19,7 +19,7 @@ verificada antes de abrir, contabilidade de pips por price_open/price_current, l
 import logging
 import signal
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 
 from . import analise, config, db, gestao, indicadores, mt5_bridge, telegram_notif
 
@@ -288,8 +288,9 @@ class Executor:
     def _equity(self, conn):
         if self.tem_real:
             return mt5_bridge.equity()   # equity REAL do demo (o livro real é o que protegemos)
-        # simulado: saldo base + realizado no dia + não-realizado das posições sim
-        hoje0 = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+        # simulado: saldo base + realizado no dia + não-realizado das posições sim.
+        # Meia-noite do SERVIDOR (fechamento_utc é hora de servidor — mesmo relógio do MetaTrader).
+        hoje0 = _agora() - (_agora() % 86400)
         realizado = conn.execute(
             "SELECT COALESCE(SUM(lucro_usd),0) s FROM trades WHERE simulado=1 AND fechamento_utc>=?", (hoje0,)
         ).fetchone()["s"]
@@ -302,12 +303,14 @@ class Executor:
         return config.SALDO_SIMULADO + realizado + nao_real
 
     def _checar_dia(self, conn):
-        dia = datetime.now(timezone.utc).date().isoformat()
+        # Dia do SERVIDOR (MetaTrader), consistente com abertura/fechamento_utc e os candles.
+        dia = datetime.utcfromtimestamp(_agora()).date().isoformat()
         if dia != self.dia:
             self.dia = dia
             self.saldo_inicial_dia = self._equity(conn) or config.SALDO_SIMULADO
             self.dd_avisado = False
-            log.info("Novo dia %s — saldo inicial de referência: %.2f", dia, self.saldo_inicial_dia)
+            log.info("Novo dia %s (servidor) — saldo inicial de referência: %.2f",
+                     dia, self.saldo_inicial_dia)
 
     def _dd_ok(self, conn) -> bool:
         """DD diário do livro REAL (equity do demo). Só trava o livro real; a sombra nunca
