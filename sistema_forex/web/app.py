@@ -420,6 +420,38 @@ def api_analitico(request: Request, de: str = "", ate: str = ""):
     return JSONResponse(_analitico(de, ate))
 
 
+@app.get("/auditoria", response_class=HTMLResponse)
+def auditoria_page(request: Request, de: str = "", ate: str = ""):
+    """Dossiê de calibração das PERDEDORAS: bloco de texto pronto para colar na IA + tabelas.
+    É a 'forma de a IA auditar as operações perdedoras' (o banco vive na VPS; aqui exportamos)."""
+    if not auth.esta_logado(request):
+        return auth.redirecionar_login()
+    from .. import auditoria as aud
+
+    with db.sessao() as conn:
+        d = aud.dossie_perdedores(conn, de, ate)
+    texto = aud.dossie_texto(d)
+    return templates.TemplateResponse(
+        request, "auditoria.html", {"dados": d, "texto": texto, "de": de, "ate": ate}
+    )
+
+
+@app.get("/api/auditoria")
+def api_auditoria(request: Request, de: str = "", ate: str = "", formato: str = "json"):
+    """JSON (default) ou texto puro (`?formato=texto`) do dossiê — para automação/copiar."""
+    if not auth.esta_logado(request):
+        raise HTTPException(status_code=401, detail="login necessário")
+    from .. import auditoria as aud
+
+    with db.sessao() as conn:
+        d = aud.dossie_perdedores(conn, de, ate)
+    if formato == "texto":
+        from fastapi.responses import PlainTextResponse
+
+        return PlainTextResponse(aud.dossie_texto(d))
+    return JSONResponse(d)
+
+
 @app.get("/grafico/{par}/{tf}", response_class=HTMLResponse)
 def grafico(request: Request, par: str, tf: str):
     if not auth.esta_logado(request):

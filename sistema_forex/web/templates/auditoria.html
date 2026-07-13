@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auditoria IA — Operações perdedoras</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #0e1117; color: #e6e6e6; margin: 0; }
+    header { display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 1.5rem; border-bottom: 1px solid #21262d; background: #161b22; }
+    header h1 { font-size: 1.05rem; margin: 0; }
+    header nav a { color: #8b949e; text-decoration: none; font-size: .85rem; margin-left: 1rem; }
+    header nav a:hover, header nav a.on { color: #e6e6e6; }
+    main { padding: 1.5rem; max-width: 1150px; margin: 0 auto; }
+    .filtros { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: 1.2rem; }
+    label.f { color: #8b949e; font-size: .82rem; }
+    input[type=date], .btn, select { background: #0d1117; color: #e6e6e6; border: 1px solid #30363d;
+      border-radius: 8px; padding: .4rem .6rem; font-size: .9rem; }
+    .btn { cursor: pointer; text-decoration: none; }
+    .btn:hover { border-color: #2f81f7; }
+    .btn.p { background: #2f81f7; border-color: #2f81f7; color: #fff; font-weight: 600; }
+    section { margin-top: 1.8rem; }
+    section > h2 { font-size: .95rem; border-left: 3px solid #2f81f7; padding-left: .6rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .84rem; }
+    th, td { text-align: left; padding: .4rem .55rem; border-bottom: 1px solid #21262d; }
+    th { color: #8b949e; font-weight: 600; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pos { color: #3fb950; } .neg { color: #f85149; } .muted { color: #8b949e; font-size: .82rem; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .7rem; }
+    .kpi { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: .7rem .9rem; }
+    .kpi h3 { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: #8b949e; margin: 0 0 .25rem; }
+    .kpi .v { font-size: 1.35rem; font-weight: 700; }
+    .flag { font-size: .72rem; font-weight: 600; padding: .06rem .4rem; border-radius: 6px; white-space: nowrap; }
+    .f-alvo_curto { color: #d29922; background: #33280d; }
+    .f-devolveu_parcial { color: #d29922; background: #2a230d; }
+    .f-entrada_adiantada { color: #f85149; background: #3a1618; }
+    .f-perda_ordenada { color: #8b949e; background: #1c2128; }
+    .f-sem_dados { color: #6e7681; background: #161b22; }
+    .ver { font-size: .74rem; font-weight: 700; }
+    .ver-MAN { color: #3fb950; } .ver-CAL { color: #d29922; }
+    .ver-RET { color: #f85149; } .ver-AMO { color: #8b949e; }
+    .copiabox { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 1rem; }
+    .copiabox textarea { width: 100%; min-height: 240px; background: #0d1117; color: #c9d1d9;
+      border: 1px solid #30363d; border-radius: 8px; padding: .7rem; font-family: ui-monospace, monospace;
+      font-size: .78rem; line-height: 1.4; resize: vertical; }
+    .copiarow { display: flex; gap: .6rem; align-items: center; margin-bottom: .6rem; flex-wrap: wrap; }
+    .ok { color: #3fb950; font-size: .82rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🤖 Auditoria IA <span class="muted">· operações perdedoras (sombra)</span></h1>
+    <nav>
+      <a href="/">Painel</a><a href="/analitico">Análise</a><a href="/auditoria" class="on">Auditoria IA</a><a href="/logout">Sair</a>
+    </nav>
+  </header>
+  <main>
+    <form class="filtros" method="get" action="/auditoria">
+      <label class="f">De <input type="date" name="de" value="{{ de }}"></label>
+      <label class="f">Até <input type="date" name="ate" value="{{ ate }}"></label>
+      <button class="btn p" type="submit">Filtrar</button>
+      <span class="muted">Período: {{ dados.periodo.de }} → {{ dados.periodo.ate }}</span>
+    </form>
+
+    <section>
+      <h2>Como usar</h2>
+      <p class="muted">O banco vive na VPS; esta página <b>exporta</b> as perdedoras já
+        classificadas por padrão de falha. Clique em <b>Copiar dossiê para a IA</b> e cole no chat
+        do assistente — peça: <i>"analise e diga, por (estratégia × TF), o que manter, o que
+        calibrar (saída ou gatilho) e o que retirar"</i>. Também há
+        <a href="/api/auditoria?formato=texto{% if de %}&de={{ de }}{% endif %}{% if ate %}&ate={{ ate }}{% endif %}" style="color:#2f81f7">texto puro</a>
+        e <a href="/api/auditoria{% if de %}?de={{ de }}{% endif %}" style="color:#2f81f7">JSON</a>.</p>
+    </section>
+
+    <section>
+      <div class="copiabox">
+        <div class="copiarow">
+          <button class="btn p" id="copiar" type="button">📋 Copiar dossiê para a IA</button>
+          <span class="ok" id="copiado" style="display:none">✔ copiado — cole no chat da IA</span>
+        </div>
+        <textarea id="dossie" readonly>{{ texto }}</textarea>
+      </div>
+    </section>
+
+    <section>
+      <h2>Resumo do período</h2>
+      <div class="kpis">
+        <div class="kpi"><h3>Trades</h3><div class="v">{{ dados.resumo.n }}</div></div>
+        <div class="kpi"><h3>Perdedoras</h3><div class="v neg">{{ dados.resumo.n_perdedoras }}</div></div>
+        <div class="kpi"><h3>Winrate</h3><div class="v">{{ dados.resumo.winrate }}%</div></div>
+        <div class="kpi"><h3>Expectativa</h3><div class="v {{ 'pos' if dados.resumo.expectativa >= 0 else 'neg' }}">{{ dados.resumo.expectativa }}</div></div>
+        <div class="kpi"><h3>USD total</h3><div class="v {{ 'pos' if dados.resumo.usd >= 0 else 'neg' }}">{{ dados.resumo.usd }}</div></div>
+        <div class="kpi"><h3>MFE médio das perdas</h3><div class="v">{{ dados.resumo.mfe_perdas }}R</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Perdedoras por padrão de falha</h2>
+      <p class="muted">Como cada perda "falhou" — separa o que é problema de saída (deixou lucro na
+        mesa) do que é problema de gatilho (entrou adiantado) ou edge inexistente.</p>
+      <table>
+        <tr><th>Padrão</th><th class="num">Qtde</th><th>O que sugere</th></tr>
+        {% for f in ['alvo_curto','devolveu_parcial','entrada_adiantada','perda_ordenada','sem_dados'] %}
+        {% if dados.flags_perdedoras[f] %}
+        <tr>
+          <td><span class="flag f-{{ f }}">{{ f }}</span></td>
+          <td class="num">{{ dados.flags_perdedoras[f] }}</td>
+          <td class="muted">{{ dados.acao_por_flag[f] }}</td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </table>
+    </section>
+
+    <section>
+      <h2>Por estratégia × timeframe <span class="muted">— o veredito de calibração (pior → melhor)</span></h2>
+      <table>
+        <tr>
+          <th>Estratégia · TF</th><th class="num">n</th><th class="num">wr%</th>
+          <th class="num">PF</th><th class="num">exp</th><th class="num">USD</th>
+          <th class="num">MFEméd</th>
+          <th class="num" title="alvo_curto / devolveu / adiantada / ordenada">perdas (ac/dv/ea/po)</th>
+          <th>Veredito</th>
+        </tr>
+        {% for x in dados.por_estrategia_tf %}
+        <tr>
+          <td>{{ x.chave }}</td>
+          <td class="num">{{ x.n }}</td>
+          <td class="num">{{ x.winrate }}</td>
+          <td class="num">{{ x.profit_factor if x.profit_factor is not none else '—' }}</td>
+          <td class="num {{ 'pos' if x.expectativa >= 0 else 'neg' }}">{{ x.expectativa }}</td>
+          <td class="num {{ 'pos' if x.usd >= 0 else 'neg' }}">{{ x.usd }}</td>
+          <td class="num">{{ x.mfe_medio if x.mfe_medio is not none else '—' }}</td>
+          <td class="num">{{ x.perd_alvo_curto }}/{{ x.perd_devolveu_parcial }}/{{ x.perd_entrada_adiantada }}/{{ x.perd_perda_ordenada }}</td>
+          <td><span class="ver ver-{{ x.veredito[:3] }}">{{ x.veredito }}</span></td>
+        </tr>
+        {% endfor %}
+      </table>
+    </section>
+
+    <section>
+      <h2>Perdedoras (detalhe — até {{ dados.detalhe_limitado_a }} mais recentes)</h2>
+      <table>
+        <tr>
+          <th>#</th><th>Quando</th><th>Par</th><th>TF</th><th>Estratégia</th><th>Dir</th>
+          <th class="num">pips</th><th class="num">USD</th><th class="num">R</th>
+          <th class="num">MAE</th><th class="num">MFE</th><th>Falha</th><th>Regime</th><th>Saída</th>
+        </tr>
+        {% for t in dados.perdedores %}
+        <tr>
+          <td><a href="/trade/{{ t.id }}" target="_blank" style="color:#2f81f7" title="Raio-X">{{ t.id }}🔍</a></td>
+          <td class="muted">{{ t.quando }}</td>
+          <td>{{ t.par }}</td><td>{{ t.tf }}</td>
+          <td>{{ t.estrategia }}</td>
+          <td>{{ t.direcao }}</td>
+          <td class="num">{{ t.pips }}</td>
+          <td class="num neg">{{ t.usd }}</td>
+          <td class="num">{{ t.R if t.R is not none else '—' }}</td>
+          <td class="num">{{ t.mae_r if t.mae_r is not none else '—' }}</td>
+          <td class="num">{{ t.mfe_r if t.mfe_r is not none else '—' }}</td>
+          <td><span class="flag f-{{ t.flag }}">{{ t.flag }}</span></td>
+          <td class="muted">{{ t.regime }}</td>
+          <td class="muted">{{ t.motivo_saida }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if not dados.perdedores %}<p class="muted">Sem operações perdedoras no período.</p>{% endif %}
+    </section>
+  </main>
+  <script>
+    document.getElementById('copiar').addEventListener('click', async function () {
+      var ta = document.getElementById('dossie');
+      try {
+        await navigator.clipboard.writeText(ta.value);
+      } catch (e) {
+        ta.focus(); ta.select(); document.execCommand('copy');
+      }
+      var ok = document.getElementById('copiado');
+      ok.style.display = 'inline';
+      setTimeout(function () { ok.style.display = 'none'; }, 3000);
+    });
+  </script>
+</body>
+</html>
