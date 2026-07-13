@@ -33,7 +33,7 @@ def _tratar_sinal(signum, frame):  # pragma: no cover - sinal do SO
 # --------------------------------------------------------------------------- #
 def _ultimo_m5(conn, par: str):
     return conn.execute(
-        "SELECT time_utc, close, spread FROM candles WHERE par=? AND tf='M5' "
+        "SELECT time_utc, open, high, low, close, spread FROM candles WHERE par=? AND tf='M5' "
         "ORDER BY time_utc DESC LIMIT 1",
         (par,),
     ).fetchone()
@@ -92,6 +92,9 @@ def montar_snapshot(conn, par: str, candle_m5) -> dict:
     hora_utc = time.gmtime(candle_m5["time_utc"]).tm_hour
     return {
         "close": candle_m5["close"],
+        "open": candle_m5["open"],
+        "high": candle_m5["high"],
+        "low": candle_m5["low"],
         "spread_pips": spread_pips,
         "hora_utc": hora_utc,
         "atr": _atr_m5(conn, par),
@@ -129,6 +132,7 @@ def avaliar_par(conn, par: str, candle_m5) -> dict:
         score_min=config.SCORE_MIN_CONFLUENCIAS,
         nivel_prox_atr=config.NIVEL_PROX_ATR,
         forca_min=config.SR_FORCA_MIN,
+        pavio_min=config.REJEICAO_PAVIO_MIN,
     )
     _gravar_decisao(conn, par, candle_m5["time_utc"], dec)
     conn.commit()

@@ -6,12 +6,14 @@
 from .. import estrategias as e
 
 # Config de teste (espelha os defaults relevantes do config.py)
-CFG = dict(sessao_utc=(7, 20), spread_max_pips=2.0, score_min=2, nivel_prox_atr=0.5, forca_min=3)
+CFG = dict(sessao_utc=(7, 20), spread_max_pips=2.0, score_min=2, nivel_prox_atr=0.5,
+           forca_min=3, pavio_min=0.5)
 
 
 def _snap(**kw):
     base = dict(
-        close=1.1000, spread_pips=1.0, hora_utc=10, atr=0.0010,
+        close=1.1000, open=1.1000, high=1.1005, low=1.0995,
+        spread_pips=1.0, hora_utc=10, atr=0.0010,
         regime="tendencia_alta", suportes=[], resistencias=[], fvgs=[], ultimo_evento=None,
     )
     base.update(kw)
@@ -56,14 +58,22 @@ def test_sem_vies_quando_indefinido():
     assert d["resultado"] == "nao_entrou" and d["direcao"] is None
 
 
-def test_lateral_vende_no_topo():
-    # lateral + preço colado na resistência forte, longe do suporte → venda
-    snap = _snap(regime="lateral", close=1.1050,
+def test_lateral_vende_no_topo_com_rejeicao():
+    # lateral, preço na resistência forte, e candle de REJEIÇÃO (pavio superior, fecha embaixo)
+    snap = _snap(regime="lateral", open=1.1050, high=1.1055, low=1.1045, close=1.1047,
                  resistencias=[(1.1051, 4)], suportes=[(1.0900, 4)],
                  ultimo_evento={"evento": "CHOCH", "direcao": "baixa", "tf": "M15"})
     d = e.avaliar(snap, **CFG)
-    assert d["direcao"] == "venda", d
-    assert d["resultado"] == "entrou", d
+    assert d["direcao"] == "venda" and d["resultado"] == "entrou", d
+
+
+def test_lateral_sem_rejeicao_nao_entra():
+    # mesma resistência, mas candle SEM rejeição (fechou no topo, sem pavio) → não entra
+    snap = _snap(regime="lateral", open=1.1046, high=1.1052, low=1.1045, close=1.1051,
+                 resistencias=[(1.1051, 4)], suportes=[(1.0900, 4)],
+                 ultimo_evento={"evento": "CHOCH", "direcao": "baixa", "tf": "M15"})
+    d = e.avaliar(snap, **CFG)
+    assert d["resultado"] == "nao_entrou" and "rejeição" in d["motivo"], d
 
 
 def main() -> int:

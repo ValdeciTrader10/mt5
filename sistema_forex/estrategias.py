@@ -23,6 +23,31 @@ def _mais_forte_perto(preco: float, niveis: list, tol: float):
     return max(candidatos, key=lambda x: x[1]) if candidatos else None
 
 
+def candle_rejeicao(snap: dict, direcao: str, nivel: float, tol: float, pavio_min: float) -> bool:
+    """True se o último candle REJEITOU o nível na direção desejada.
+
+    "O preço parou no nível e mostrou reversão": o candle entra na zona do S/R, deixa um
+    pavio contrário ≥ `pavio_min` do range e FECHA de volta (na metade a favor).
+      - compra: rejeição em SUPORTE (pavio inferior longo, fecha na metade de cima).
+      - venda:  rejeição em RESISTÊNCIA (pavio superior longo, fecha na metade de baixo).
+    """
+    o, h, l, c = snap.get("open"), snap.get("high"), snap.get("low"), snap.get("close")
+    if None in (o, h, l, c):
+        return False
+    rng = h - l
+    if rng <= 0:
+        return False
+    if direcao == "compra":
+        tocou = l <= nivel + tol                  # o candle entrou na zona do suporte
+        pavio = (min(o, c) - l) / rng             # pavio inferior (rejeição de baixo)
+        fechou_a_favor = c >= l + rng * 0.5
+        return tocou and pavio >= pavio_min and fechou_a_favor
+    tocou = h >= nivel - tol                       # zona da resistência
+    pavio = (h - max(o, c)) / rng                  # pavio superior (rejeição de cima)
+    fechou_a_favor = c <= h - rng * 0.5
+    return tocou and pavio >= pavio_min and fechou_a_favor
+
+
 def _decisao(resultado, direcao, regime, score, confluencias, motivo):
     return {
         "resultado": resultado,           # entrou | nao_entrou
@@ -35,7 +60,8 @@ def _decisao(resultado, direcao, regime, score, confluencias, motivo):
     }
 
 
-def avaliar(snap: dict, *, sessao_utc, spread_max_pips, score_min, nivel_prox_atr, forca_min) -> dict:
+def avaliar(snap: dict, *, sessao_utc, spread_max_pips, score_min, nivel_prox_atr,
+            forca_min, pavio_min=0.5) -> dict:
     """Avalia o snapshot e devolve a decisão (dict). Ver módulo para o modelo."""
     regime = snap.get("regime", "indefinido")
     atr = snap.get("atr")
@@ -88,6 +114,14 @@ def avaliar(snap: dict, *, sessao_utc, spread_max_pips, score_min, nivel_prox_at
             break
 
     score = len(conf)
+
+    # --- Entrada via S/R exige REJEIÇÃO no nível (só no fade de regime lateral) ---
+    # "Só usa o S/R se o preço parar na região e mostrar que vai reverter."
+    if regime == "lateral":
+        nivel = perto_sup if direcao == "compra" else perto_res
+        if not (nivel and candle_rejeicao(snap, direcao, nivel[0], tol, pavio_min)):
+            return _decisao("nao_entrou", direcao, regime, score, conf,
+                            "sem rejeição no nível (aguardando reversão)")
 
     # --- Filtros duros (gates) ---
     hora = snap.get("hora_utc", 0)
