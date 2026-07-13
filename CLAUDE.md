@@ -102,7 +102,11 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
   escala MUITO diferente do forex: pip≈0.01, move dólares por vela, spread ~20–50 pontos. Sem
   cuidado, o SL global (12–40 pips = só ~$0.40) insta-estoparia todo trade e o filtro de spread
   (2.0) barraria quase tudo. Por isso há **parâmetros por símbolo** (`config.PARAMS_SIMBOLO` +
-  `param_simbolo()`): GOLD usa `sl_min_pips=100`, `sl_max_pips=800` (~$1–$8) e `spread_max_pips=6.0`.
+  `param_simbolo()`): GOLD usa `sl_min_pips=800`, `sl_max_pips=6000` (~$8–$60) e `spread_max_pips=6.0`.
+  ⚠️ LIÇÃO (13/07): o 1º cap do ouro (`sl_max=800`=$8) era MENOR que uma vela de ouro ($10–$40) →
+  100% dos trades insta-estopavam (-1R). Regra: no ouro o SL tem de deixar o ATR×3 mandar (velas
+  gigantes), teto largo. Auditar via /auditoria; ⚠️ o raio-X do ouro pode vir inconsistente se a
+  coleta do ouro (recém-adicionado) ainda tiver pouco histórico — conferir contagem/timestamps.
   Threading: `decisao.avaliar_par` usa o spread por símbolo; `executor._abrir` usa os limites de SL
   por símbolo. Nome do símbolo resolvido por `ALIASES_SIMBOLO` (GOLD→tenta GOLD/GOLD#/XAUUSD/XAUUSD#);
   `coletor.resolver_simbolos` agora **pula** (com aviso) um símbolo que o broker não tem, sem derrubar

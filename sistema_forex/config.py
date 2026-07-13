@@ -146,9 +146,11 @@ ALIASES_SIMBOLO = {
 # spread (2.0) barraria quase tudo. Aqui cada símbolo sobrescreve o que precisa; o resto
 # cai no default global. (spread_max_pips está na régua interna pontos/10 do snapshot.)
 PARAMS_SIMBOLO = {
-    # Ouro: pip≈0.01 → SL 100–800 pips = ~$1–$8 (o ATR×3 do M5 costuma cair nessa faixa);
+    # Ouro: pip≈0.01. ATENÇÃO — uma vela de ouro (M1/M5) move $10–$40 = 1000–4000 pips, então
+    # um SL de $8 (800 pips) fica DENTRO do ruído e insta-estopa todo trade. O SL do ouro tem
+    # de deixar o ATR×3 mandar: piso $8 (800), teto $60 (6000) só como guarda-corpo largo.
     # spread razoável do ouro ~20–50 pontos → 2.0–5.0 na régua interna; cap 6.0.
-    "GOLD": {"spread_max_pips": 6.0, "sl_min_pips": 100, "sl_max_pips": 800},
+    "GOLD": {"spread_max_pips": 6.0, "sl_min_pips": 800, "sl_max_pips": 6000},
     # GBPJPY: cruzado VOLÁTIL e de spread mais largo (~25–40 pontos → 2.5–4.0 na régua
     # interna) — com o cap global 2.0 quase não entraria. pip=0.01 (JPY); dá um pouco mais
     # de folga no SL (ATR×3 do M5 nesse cruzado passa dos 40 pips às vezes).

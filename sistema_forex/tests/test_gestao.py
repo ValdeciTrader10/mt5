@@ -12,7 +12,7 @@ SAIDA = dict(be_trigger_r=1.0, giveback_r=0.7, tempo_max_h=8)
 
 def test_param_simbolo_override_e_default():
     # OURO tem override; forex cai no default global.
-    assert cfg.param_simbolo("GOLD", "sl_max_pips", cfg.SL_MAX_PIPS) == 800
+    assert cfg.param_simbolo("GOLD", "sl_max_pips", cfg.SL_MAX_PIPS) == 6000
     assert cfg.param_simbolo("GOLD", "spread_max_pips", cfg.SPREAD_MAX_PIPS) == 6.0
     assert cfg.param_simbolo("EURUSD#", "sl_max_pips", cfg.SL_MAX_PIPS) == cfg.SL_MAX_PIPS
     # GBPJPY: só sobrescreve o spread (e o sl_max); o sl_min cai no default global.
