@@ -93,7 +93,8 @@ def _status_dados() -> dict:
         analise_pares = [analise.resumo_par(conn, par) for par in config.PARES]
         posicoes_abertas = [
             {
-                "par": r["par"], "direcao": r["direcao"], "estrategia": r["estrategia"],
+                "par": r["par"], "direcao": r["direcao"],
+                "estrategia": config.nome_estrategia(r["estrategia"]),
                 "entrada": round(r["preco_entrada"], 5),
                 "sl": round(r["sl_servidor"], 5) if r["sl_servidor"] else None,
                 "desde": datetime.utcfromtimestamp(r["abertura_utc"]).strftime("%m-%d %H:%M"),
@@ -120,7 +121,7 @@ def _status_dados() -> dict:
             {
                 "par": r["par"],
                 "hora": datetime.utcfromtimestamp(r["time_utc"]).strftime("%m-%d %H:%M"),
-                "estrategia": r["estrategia"],
+                "estrategia": config.nome_estrategia(r["estrategia"]),
                 "direcao": r["direcao"] or "—",
                 "resultado": r["resultado"],
                 "motivo": r["motivo"],
@@ -291,7 +292,7 @@ def _analitico(de: str = "", ate: str = "") -> dict:
     lista = [
         {
             "quando": _hora(t["fechamento_utc"]), "par": t["par"], "tf": t["tf"] or "M5",
-            "estrategia": t["estrategia"],
+            "estrategia": config.nome_estrategia(t["estrategia"]),
             "direcao": t["direcao"], "pips": t["pips"], "lucro": t["lucro_usd"],
             "motivo": t["motivo_saida"], "simulado": bool(t["simulado"]),
             "mae_r": t["mae_r"], "mfe_r": t["mfe_r"], "regime": t["regime"], "sessao": t["sessao"],
@@ -300,11 +301,14 @@ def _analitico(de: str = "", ate: str = "") -> dict:
     ]
     for t in trades:  # rótulo estável do TF de operação (default M5 p/ trades antigos)
         t["tf"] = t["tf"] or "M5"
+    por_estrategia = _por(trades, "estrategia")
+    for r in por_estrategia:  # rótulo amigável (agrupa pelo código, exibe o nome bonito)
+        r["chave"] = config.nome_estrategia(r["chave"])
     return {
         "de": de, "ate": ate,
         "geral": _agregar(trades),
         "curva": _curva_capital(trades, config.SALDO_SIMULADO),
-        "por_estrategia": _por(trades, "estrategia"),
+        "por_estrategia": por_estrategia,
         "por_timeframe": _por(trades, "tf"),
         "por_regime": _por(trades, "regime"),
         "por_sessao": _por(trades, "sessao"),

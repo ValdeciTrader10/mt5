@@ -428,7 +428,8 @@ class Executor:
             "r_max": 0.0, "be_movido": False, "mae_r": 0.0, "mfe_r": 0.0,
         }
         tag = "" if self.ativa else " [sim]"
-        msg = f"🟢{tag} {par} {tf} {direcao} @ {entrada:.5f} | SL {sl:.5f} | {estrategia}"
+        msg = (f"🟢{tag} {par} {tf} {direcao} @ {entrada:.5f} | SL {sl:.5f} | "
+               f"{config.nome_estrategia(estrategia)}")
         log.info(msg)
         telegram_notif.enviar(msg)
 

@@ -186,6 +186,20 @@ SWING_N = {"M1": SWING_N_M1, "M5": SWING_N_M5, "M15": SWING_N_M15, "H1": SWING_N
 DECISAO_POLL_S = int(os.environ.get("DECISAO_POLL_S", "5"))
 # Proximidade (em ATR) do preço a um nível para contar como confluência.
 NIVEL_PROX_ATR = float(os.environ.get("NIVEL_PROX_ATR", "0.5"))
+
+# Nomes AMIGÁVEIS das estratégias (só para exibição no painel/análise). O código interno
+# — ex. "sweep_choch_v1" — permanece estável no banco para não perder o histórico.
+NOMES_ESTRATEGIAS = {
+    "confluencia_v1": "Confluência (tendência / S-R)",
+    "sweep_choch_v1": "Caça-stops + reversão",
+    "order_block_v1": "Order block (reteste)",
+    "pullback_tendencia_v1": "Pullback na tendência",
+}
+
+
+def nome_estrategia(codigo):
+    """Nome amigável da estratégia; devolve o próprio código se não houver mapeamento."""
+    return NOMES_ESTRATEGIAS.get(codigo, codigo or "—")
 # Rejeição no nível: pavio contrário ≥ esta fração do range (doc §6.2). Por padrão a
 # rejeição é apenas uma CONFLUÊNCIA (soma no score); não obriga a entrada — para não
 # engessar. Ligue EXIGIR_REJEICAO_SR para torná-la gate no fade lateral (modo estrito).
