@@ -29,10 +29,19 @@ a sombra (regra: demo/sombra primeiro).
 - **coletor** (`coletor_mt5.py`): Fase 1 — candles M5/M15/H1/D1/**W1** em SQLite.
 - **motor** (`analise.py`): Fase 2 — níveis (S/R, FVG, gaps), estrutura SMC, regime (ADX).
 - **estrategista** (`decisao.py`): Fase 4 sombra — decide e registra (sem operar). Roda
-  QUATRO estratégias em paralelo por candle M5: `confluencia_v1`, `sweep_choch_v1`,
-  `order_block_v1` e `pullback_tendencia_v1` (cada uma grava sua própria linha em `decisoes`;
-  o executor deduplica no nível de posição). Todas desligáveis por env (`*_HABILITADA`).
-- **executor** (`executor.py`): Fase 5 — abre/gerencia posições (simulação ou real).
+  QUATRO estratégias em paralelo: `confluencia_v1`, `sweep_choch_v1`, `order_block_v1` e
+  `pullback_tendencia_v1` (cada uma grava sua própria linha em `decisoes`; o executor
+  deduplica no nível de posição). Todas desligáveis por env (`*_HABILITADA`). **Multi-TF:**
+  avalia por (par, **TF de operação**) para cada TF em `config.TFS_OPERACAO` (default
+  `M1,M5,M15`) — cada TF é um LIVRO de sombra INDEPENDENTE (vela/ATR/janela do próprio TF;
+  S/R/regime são contexto par-level). A decisão é marcada com `tf`. ⚠️ M1 é observação de
+  sombra p/ comparar (no M1 o spread come o alvo — skill §0.1), nunca candidato a real.
+- **executor** (`executor.py`): Fase 5 — abre/gerencia posições (simulação ou real). Cada
+  **TF é um livro independente**: dedup (`MAX_POS_POR_PAR`/`MAX_POS_TOTAL`) e guarda de
+  correlação contam só posições do MESMO `tf`; SL usa o ATR do TF que operou. Trade marcado
+  com `tf`.
+- **coletor**: agora coleta **M1** também (cap de backfill via `BACKFILL_M1_BARRAS`, default
+  3000) e o loop dispara pelo TF de operação MAIS FINO (M1 chega ao banco a cada minuto).
 - **web** (`web/app.py`): painel + `/analitico`. Caddy NÃO é usado no Dokploy (o Traefik
   dele faz proxy). Compose do Dokploy: `deploy/docker-compose.dokploy.yml`.
 - Banco: `sistema_forex/db.py` (SQLite WAL, migrações idempotentes em `_migrar`).
@@ -44,7 +53,7 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
 
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
-  `test_indicadores`). **24 testes, todos passando.** Rodar sempre antes de commitar.
+  `test_indicadores`, `test_multitf`). **48 testes, todos passando.** Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
 - Env sensíveis (senha do painel, VNC, MT5) só no Environment do Dokploy — nunca no git.
@@ -71,8 +80,10 @@ desde a v1; DD diário máx 5%; anti-spam Telegram por flags; reset diário no t
 
 ## O que já foi entregue (Fases 1–5 + ferramentas)
 Fases 1–5 no ar (sombra); saída "com direito a desenvolver"; **dashboard analítico**
-(ganho/perda, filtro de datas, por estratégia/motivo/par/regime/sessão, **MAE/MFE**,
-**curva de capital + drawdown**); **guard de correlação por moeda**; S/R forte por
+(ganho/perda, filtro de datas, por estratégia/**timeframe**/motivo/par/regime/sessão,
+**MAE/MFE**, **curva de capital + drawdown**); **operações de sombra independentes por TF
+(M1/M5/M15)** com comparação "Por timeframe" no /analitico; **guard de correlação por moeda**
+(por livro de TF); S/R forte por
 TF+qualidade; entrada por rejeição (confluência); **4 estratégias na sombra**:
 `confluencia_v1`; **`sweep_choch_v1`** (liquidity sweep + CHoCH no M5, `detectar_sweep_choch`);
 **`order_block_v1`** (reteste de OB fresco M15/H1 + rejeição — detecção `indicadores.order_blocks`
@@ -82,7 +93,8 @@ testadas; params por env. Skill em `.claude/skills/trading-quant-expert/` (refer
 
 ## PRÓXIMOS PASSOS (priorizados)
 1. **Deixar a sombra rodar alguns dias** e auditar `/analitico` → especialmente
-   **Por estratégia** e **Por regime** (o `lateral`/fade de S/R estava negativo).
+   **Por estratégia**, **Por timeframe** (M1 vs M5 vs M15 — espera-se M1 pior pelo custo) e
+   **Por regime** (o `lateral`/fade de S/R estava negativo).
 2. ~~**Plugar a 2ª estratégia** (sweep de liquidez + CHoCH)~~ **✅ ENTREGUE** — `sweep_choch_v1`
    já roda na sombra em paralelo à `confluencia_v1`. Auditar no /analitico **Por estratégia**
    quando houver ≥30 trades dela. Nota p/ calibrar depois: o SL ainda é ATR (3×) genérico do

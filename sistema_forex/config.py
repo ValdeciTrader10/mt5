@@ -20,13 +20,24 @@ DB_PATH = Path(os.environ.get("DB_PATH", DADOS_DIR / "mercado.db"))
 # --------------------------------------------------------------------------- #
 PARES = ["EURUSD#", "GBPUSD#", "USDCAD"]
 TF_OPERACAO = "M5"
-# W1 (semanal) incluído: é onde estão os S/R mais fortes (junto de D1/H1).
-TFS_COLETA = ["M5", "M15", "H1", "D1", "W1"]
+# Timeframes onde o estrategista roda OPERAÇÕES DE SOMBRA INDEPENDENTES (cada TF é um
+# "livro" próprio: abre/gerencia sua posição virtual e é comparado no /analitico "Por
+# timeframe"). M5 é a base; M1 e M15 entram para comparar qual TF tem melhor expectância.
+# ATENÇÃO (skill §0.1): no M1 o spread come o alvo — é observação de sombra para comparar,
+# NUNCA candidato a real sem auditar. Ajustável por env (ex.: TFS_OPERACAO="M5,M15").
+TFS_OPERACAO = [s.strip() for s in os.environ.get("TFS_OPERACAO", "M1,M5,M15").split(",") if s.strip()]
+# W1 (semanal) incluído: é onde estão os S/R mais fortes (junto de D1/H1). M1 coletado
+# para as operações de sombra do M1 (não gera S/R — é só a vela de operação/ATR).
+TFS_COLETA = ["M1", "M5", "M15", "H1", "D1", "W1"]
 BACKFILL_MESES = 6
 # Piso de barras por TF no backfill: garante histórico suficiente para os TFs altos
 # (6 meses de W1 são só ~26 velas; precisamos de mais para ATR/S/R no semanal).
 BACKFILL_MIN_BARRAS = int(os.environ.get("BACKFILL_MIN_BARRAS", "300"))
+# Teto de barras por TF intradiário fino: 6 meses de M1 são ~180k velas (backfill enorme
+# e banco inchado) e não precisamos disso — só ATR(14) + janela de sweep. Cap por env.
+BACKFILL_MAX_BARRAS = {"M1": int(os.environ.get("BACKFILL_M1_BARRAS", "3000"))}
 
+SWING_N_M1 = 3
 SWING_N_M5 = 3
 SWING_N_M15 = 5
 SWING_N_H1 = 5
@@ -71,6 +82,10 @@ SL_MIN_PIPS = 12
 SL_MAX_PIPS = 40
 BE_TRIGGER_R = 1.0
 DD_DIARIO_MAX_PCT = 5.0
+# Caps aplicados POR LIVRO DE TIMEFRAME (cada TF de TFS_OPERACAO opera de forma
+# independente): no máximo MAX_POS_POR_PAR posições por (par, tf) e MAX_POS_TOTAL
+# posições simultâneas dentro do mesmo TF. Preserva o comportamento do M5 (que antes
+# era o único livro) e dá a M1/M15 a mesma postura, sem um TF sufocar o outro.
 MAX_POS_POR_PAR = 1
 MAX_POS_TOTAL = 2
 # Guarda de correlação: exposição líquida MÁXIMA por moeda (em nº de posições).
@@ -154,7 +169,7 @@ ANALISE_JANELA = int(os.environ.get("ANALISE_JANELA", "1500"))
 # TF de referência para o regime (ADX) e para gaps de sessão.
 TF_REGIME = os.environ.get("TF_REGIME", "H1")
 # Nº de swings por TF (fractal) — quantos candles de cada lado confirmam o pivô.
-SWING_N = {"M5": SWING_N_M5, "M15": SWING_N_M15, "H1": SWING_N_H1,
+SWING_N = {"M1": SWING_N_M1, "M5": SWING_N_M5, "M15": SWING_N_M15, "H1": SWING_N_H1,
            "D1": SWING_N_H1, "W1": SWING_N_H1}
 
 # --------------------------------------------------------------------------- #

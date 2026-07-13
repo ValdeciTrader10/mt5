@@ -83,7 +83,11 @@ def _alvo_barras(tf: str) -> int:
     dias = config.BACKFILL_MESES * 31
     # Piso p/ os TFs altos (D1/W1): 6 meses dão poucas velas semanais; pedimos mais
     # histórico para haver ATR/S/R confiável no diário e no semanal.
-    return max(1, (dias * 24 * 60) // minutos, config.BACKFILL_MIN_BARRAS)
+    alvo = max(1, (dias * 24 * 60) // minutos, config.BACKFILL_MIN_BARRAS)
+    # Teto p/ TFs intradiários finos (M1): 6 meses seriam ~180k velas — desnecessário
+    # (só precisamos de ATR + janela de sweep) e pesado. Ver config.BACKFILL_MAX_BARRAS.
+    teto = config.BACKFILL_MAX_BARRAS.get(tf)
+    return min(alvo, teto) if teto else alvo
 
 
 def _backfill_tf(simbolo: str, tf: str, alvo: int) -> list:
@@ -125,9 +129,18 @@ def backfill(conn, simbolos: dict) -> None:
 # --------------------------------------------------------------------------- #
 # Loop incremental
 # --------------------------------------------------------------------------- #
-def _ultimo_m5_fechado(simbolo: str):
-    """Retorna o candle M5 fechado mais recente (índice -2), ou None."""
-    recentes = mt5_bridge.copy_rates_from_pos(simbolo, "M5", 0, 2)
+# TF de gatilho do loop = o TF de operação MAIS FINO (M1 se coletado). Dispara a coleta
+# assim que ESSE candle fecha, para o TF fino (M1) chegar no banco a cada minuto e não em
+# lotes de 5 (senão as operações de sombra do M1 perderiam candles). INSERT OR IGNORE cobre
+# os TFs maiores, que só têm candle novo quando o deles fecha.
+def _tf_gatilho() -> str:
+    finos = [tf for tf in config.TFS_OPERACAO if tf in config.TFS_COLETA]
+    return min(finos, key=lambda tf: _MIN_POR_TF.get(tf, 5)) if finos else "M5"
+
+
+def _ultimo_fechado(simbolo: str, tf: str):
+    """Retorna o candle `tf` fechado mais recente (índice -2), ou None."""
+    recentes = mt5_bridge.copy_rates_from_pos(simbolo, tf, 0, 2)
     if len(recentes) < 2:
         return None
     # oldest-first: [-2] é o último fechado, [-1] está em formação.
@@ -146,15 +159,16 @@ def coletar_incremental(conn, par: str, simbolo: str) -> int:
 
 
 def loop(conn, simbolos: dict) -> None:
-    """Loop principal: a cada candle M5 fechado novo, coleta incremental."""
+    """Loop principal: a cada candle de gatilho (TF fino) fechado novo, coleta incremental."""
     ultimo_visto = {par: None for par in simbolos}
-    log.info("Coletor em loop. Pares: %s", ", ".join(simbolos))
+    tf_gatilho = _tf_gatilho()
+    log.info("Coletor em loop. Pares: %s | gatilho=%s", ", ".join(simbolos), tf_gatilho)
     while not _parar:
         t0 = time.monotonic()
         try:
             houve_novo = False
             for par, simbolo in simbolos.items():
-                fechado = _ultimo_m5_fechado(simbolo)
+                fechado = _ultimo_fechado(simbolo, tf_gatilho)
                 if fechado is None:
                     log.debug("%s: sem candles suficientes ainda.", par)
                     continue
@@ -166,8 +180,8 @@ def loop(conn, simbolos: dict) -> None:
                 conn.commit()
                 ultimo_visto[par] = t_fechado
                 log.debug(
-                    "%s: candle M5 fechado %s | %d candles novos | spread=%s",
-                    par,
+                    "%s: candle %s fechado %s | %d candles novos | spread=%s",
+                    par, tf_gatilho,
                     datetime.utcfromtimestamp(t_fechado).strftime("%Y-%m-%d %H:%M"),
                     novos,
                     fechado["spread"],

@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS decisoes (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     par        TEXT NOT NULL,
     time_utc   INTEGER NOT NULL,
+    tf         TEXT DEFAULT 'M5',       -- timeframe de OPERAÇÃO da decisão (M1/M5/M15…)
     estrategia TEXT,
     direcao    TEXT,
     resultado  TEXT,                   -- entrou / nao_entrou
@@ -91,6 +92,7 @@ CREATE TABLE IF NOT EXISTS trades (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     ticket        INTEGER,
     par           TEXT NOT NULL,
+    tf            TEXT DEFAULT 'M5',   -- timeframe de OPERAÇÃO do trade (livro independente por TF)
     estrategia    TEXT,
     direcao       TEXT,
     lote          REAL,
@@ -126,6 +128,11 @@ def _migrar(conn) -> None:
         conn.execute("ALTER TABLE trades ADD COLUMN mfe_r REAL")
     if "regime_entrada" not in cols:
         conn.execute("ALTER TABLE trades ADD COLUMN regime_entrada TEXT")
+    if "tf" not in cols:
+        conn.execute("ALTER TABLE trades ADD COLUMN tf TEXT DEFAULT 'M5'")
+    dcols = {r["name"] for r in conn.execute("PRAGMA table_info(decisoes)").fetchall()}
+    if "tf" not in dcols:
+        conn.execute("ALTER TABLE decisoes ADD COLUMN tf TEXT DEFAULT 'M5'")
 
 
 def conectar(db_path=None) -> sqlite3.Connection:

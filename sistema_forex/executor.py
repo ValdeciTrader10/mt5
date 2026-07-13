@@ -41,10 +41,12 @@ def _agora() -> int:
 # --------------------------------------------------------------------------- #
 # Leituras auxiliares do banco
 # --------------------------------------------------------------------------- #
-def _atr_m5(conn, par: str):
+def _atr(conn, par: str, tf: str):
+    """ATR do TF DE OPERAÇÃO do trade — o stop/tolerância usa a volatilidade do próprio TF
+    (o M1 tem ATR bem menor que o M15), para o SL ser coerente com o livro que operou."""
     rows = conn.execute(
-        "SELECT high, low, close FROM candles WHERE par=? AND tf='M5' ORDER BY time_utc DESC LIMIT ?",
-        (par, config.ATR_PERIODO * 4),
+        "SELECT high, low, close FROM candles WHERE par=? AND tf=? ORDER BY time_utc DESC LIMIT ?",
+        (par, tf, config.ATR_PERIODO * 4),
     ).fetchall()
     rows = list(reversed(rows))
     if len(rows) < config.ATR_PERIODO + 1:
@@ -94,14 +96,14 @@ def _espaco_r(conn, par: str, direcao: str, preco: float, risco: float):
 
 def _decisoes_novas(conn, desde_id: int):
     return conn.execute(
-        "SELECT id, par, direcao, estrategia FROM decisoes WHERE id > ? AND resultado='entrou' ORDER BY id",
+        "SELECT id, par, tf, direcao, estrategia FROM decisoes WHERE id > ? AND resultado='entrou' ORDER BY id",
         (desde_id,),
     ).fetchall()
 
 
 def _abertas_do_banco(conn):
     return conn.execute(
-        "SELECT id, ticket, par, estrategia, direcao, lote, preco_entrada, sl_servidor, abertura_utc, "
+        "SELECT id, ticket, par, tf, estrategia, direcao, lote, preco_entrada, sl_servidor, abertura_utc, "
         "simulado, risco_inicial, mae_r, mfe_r FROM trades WHERE fechamento_utc IS NULL"
     ).fetchall()
 
@@ -116,11 +118,11 @@ def _regime_atual(conn, par: str):
     return r["regime"] if r else None
 
 
-def _abrir_trade(conn, par, estrategia, direcao, lote, entrada, sl, ticket, simulado, risco, regime) -> int:
+def _abrir_trade(conn, par, tf, estrategia, direcao, lote, entrada, sl, ticket, simulado, risco, regime) -> int:
     cur = conn.execute(
-        "INSERT INTO trades (ticket, par, estrategia, direcao, lote, preco_entrada, sl_servidor, "
-        "abertura_utc, simulado, risco_inicial, regime_entrada) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (ticket, par, estrategia, direcao, lote, entrada, sl, _agora(), simulado, risco, regime),
+        "INSERT INTO trades (ticket, par, tf, estrategia, direcao, lote, preco_entrada, sl_servidor, "
+        "abertura_utc, simulado, risco_inicial, regime_entrada) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (ticket, par, tf, estrategia, direcao, lote, entrada, sl, _agora(), simulado, risco, regime),
     )
     conn.commit()
     return cur.lastrowid
@@ -194,6 +196,7 @@ class Executor:
             risco = r["risco_inicial"] or abs(entrada - sl)
             self.abertas[r["id"]] = {
                 "trade_id": r["id"], "ticket": r["ticket"], "par": r["par"],
+                "tf": r["tf"] or config.TF_OPERACAO,
                 "simbolo": self._simbolo(r["par"]), "estrategia": r["estrategia"],
                 "direcao": r["direcao"], "lote": r["lote"], "preco_entrada": entrada,
                 "sl": sl, "risco": risco, "abertura_utc": r["abertura_utc"],
@@ -313,7 +316,7 @@ class Executor:
                       round(p["mae_r"], 3), round(p["mfe_r"], 3))
         del self.abertas[p["trade_id"]]
         tag = "" if self.ativa else " [sim]"
-        msg = f"🔚{tag} {p['par']} {p['direcao']} fechada: {pips:+.1f} pips | {motivo}"
+        msg = f"🔚{tag} {p['par']} {p.get('tf', '')} {p['direcao']} fechada: {pips:+.1f} pips | {motivo}"
         log.info(msg)
         telegram_notif.enviar(msg)
 
@@ -334,25 +337,30 @@ class Executor:
         for d in novas:
             self.ultima_decisao_id = max(self.ultima_decisao_id, d["id"])
             par, direcao = d["par"], d["direcao"]
-            if len(self.abertas) >= config.MAX_POS_TOTAL:
+            tf = d["tf"] or config.TF_OPERACAO
+            # Cada TF é um LIVRO independente: os caps e a guarda de correlação contam só as
+            # posições do MESMO tf, para um livro (ex.: M5) não sufocar o do outro (M1/M15) e
+            # a comparação por timeframe ficar limpa. Em modo real, cada TF respeita seu risco.
+            livro = [p for p in self.abertas.values() if p["tf"] == tf]
+            if len(livro) >= config.MAX_POS_TOTAL:
                 continue
-            if sum(1 for p in self.abertas.values() if p["par"] == par) >= config.MAX_POS_POR_PAR:
+            if sum(1 for p in livro if p["par"] == par) >= config.MAX_POS_POR_PAR:
                 continue
             # Guarda de correlação: não dobrar risco na mesma moeda (EUR+GBP ambos short-USD).
-            posic = [{"par": p["par"], "direcao": p["direcao"]} for p in self.abertas.values()]
+            posic = [{"par": p["par"], "direcao": p["direcao"]} for p in livro]
             if gestao.viola_correlacao(posic, par, direcao, config.MAX_EXPOSICAO_MOEDA):
-                log.info("Bloqueado por correlação: %s %s (exposição de moeda > %d)",
-                         par, direcao, config.MAX_EXPOSICAO_MOEDA)
+                log.info("Bloqueado por correlação [%s]: %s %s (exposição de moeda > %d)",
+                         tf, par, direcao, config.MAX_EXPOSICAO_MOEDA)
                 continue
             try:
-                self._abrir(conn, par, direcao, d["estrategia"])
+                self._abrir(conn, par, tf, direcao, d["estrategia"])
             except Exception:  # noqa: BLE001
-                log.exception("Falha ao abrir %s %s", par, direcao)
+                log.exception("Falha ao abrir %s %s %s", par, tf, direcao)
 
-    def _abrir(self, conn, par, direcao, estrategia):
+    def _abrir(self, conn, par, tf, direcao, estrategia):
         simbolo = self._simbolo(par)
         pip = self._pip(simbolo)
-        atr = _atr_m5(conn, par)
+        atr = _atr(conn, par, tf)
         entrada = self._preco_entrada(simbolo, direcao)
         if entrada is None:
             return
@@ -369,20 +377,20 @@ class Executor:
             ticket = None
             simulado = 1
         regime = _regime_atual(conn, par)
-        trade_id = _abrir_trade(conn, par, estrategia, direcao, config.LOTE, entrada, sl,
+        trade_id = _abrir_trade(conn, par, tf, estrategia, direcao, config.LOTE, entrada, sl,
                                 ticket, simulado, risco, regime)
         if ticket is None:
             ticket = -trade_id  # id sintético para o modo simulação
             conn.execute("UPDATE trades SET ticket=? WHERE id=?", (ticket, trade_id))
             conn.commit()
         self.abertas[trade_id] = {
-            "trade_id": trade_id, "ticket": ticket, "par": par, "simbolo": simbolo,
+            "trade_id": trade_id, "ticket": ticket, "par": par, "tf": tf, "simbolo": simbolo,
             "estrategia": estrategia, "direcao": direcao, "lote": config.LOTE,
             "preco_entrada": entrada, "sl": sl, "risco": risco, "abertura_utc": _agora(),
             "r_max": 0.0, "be_movido": False, "mae_r": 0.0, "mfe_r": 0.0,
         }
         tag = "" if self.ativa else " [sim]"
-        msg = f"🟢{tag} {par} {direcao} @ {entrada:.5f} | SL {sl:.5f} | {estrategia}"
+        msg = f"🟢{tag} {par} {tf} {direcao} @ {entrada:.5f} | SL {sl:.5f} | {estrategia}"
         log.info(msg)
         telegram_notif.enviar(msg)
 

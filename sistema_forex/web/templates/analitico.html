@@ -87,6 +87,17 @@
     </section>
 
     <section>
+      <h2>Por timeframe <span class="muted">— compara os livros de operação (M1 · M5 · M15)</span></h2>
+      <table>
+        <thead><tr><th>Timeframe</th><th class="num">Trades</th><th class="num">Acerto</th>
+          <th class="num">PF</th><th class="num">Expect.</th><th class="num">Pips</th><th class="num">USD</th></tr></thead>
+        <tbody id="tb-timeframe"></tbody>
+      </table>
+      <p class="muted">Cada TF opera como um livro independente (sombra). Atenção: no M1 o spread
+        costuma comer o alvo — expectância baixa aqui é esperada e serve de contraste.</p>
+    </section>
+
+    <section>
       <h2>Por regime na entrada <span class="muted">— responde: cada estratégia ganha em qual contexto?</span></h2>
       <table>
         <thead><tr><th>Regime</th><th class="num">Trades</th><th class="num">Acerto</th>
@@ -125,7 +136,7 @@
     <section>
       <h2>Trades no período</h2>
       <table>
-        <thead><tr><th>Quando (UTC)</th><th>Par</th><th>Direção</th><th>Estratégia</th>
+        <thead><tr><th>Quando (UTC)</th><th>Par</th><th>TF</th><th>Direção</th><th>Estratégia</th>
           <th class="num">Pips</th><th class="num">USD</th>
           <th class="num" title="Maximum Adverse Excursion (R)">MAE</th>
           <th class="num" title="Maximum Favorable Excursion (R)">MFE</th>
@@ -229,19 +240,20 @@
       curva(d.curva);
       var e = document.getElementById('tb-estrategia');
       e.innerHTML = d.por_estrategia.map(linhaEstrategia).join('') || '<tr><td colspan="10" class="muted">Sem trades no período.</td></tr>';
+      document.getElementById('tb-timeframe').innerHTML = (d.por_timeframe || []).map(linhaCtx).join('') || '<tr><td colspan="7" class="muted">—</td></tr>';
       document.getElementById('tb-regime').innerHTML = (d.por_regime || []).map(linhaCtx).join('') || '<tr><td colspan="7" class="muted">—</td></tr>';
       document.getElementById('tb-sessao').innerHTML = (d.por_sessao || []).map(linhaCtx).join('') || '<tr><td colspan="7" class="muted">—</td></tr>';
       document.getElementById('tb-motivo').innerHTML = d.por_motivo.map(linhaMotivo).join('') || '<tr><td colspan="6" class="muted">—</td></tr>';
       document.getElementById('tb-par').innerHTML = d.por_par.map(linhaPar).join('') || '<tr><td colspan="6" class="muted">—</td></tr>';
       document.getElementById('tb-trades').innerHTML = (d.trades || []).map(function (t) {
         return '<tr><td>' + esc(t.quando) + '</td><td>' + esc(t.par) + (t.simulado ? ' <span class="badge badge-sim">sim</span>' : '') +
-          '</td><td>' + dirTag(t.direcao) + '</td><td>' + esc(t.estrategia) + '</td>' +
+          '</td><td>' + esc(t.tf || 'M5') + '</td><td>' + dirTag(t.direcao) + '</td><td>' + esc(t.estrategia) + '</td>' +
           '<td class="num ' + sign(t.pips) + '">' + fmt(t.pips, 1) + '</td>' +
           '<td class="num ' + sign(t.lucro) + '">' + fmt(t.lucro, 2) + '</td>' +
           '<td class="num neg">' + fmt(t.mae_r, 2) + '</td>' +
           '<td class="num pos">' + fmt(t.mfe_r, 2) + '</td>' +
           '<td class="muted">' + esc(t.motivo) + '</td></tr>';
-      }).join('') || '<tr><td colspan="9" class="muted">Sem trades no período.</td></tr>';
+      }).join('') || '<tr><td colspan="10" class="muted">Sem trades no período.</td></tr>';
       var p = (d.de || 'início') + ' → ' + (d.ate || 'agora');
       document.getElementById('periodo').textContent = 'Período: ' + p;
       document.getElementById('de').value = d.de || '';

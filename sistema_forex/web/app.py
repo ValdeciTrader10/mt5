@@ -272,7 +272,7 @@ def _analitico(de: str = "", ate: str = "") -> dict:
     where = " AND ".join(cond)
     with db.sessao() as conn:
         rows = conn.execute(
-            f"SELECT par, estrategia, direcao, pips, lucro_usd, motivo_saida, simulado, "
+            f"SELECT par, tf, estrategia, direcao, pips, lucro_usd, motivo_saida, simulado, "
             f"mae_r, mfe_r, regime_entrada, abertura_utc, fechamento_utc FROM trades "
             f"WHERE {where} ORDER BY fechamento_utc DESC",
             args,
@@ -290,18 +290,22 @@ def _analitico(de: str = "", ate: str = "") -> dict:
 
     lista = [
         {
-            "quando": _hora(t["fechamento_utc"]), "par": t["par"], "estrategia": t["estrategia"],
+            "quando": _hora(t["fechamento_utc"]), "par": t["par"], "tf": t["tf"] or "M5",
+            "estrategia": t["estrategia"],
             "direcao": t["direcao"], "pips": t["pips"], "lucro": t["lucro_usd"],
             "motivo": t["motivo_saida"], "simulado": bool(t["simulado"]),
             "mae_r": t["mae_r"], "mfe_r": t["mfe_r"], "regime": t["regime"], "sessao": t["sessao"],
         }
         for t in trades[:300]
     ]
+    for t in trades:  # rótulo estável do TF de operação (default M5 p/ trades antigos)
+        t["tf"] = t["tf"] or "M5"
     return {
         "de": de, "ate": ate,
         "geral": _agregar(trades),
         "curva": _curva_capital(trades, config.SALDO_SIMULADO),
         "por_estrategia": _por(trades, "estrategia"),
+        "por_timeframe": _por(trades, "tf"),
         "por_regime": _por(trades, "regime"),
         "por_sessao": _por(trades, "sessao"),
         "por_par": _por(trades, "par"),

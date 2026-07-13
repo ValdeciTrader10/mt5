@@ -1,8 +1,10 @@
 """Fase 4 — Estrategista (modo sombra).
 
-Uma vez por candle M5 fechado novo, monta o snapshot do par a partir do que o motor
-(Fase 2) gravou no banco — regime, ATR, níveis, estrutura — e chama `estrategias.avaliar`.
-Registra CADA decisão (entrou / não entrou + motivo) na tabela `decisoes`. NÃO envia
+A cada candle fechado novo de cada (par, TF de operação em `config.TFS_OPERACAO` — M1/M5/M15),
+monta o snapshot do par a partir do que o motor (Fase 2) gravou no banco — regime, níveis e
+estrutura de CONTEXTO (par-level) mais a vela/ATR/janela do próprio TF — e chama as estratégias.
+Registra CADA decisão (entrou / não entrou + motivo), marcada com o `tf`, na tabela `decisoes`.
+Cada TF é um livro de sombra INDEPENDENTE (comparável no /analitico "Por timeframe"). NÃO envia
 ordens: é o modo sombra que valida a lógica contra o mercado ao vivo antes da Fase 5.
 
     python -m sistema_forex.decisao            # loop
@@ -31,19 +33,21 @@ def _tratar_sinal(signum, frame):  # pragma: no cover - sinal do SO
 # --------------------------------------------------------------------------- #
 # Montagem do snapshot (a partir do banco)
 # --------------------------------------------------------------------------- #
-def _ultimo_m5(conn, par: str):
+def _ultimo(conn, par: str, tf: str):
     return conn.execute(
-        "SELECT time_utc, open, high, low, close, spread FROM candles WHERE par=? AND tf='M5' "
+        "SELECT time_utc, open, high, low, close, spread FROM candles WHERE par=? AND tf=? "
         "ORDER BY time_utc DESC LIMIT 1",
-        (par,),
+        (par, tf),
     ).fetchone()
 
 
-def _atr_m5(conn, par: str):
+def _atr(conn, par: str, tf: str):
+    """ATR do TF DE OPERAÇÃO — a régua de distância (stop/tolerância) é a volatilidade do
+    próprio TF em que se opera (o M1 tem ATR bem menor que o M15)."""
     rows = conn.execute(
-        "SELECT high, low, close FROM candles WHERE par=? AND tf='M5' "
+        "SELECT high, low, close FROM candles WHERE par=? AND tf=? "
         "ORDER BY time_utc DESC LIMIT ?",
-        (par, config.ATR_PERIODO * 4),
+        (par, tf, config.ATR_PERIODO * 4),
     ).fetchall()
     rows = list(reversed(rows))
     if len(rows) < config.ATR_PERIODO + 1:
@@ -72,12 +76,12 @@ def _niveis(conn, par: str):
     return sup, res, fvgs, obs
 
 
-def _janela_m5(conn, par: str, n: int) -> dict:
-    """Últimos `n` candles M5 (cronológicos) para a detecção de sweep+CHoCH."""
+def _janela(conn, par: str, tf: str, n: int) -> dict:
+    """Últimos `n` candles do TF de operação (cronológicos) p/ a detecção de sweep+CHoCH."""
     rows = conn.execute(
-        "SELECT open, high, low, close FROM candles WHERE par=? AND tf='M5' "
+        "SELECT open, high, low, close FROM candles WHERE par=? AND tf=? "
         "ORDER BY time_utc DESC LIMIT ?",
-        (par, n),
+        (par, tf, n),
     ).fetchall()
     rows = list(reversed(rows))
     return {
@@ -103,55 +107,65 @@ def _regime(conn, par: str):
     return r["regime"] if r else "indefinido"
 
 
-def montar_snapshot(conn, par: str, candle_m5) -> dict:
-    """Snapshot do par para a decisão, a partir do último candle M5 fechado."""
+def montar_snapshot(conn, par: str, tf: str, candle) -> dict:
+    """Snapshot do par para a decisão no TF DE OPERAÇÃO `tf`.
+
+    A vela de operação, o ATR e a janela de sweep vêm do próprio `tf` (M1/M5/M15). Já os
+    níveis S/R, a estrutura e o regime são CONTEXTO do par (S/R só de H1/D1/W1, regime do
+    H1) e não mudam com o TF de operação — cada livro de TF opera a mesma "memória", mas com
+    a régua de volatilidade e o gatilho do seu próprio timeframe.
+    """
     sup, res, fvgs, obs = _niveis(conn, par)
     # spread em pontos → pips (pares de 3/5 casas: 1 pip = 10 pontos).
-    spread_pips = (candle_m5["spread"] or 0) / 10.0
-    hora_utc = time.gmtime(candle_m5["time_utc"]).tm_hour
+    spread_pips = (candle["spread"] or 0) / 10.0
+    hora_utc = time.gmtime(candle["time_utc"]).tm_hour
     return {
-        "close": candle_m5["close"],
-        "open": candle_m5["open"],
-        "high": candle_m5["high"],
-        "low": candle_m5["low"],
+        "tf": tf,
+        "close": candle["close"],
+        "open": candle["open"],
+        "high": candle["high"],
+        "low": candle["low"],
         "spread_pips": spread_pips,
         "hora_utc": hora_utc,
-        "atr": _atr_m5(conn, par),
+        "atr": _atr(conn, par, tf),
         "regime": _regime(conn, par),
         "suportes": sup,
         "resistencias": res,
         "fvgs": fvgs,
         "obs": obs,
         "ultimo_evento": _ultimo_evento(conn, par),
-        "m5_janela": _janela_m5(conn, par, config.SWEEP_JANELA),
+        # Janela do TF de operação p/ o sweep+CHoCH (chave histórica "m5_janela" mantida
+        # para as estratégias/tests; aqui contém a janela do `tf` corrente).
+        "m5_janela": _janela(conn, par, tf, config.SWEEP_JANELA),
     }
 
 
 # --------------------------------------------------------------------------- #
 # Persistência
 # --------------------------------------------------------------------------- #
-def _gravar_decisao(conn, par: str, time_utc: int, dec: dict) -> None:
+def _gravar_decisao(conn, par: str, tf: str, time_utc: int, dec: dict) -> None:
     conn.execute(
         """
-        INSERT INTO decisoes (par, time_utc, estrategia, direcao, resultado, motivo, dados_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO decisoes (par, time_utc, tf, estrategia, direcao, resultado, motivo, dados_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            par, time_utc, dec["estrategia"], dec["direcao"], dec["resultado"], dec["motivo"],
+            par, time_utc, tf, dec["estrategia"], dec["direcao"], dec["resultado"], dec["motivo"],
             json.dumps({"score": dec["score"], "confluencias": dec["confluencias"],
                         "regime": dec["regime"]}),
         ),
     )
 
 
-def avaliar_par(conn, par: str, candle_m5) -> list:
-    """Avalia TODAS as estratégias ativas sobre o candle M5 e grava cada decisão.
+def avaliar_par(conn, par: str, tf: str, candle) -> list:
+    """Avalia TODAS as estratégias ativas sobre o candle do TF `tf` e grava cada decisão.
 
-    Cada estratégia grava a sua própria linha em `decisoes` (entrou/não + motivo), o que
-    mantém a auditoria por estratégia no /analitico. O executor deduplica no nível de
-    posição (MAX_POS_POR_PAR), então duas entradas simultâneas não abrem duas posições.
+    Cada estratégia grava a sua própria linha em `decisoes` (entrou/não + motivo, marcada
+    com o `tf`), o que mantém a auditoria por estratégia E por timeframe no /analitico. O
+    executor deduplica no nível de posição por (par, tf), então duas entradas simultâneas
+    do mesmo livro de TF não abrem duas posições.
     """
-    snap = montar_snapshot(conn, par, candle_m5)
+    snap = montar_snapshot(conn, par, tf, candle)
     decs = [
         estrategias.avaliar(
             snap,
@@ -195,7 +209,7 @@ def avaliar_par(conn, par: str, candle_m5) -> list:
             pavio_min=config.REJEICAO_PAVIO_MIN,
         ))
     for dec in decs:
-        _gravar_decisao(conn, par, candle_m5["time_utc"], dec)
+        _gravar_decisao(conn, par, tf, candle["time_utc"], dec)
     conn.commit()
     return decs
 
@@ -204,22 +218,26 @@ def avaliar_par(conn, par: str, candle_m5) -> list:
 # Loop
 # --------------------------------------------------------------------------- #
 def um_ciclo(conn, ultimo_visto: dict) -> None:
+    # Cada (par, tf) é um livro independente: avalia o candle mais recente do seu TF de
+    # operação. `ultimo_visto` é chaveado por (par, tf) para não reavaliar o mesmo candle.
     for par in config.PARES:
-        candle = _ultimo_m5(conn, par)
-        if candle is None:
-            continue
-        if ultimo_visto.get(par) == candle["time_utc"]:
-            continue  # nada novo neste par
-        ultimo_visto[par] = candle["time_utc"]
-        try:
-            for dec in avaliar_par(conn, par, candle):
-                log.info(
-                    "Decisão %s @%s [%s]: %s %s | score=%d | %s",
-                    par, candle["time_utc"], dec["estrategia"], dec["resultado"],
-                    dec["direcao"] or "-", dec["score"], dec["motivo"],
-                )
-        except Exception:  # noqa: BLE001 - um par não derruba o serviço
-            log.exception("Falha ao decidir %s", par)
+        for tf in config.TFS_OPERACAO:
+            candle = _ultimo(conn, par, tf)
+            if candle is None:
+                continue
+            chave = (par, tf)
+            if ultimo_visto.get(chave) == candle["time_utc"]:
+                continue  # nada novo neste (par, tf)
+            ultimo_visto[chave] = candle["time_utc"]
+            try:
+                for dec in avaliar_par(conn, par, tf, candle):
+                    log.info(
+                        "Decisão %s %s @%s [%s]: %s %s | score=%d | %s",
+                        par, tf, candle["time_utc"], dec["estrategia"], dec["resultado"],
+                        dec["direcao"] or "-", dec["score"], dec["motivo"],
+                    )
+            except Exception:  # noqa: BLE001 - um (par,tf) não derruba o serviço
+                log.exception("Falha ao decidir %s %s", par, tf)
 
 
 def main() -> None:
@@ -232,7 +250,8 @@ def main() -> None:
 
     db.init_db()
     uma_vez = "--uma-vez" in sys.argv
-    log.info("Estrategista (modo sombra) iniciado. Pares: %s", ", ".join(config.PARES))
+    log.info("Estrategista (modo sombra) iniciado. Pares: %s | TFs de operação: %s",
+             ", ".join(config.PARES), ", ".join(config.TFS_OPERACAO))
 
     ultimo_visto = {}
     with db.sessao() as conn:
