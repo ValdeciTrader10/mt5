@@ -67,7 +67,7 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
 - Env sensíveis (senha do painel, VNC, MT5) só no Environment do Dokploy — nunca no git.
 
 ## Pares monitorados (sombra) — 13/07
-`config.PARES` (env-configurável no Dokploy): `EURUSD#, GBPUSD#, USDCAD, USDJPY#, AUDUSD#, GOLD`.
+`config.PARES` (env-configurável no Dokploy): `EURUSD#, GBPUSD#, USDCAD, USDJPY#, AUDUSD#, GBPJPY#, GOLD`.
 - **GOLD** (ouro) adicionado a pedido do dono ("paga mais, maior risco, catalogar"). O ouro tem
   escala MUITO diferente do forex: pip≈0.01, move dólares por vela, spread ~20–50 pontos. Sem
   cuidado, o SL global (12–40 pips = só ~$0.40) insta-estoparia todo trade e o filtro de spread
@@ -81,6 +81,9 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
   coluna de spread do ouro no /analitico não é comparável 1:1 com a do forex (calibrar depois).
 - Majors de spread razoável adicionados: **USDJPY#** e **AUDUSD#** (líquidos, spread baixo; usam os
   params globais — pip do JPY já sai certo em `tamanho_pip`). USDCHF/NZDUSD são opções extras.
+- **GBPJPY#** adicionado a pedido do dono: cruzado VOLÁTIL e de spread mais largo (~25–40 pontos),
+  então o cap global 2.0 quase não deixaria entrar — recebeu params próprios (`spread_max_pips=4.5`,
+  `sl_max_pips=60`; `sl_min` no default). É o mais arriscado depois do ouro — catalogar e vigiar.
 - ⚠️ Correlação: quase todos compartilham USD (e o ouro é anti-USD). Irrelevante na sombra (catálogo),
   mas `gestao._moedas("GOLD")` não sabe parsear metal — tratar antes de religar `GUARDA_CORRELACAO`
   para real.

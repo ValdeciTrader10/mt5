@@ -22,7 +22,7 @@ DB_PATH = Path(os.environ.get("DB_PATH", DADOS_DIR / "mercado.db"))
 # spread razoável + OURO (GOLD) para catalogar — o ouro paga mais, mas é mais arriscado
 # (spread/volatilidade altos): tem parâmetros próprios em PARAMS_SIMBOLO.
 PARES = [s.strip() for s in os.environ.get(
-    "PARES", "EURUSD#,GBPUSD#,USDCAD,USDJPY#,AUDUSD#,GOLD").split(",") if s.strip()]
+    "PARES", "EURUSD#,GBPUSD#,USDCAD,USDJPY#,AUDUSD#,GBPJPY#,GOLD").split(",") if s.strip()]
 TF_OPERACAO = "M5"
 # Timeframes onde o estrategista roda OPERAÇÕES DE SOMBRA INDEPENDENTES (cada TF é um
 # "livro" próprio: abre/gerencia sua posição virtual e é comparado no /analitico "Por
@@ -149,6 +149,10 @@ PARAMS_SIMBOLO = {
     # Ouro: pip≈0.01 → SL 100–800 pips = ~$1–$8 (o ATR×3 do M5 costuma cair nessa faixa);
     # spread razoável do ouro ~20–50 pontos → 2.0–5.0 na régua interna; cap 6.0.
     "GOLD": {"spread_max_pips": 6.0, "sl_min_pips": 100, "sl_max_pips": 800},
+    # GBPJPY: cruzado VOLÁTIL e de spread mais largo (~25–40 pontos → 2.5–4.0 na régua
+    # interna) — com o cap global 2.0 quase não entraria. pip=0.01 (JPY); dá um pouco mais
+    # de folga no SL (ATR×3 do M5 nesse cruzado passa dos 40 pips às vezes).
+    "GBPJPY#": {"spread_max_pips": 4.5, "sl_max_pips": 60},
 }
 
 

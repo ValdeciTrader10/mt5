@@ -15,6 +15,9 @@ def test_param_simbolo_override_e_default():
     assert cfg.param_simbolo("GOLD", "sl_max_pips", cfg.SL_MAX_PIPS) == 800
     assert cfg.param_simbolo("GOLD", "spread_max_pips", cfg.SPREAD_MAX_PIPS) == 6.0
     assert cfg.param_simbolo("EURUSD#", "sl_max_pips", cfg.SL_MAX_PIPS) == cfg.SL_MAX_PIPS
+    # GBPJPY: só sobrescreve o spread (e o sl_max); o sl_min cai no default global.
+    assert cfg.param_simbolo("GBPJPY#", "spread_max_pips", cfg.SPREAD_MAX_PIPS) == 4.5
+    assert cfg.param_simbolo("GBPJPY#", "sl_min_pips", cfg.SL_MIN_PIPS) == cfg.SL_MIN_PIPS
     # chave inexistente também cai no default
     assert cfg.param_simbolo("GOLD", "inexistente", 123) == 123
 
