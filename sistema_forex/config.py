@@ -50,6 +50,12 @@ SR_MAX_POR_TIPO = int(os.environ.get("SR_MAX_POR_TIPO", "6"))
 
 FVG_MIN_ATR = 0.3
 
+# Order Block (doc/skill §4): zona da última vela contrária antes de um impulso com
+# displacement (FVG). Detectar só em M15/H1 (M5 = ruído). `OB_MIN_ATR` = tamanho mínimo
+# do imbalance (fração do ATR) que prova o displacement — reaproveita a régua do FVG.
+OB_TFS = [s.strip() for s in os.environ.get("OB_TFS", "M15,H1").split(",") if s.strip()]
+OB_MIN_ATR = float(os.environ.get("OB_MIN_ATR", "0.3"))
+
 GAP_MIN_PIPS = 5
 GAP_MAX_PIPS = 20
 
@@ -176,6 +182,19 @@ SWEEP_N_SWING = int(os.environ.get("SWEEP_N_SWING", str(SWING_N_M5)))
 SWEEP_MIN_ATR = float(os.environ.get("SWEEP_MIN_ATR", "0.1"))
 # O sweep tem de ter ocorrido há no máximo estes candles do CHoCH (follow-through no tempo).
 SWEEP_RECENTE = int(os.environ.get("SWEEP_RECENTE", "6"))
+
+# --- 3ª estratégia: reteste de Order Block (M15/H1) + rejeição ---
+# Entra quando o preço RETESTA uma zona de OB fresca na direção do OB. S/R e regime a
+# favor entram como REFORÇO (nunca veto). A rejeição na borda é confluência; só vira gate
+# se EXIGIR_REJEICAO_OB=true (modo estrito).
+OB_HABILITADA = os.environ.get("OB_HABILITADA", "true").lower() in ("1", "true", "sim")
+EXIGIR_REJEICAO_OB = os.environ.get("EXIGIR_REJEICAO_OB", "false").lower() in ("1", "true", "sim")
+
+# --- 4ª estratégia: pullback a favor da tendência (H1) + rejeição em S/R forte ---
+# Tese própria: em tendência, o preço recua a um S/R FORTE na direção da tendência, REJEITA
+# (candle_rejeicao) e retoma. A rejeição é o GATILHO (obrigatória aqui). OB fresco coincidente
+# soma como reforço.
+PULLBACK_HABILITADA = os.environ.get("PULLBACK_HABILITADA", "true").lower() in ("1", "true", "sim")
 
 # --------------------------------------------------------------------------- #
 # Executor + gestor de saída (Fase 5)

@@ -164,6 +164,99 @@ def test_avaliar_sweep_sem_padrao_nao_entra():
     assert d["resultado"] == "nao_entrou" and "sweep" in d["motivo"], d
 
 
+# --------------------------------------------------------------------------- #
+# Estratégia 3 — reteste de Order Block
+# --------------------------------------------------------------------------- #
+CFG_OB = dict(sessao_utc=(7, 20), spread_max_pips=2.0, nivel_prox_atr=0.5, forca_min=3,
+              pavio_min=0.5)
+
+
+def _snap_ob(**kw):
+    # OB bull na zona [1.0998, 1.1012]; vela de decisão retesta e REJEITA (pavio inferior).
+    base = dict(close=1.1013, open=1.1010, high=1.1014, low=1.0999,
+                atr=0.0010, regime="tendencia_alta", hora_utc=10, spread_pips=1.0,
+                suportes=[], resistencias=[],
+                obs=[{"tipo": "ob_bull", "base": 1.0998, "topo": 1.1012}])
+    base.update(kw)
+    return base
+
+
+def test_ob_entra_compra_no_reteste():
+    d = e.avaliar_order_block(_snap_ob(), **CFG_OB)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["estrategia"] == "order_block_v1" and "order_block" in d["confluencias"], d
+    assert "rejeicao" in d["confluencias"] and "a_favor_regime" in d["confluencias"], d
+
+
+def test_ob_sr_reforco_soma():
+    d = e.avaliar_order_block(_snap_ob(suportes=[(1.0998, 4)]), **CFG_OB)
+    assert "sr_confluente_4" in d["confluencias"], d
+
+
+def test_ob_preco_fora_da_zona_nao_entra():
+    d = e.avaliar_order_block(_snap_ob(close=1.1050, low=1.1045, high=1.1052, open=1.1048),
+                              **CFG_OB)
+    assert d["resultado"] == "nao_entrou" and "fora das zonas" in d["motivo"], d
+
+
+def test_ob_sem_ob_nao_entra():
+    d = e.avaliar_order_block(_snap_ob(obs=[]), **CFG_OB)
+    assert d["resultado"] == "nao_entrou" and "sem OB" in d["motivo"], d
+
+
+def test_ob_modo_estrito_exige_rejeicao():
+    # sem rejeição (fecha longe da borda, sem pavio) e modo estrito → não entra
+    snap = _snap_ob(close=1.1011, open=1.1009, high=1.1012, low=1.1008)
+    d = e.avaliar_order_block(snap, **{**CFG_OB, "exigir_rejeicao": True})
+    assert d["resultado"] == "nao_entrou" and "estrito" in d["motivo"], d
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia 4 — pullback a favor da tendência + rejeição em S/R forte
+# --------------------------------------------------------------------------- #
+CFG_PB = dict(sessao_utc=(7, 20), spread_max_pips=2.0, nivel_prox_atr=0.5, forca_min=3,
+              pavio_min=0.5)
+
+
+def _snap_pb(**kw):
+    # tendência de alta; preço recua ao suporte forte 1.1000 e REJEITA (pavio inferior).
+    base = dict(close=1.1003, open=1.1004, high=1.1006, low=1.0998,
+                atr=0.0010, regime="tendencia_alta", hora_utc=10, spread_pips=1.0,
+                suportes=[(1.1000, 5)], resistencias=[], obs=[])
+    base.update(kw)
+    return base
+
+
+def test_pullback_entra_a_favor_da_tendencia():
+    d = e.avaliar_pullback_tendencia(_snap_pb(), **CFG_PB)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["estrategia"] == "pullback_tendencia_v1", d
+    assert "regime" in d["confluencias"] and "rejeicao" in d["confluencias"], d
+
+
+def test_pullback_fora_de_tendencia_nao_entra():
+    d = e.avaliar_pullback_tendencia(_snap_pb(regime="lateral"), **CFG_PB)
+    assert d["resultado"] == "nao_entrou" and "tendência" in d["motivo"], d
+
+
+def test_pullback_sem_sr_forte_nao_entra():
+    d = e.avaliar_pullback_tendencia(_snap_pb(suportes=[(1.1000, 1)]), **CFG_PB)
+    assert d["resultado"] == "nao_entrou" and "S/R forte" in d["motivo"], d
+
+
+def test_pullback_sem_rejeicao_nao_entra():
+    # preço no suporte forte mas SEM rejeição (fecha no fundo) → não é a tese, não entra
+    snap = _snap_pb(close=1.0999, open=1.1005, high=1.1006, low=1.0998)
+    d = e.avaliar_pullback_tendencia(snap, **CFG_PB)
+    assert d["resultado"] == "nao_entrou" and "rejeição" in d["motivo"], d
+
+
+def test_pullback_ob_confluente_soma():
+    d = e.avaliar_pullback_tendencia(
+        _snap_pb(obs=[{"tipo": "ob_bull", "base": 1.0996, "topo": 1.1004}]), **CFG_PB)
+    assert "ob_confluente" in d["confluencias"], d
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

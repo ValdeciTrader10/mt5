@@ -81,6 +81,43 @@ def test_qualidade_sr_mede_toques_e_rejeicoes():
     assert qs["rejeicoes"] == 1, qs
 
 
+def test_order_block_bull():
+    # Vela 0 = OB de BAIXA (open>close). Velas 1-3 = impulso de alta que deixa FVG bull
+    # (low[3]=1.1016 > high[1]=1.1008). Nada reentra na zona → OB fresco na vela 0.
+    o = [1.1010, 1.1000, 1.1007, 1.1017]
+    h = [1.1012, 1.1008, 1.1017, 1.1032]
+    l = [1.0998, 1.0999, 1.1006, 1.1016]
+    c = [1.1000, 1.1006, 1.1016, 1.1030]
+    obs = ind.order_blocks(o, h, l, c, atr_val=0.0010, min_atr=0.3)
+    assert len(obs) == 1 and obs[0]["tipo"] == "ob_bull" and obs[0]["i"] == 0, obs
+    assert abs(obs[0]["base"] - 1.0998) < 1e-9 and abs(obs[0]["topo"] - 1.1012) < 1e-9, obs
+
+
+def test_order_block_bear_espelho():
+    # Espelho do bull em torno de P: vira um OB de alta antes de um impulso de baixa.
+    p = 2.2020
+    o = [1.1010, 1.1000, 1.1007, 1.1017]
+    h = [1.1012, 1.1008, 1.1017, 1.1032]
+    l = [1.0998, 1.0999, 1.1006, 1.1016]
+    c = [1.1000, 1.1006, 1.1016, 1.1030]
+    oo = [round(p - x, 5) for x in o]
+    hh = [round(p - x, 5) for x in l]   # high refletido = P - low
+    ll = [round(p - x, 5) for x in h]   # low refletido  = P - high
+    cc = [round(p - x, 5) for x in c]
+    obs = ind.order_blocks(oo, hh, ll, cc, atr_val=0.0010, min_atr=0.3)
+    assert len(obs) == 1 and obs[0]["tipo"] == "ob_bear", obs
+
+
+def test_order_block_mitigado_nao_conta():
+    # Igual ao bull, mas uma vela posterior REENTRA na zona (low volta a 1.1005 < topo 1.1012).
+    o = [1.1010, 1.1000, 1.1007, 1.1017, 1.1020]
+    h = [1.1012, 1.1008, 1.1017, 1.1032, 1.1025]
+    l = [1.0998, 1.0999, 1.1006, 1.1016, 1.1005]
+    c = [1.1000, 1.1006, 1.1016, 1.1030, 1.1010]
+    obs = ind.order_blocks(o, h, l, c, atr_val=0.0010, min_atr=0.3)
+    assert obs == [], obs
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

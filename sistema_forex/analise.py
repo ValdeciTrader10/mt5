@@ -97,7 +97,7 @@ def _grava_evento(conn, par, tf, time_utc, evento, preco, direcao) -> None:
 def analisar_par(conn, par: str) -> dict:
     """Recalcula níveis/estrutura/regime de um par. Retorna um resumo p/ log/painel."""
     agora = int(datetime.utcnow().timestamp())
-    resumo = {"par": par, "suporte": 0, "resistencia": 0, "fvg": 0, "gaps": 0,
+    resumo = {"par": par, "suporte": 0, "resistencia": 0, "fvg": 0, "ob": 0, "gaps": 0,
               "eventos": 0, "regime": "indefinido", "adx": None}
 
     _limpar_par(conn, par)
@@ -142,6 +142,13 @@ def analisar_par(conn, par: str) -> dict:
         for f in indicadores.fvgs(d["high"], d["low"], atr_val, config.FVG_MIN_ATR):
             _grava_nivel(conn, par, f["tipo"], f["base"], tf, agora, 1, preco2=f["topo"])
             resumo["fvg"] += 1
+
+        # Order blocks frescos — só nos TFs de estrutura (M15/H1); M5 = ruído.
+        if tf in config.OB_TFS and atr_val:
+            for ob in indicadores.order_blocks(d["open"], d["high"], d["low"], d["close"],
+                                               atr_val, config.OB_MIN_ATR):
+                _grava_nivel(conn, par, ob["tipo"], ob["base"], tf, agora, 1, preco2=ob["topo"])
+                resumo["ob"] += 1
 
         # Eventos de estrutura (SMC)
         for e in indicadores.eventos_estrutura(sw):
@@ -209,12 +216,14 @@ def resumo_par(conn, par: str) -> dict:
         "SELECT regime, adx FROM regime_log WHERE par = ? ORDER BY time_utc DESC LIMIT 1",
         (par,),
     ).fetchone()
-    contagem = {t: 0 for t in ("suporte", "resistencia", "fvg", "gap", "evento")}
+    contagem = {t: 0 for t in ("suporte", "resistencia", "fvg", "ob", "gap", "evento")}
     for r in conn.execute(
         "SELECT tipo, COUNT(*) n FROM niveis WHERE par = ? AND ativo = 1 GROUP BY tipo", (par,)
     ):
         if r["tipo"].startswith("fvg"):
             contagem["fvg"] += r["n"]
+        elif r["tipo"].startswith("ob"):
+            contagem["ob"] += r["n"]
         elif r["tipo"].startswith("gap"):
             contagem["gap"] += r["n"]
         elif r["tipo"] in ("suporte", "resistencia"):
@@ -235,9 +244,9 @@ def um_ciclo(conn) -> None:
         try:
             r = analisar_par(conn, par)
             log.info(
-                "Análise %s: regime=%s adx=%s | S=%d R=%d FVG=%d gaps=%d eventos=%d",
+                "Análise %s: regime=%s adx=%s | S=%d R=%d FVG=%d OB=%d gaps=%d eventos=%d",
                 r["par"], r["regime"], r["adx"], r["suporte"], r["resistencia"],
-                r["fvg"], r["gaps"], r["eventos"],
+                r["fvg"], r["ob"], r["gaps"], r["eventos"],
             )
         except Exception:  # noqa: BLE001 - um par não pode derrubar o motor
             log.exception("Falha ao analisar %s", par)

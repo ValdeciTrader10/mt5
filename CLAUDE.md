@@ -29,8 +29,9 @@ a sombra (regra: demo/sombra primeiro).
 - **coletor** (`coletor_mt5.py`): Fase 1 — candles M5/M15/H1/D1/**W1** em SQLite.
 - **motor** (`analise.py`): Fase 2 — níveis (S/R, FVG, gaps), estrutura SMC, regime (ADX).
 - **estrategista** (`decisao.py`): Fase 4 sombra — decide e registra (sem operar). Roda
-  DUAS estratégias em paralelo por candle M5: `confluencia_v1` e `sweep_choch_v1` (cada uma
-  grava sua própria linha em `decisoes`; o executor deduplica no nível de posição).
+  QUATRO estratégias em paralelo por candle M5: `confluencia_v1`, `sweep_choch_v1`,
+  `order_block_v1` e `pullback_tendencia_v1` (cada uma grava sua própria linha em `decisoes`;
+  o executor deduplica no nível de posição). Todas desligáveis por env (`*_HABILITADA`).
 - **executor** (`executor.py`): Fase 5 — abre/gerencia posições (simulação ou real).
 - **web** (`web/app.py`): painel + `/analitico`. Caddy NÃO é usado no Dokploy (o Traefik
   dele faz proxy). Compose do Dokploy: `deploy/docker-compose.dokploy.yml`.
@@ -72,10 +73,12 @@ desde a v1; DD diário máx 5%; anti-spam Telegram por flags; reset diário no t
 Fases 1–5 no ar (sombra); saída "com direito a desenvolver"; **dashboard analítico**
 (ganho/perda, filtro de datas, por estratégia/motivo/par/regime/sessão, **MAE/MFE**,
 **curva de capital + drawdown**); **guard de correlação por moeda**; S/R forte por
-TF+qualidade; entrada por rejeição (confluência); **2ª estratégia `sweep_choch_v1`**
-(liquidity sweep + CHoCH no M5 — função pura `estrategias.detectar_sweep_choch`, testada;
-S/R como reforço, regime nunca gateia; params `SWEEP_*` em config, desligável por env).
-Skill de conhecimento em `.claude/skills/trading-quant-expert/` (com referências e roadmap).
+TF+qualidade; entrada por rejeição (confluência); **4 estratégias na sombra**:
+`confluencia_v1`; **`sweep_choch_v1`** (liquidity sweep + CHoCH no M5, `detectar_sweep_choch`);
+**`order_block_v1`** (reteste de OB fresco M15/H1 + rejeição — detecção `indicadores.order_blocks`
+persistida como nível `ob_bull`/`ob_bear`, zona base/topo); **`pullback_tendencia_v1`** (a favor
+do H1: recua a S/R forte e rejeita). Todas: S/R/OB como reforço, nunca veto; funções puras
+testadas; params por env. Skill em `.claude/skills/trading-quant-expert/` (referências+roadmap).
 
 ## PRÓXIMOS PASSOS (priorizados)
 1. **Deixar a sombra rodar alguns dias** e auditar `/analitico` → especialmente
@@ -85,10 +88,14 @@ Skill de conhecimento em `.claude/skills/trading-quant-expert/` (com referência
    quando houver ≥30 trades dela. Nota p/ calibrar depois: o SL ainda é ATR (3×) genérico do
    executor; a reversão pós-sweep pede stop estrutural (atrás do pavio) — item 6 do roadmap +
    MAE/MFE por estratégia darão o número. Enquanto sombra, ATR basta para observar.
-3. **Order block** com S/R/FVG como reforço (usar `meta` de qualidade dos níveis).
-4. **Pullback em tendência**: entrar a favor do H1 quando o preço recua a S/R/OB forte e
-   rejeita (reutilizar `estrategias.candle_rejeicao`).
-5. Só depois de ≥30 trades/estratégia com expectância positiva na sombra: avaliar
+3. ~~**Order block** com S/R/FVG como reforço~~ **✅ ENTREGUE** — `order_block_v1` (detecção
+   exige displacement/FVG, só M15/H1, zona fresca não mitigada; entra no reteste + rejeição).
+4. ~~**Pullback em tendência** (a favor do H1, recua a S/R/OB e rejeita)~~ **✅ ENTREGUE** —
+   `pullback_tendencia_v1` (rejeição é o gatilho obrigatório; OB coincidente é reforço).
+5. Auditar as 4 estratégias no /analitico **Por estratégia** conforme a sombra roda. Nota de
+   calibração (comum a todas): o SL ainda é ATR (3×) genérico; OB e pullback pedem stop
+   estrutural (atrás da zona/pavio) — item 6 do roadmap, guiado por MAE/MFE por estratégia.
+6. Só depois de ≥30 trades/estratégia com expectância positiva na sombra: avaliar
    `EXECUCAO_ATIVA=true` em DEMO por 30 dias (nunca real antes disso).
 
 Consultar SEMPRE a skill `trading-quant-expert` ao mexer em estratégia/risco/execução.

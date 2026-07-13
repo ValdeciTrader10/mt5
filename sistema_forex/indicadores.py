@@ -237,6 +237,48 @@ def fvgs(highs, lows, atr_val: float, min_atr: float) -> list:
 
 
 # --------------------------------------------------------------------------- #
+# Order Block — a última vela contrária antes de um impulso com displacement (FVG)
+# --------------------------------------------------------------------------- #
+def order_blocks(opens, highs, lows, closes, atr_val: float, min_atr: float) -> list:
+    """Order blocks FRESCOS (não mitigados). Um OB válido não é candle qualquer: exige
+    impulso com displacement (deixa FVG) — doc/skill §4.
+
+    - Bull OB: a última vela de BAIXA (close<open) antes de um FVG bull. Zona de demanda
+      [low, high] dessa vela — alvo de pullback para COMPRA.
+    - Bear OB: a última vela de ALTA antes de um FVG bear. Zona de oferta, para VENDA.
+    Fresco = o preço NÃO reentrou na zona depois do impulso (mesma régua dos FVGs). Assim
+    a estratégia dispara quando o preço RETESTA a zona ainda intacta.
+    """
+    if not atr_val:
+        return []
+    minimo = min_atr * atr_val
+    achados = []
+    n = len(highs)
+    for i in range(2, n):
+        # Bull FVG em i (imbalance de alta) → procura a vela-OB de baixa que o originou.
+        if lows[i] > highs[i - 2] and (lows[i] - highs[i - 2]) >= minimo:
+            j = i - 2
+            while j >= 0 and closes[j] >= opens[j]:      # pula velas de alta do impulso
+                j -= 1
+            if j < 0:
+                continue
+            base, topo = lows[j], highs[j]
+            if min(lows[i + 1:], default=topo + 1) > topo:   # não reentrou na zona
+                achados.append({"tipo": "ob_bull", "base": base, "topo": topo, "i": j})
+        # Bear FVG em i (imbalance de baixa) → vela-OB de alta.
+        elif highs[i] < lows[i - 2] and (lows[i - 2] - highs[i]) >= minimo:
+            j = i - 2
+            while j >= 0 and closes[j] <= opens[j]:      # pula velas de baixa do impulso
+                j -= 1
+            if j < 0:
+                continue
+            base, topo = lows[j], highs[j]
+            if max(highs[i + 1:], default=base - 1) < base:  # não reentrou na zona
+                achados.append({"tipo": "ob_bear", "base": base, "topo": topo, "i": j})
+    return achados
+
+
+# --------------------------------------------------------------------------- #
 # Gaps de sessão (abertura vs. fechamento anterior)
 # --------------------------------------------------------------------------- #
 def gaps(opens, closes, tamanho_pip: float, min_pips: float, max_pips: float) -> list:

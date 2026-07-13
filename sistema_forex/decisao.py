@@ -55,7 +55,7 @@ def _atr_m5(conn, par: str):
 
 
 def _niveis(conn, par: str):
-    sup, res, fvgs = [], [], []
+    sup, res, fvgs, obs = [], [], [], []
     for r in conn.execute(
         "SELECT tipo, preco, preco2, forca FROM niveis WHERE par=? AND ativo=1", (par,)
     ):
@@ -66,7 +66,10 @@ def _niveis(conn, par: str):
         elif r["tipo"].startswith("fvg") and r["preco2"] is not None:
             base, topo = min(r["preco"], r["preco2"]), max(r["preco"], r["preco2"])
             fvgs.append({"tipo": r["tipo"], "base": base, "topo": topo})
-    return sup, res, fvgs
+        elif r["tipo"].startswith("ob") and r["preco2"] is not None:
+            base, topo = min(r["preco"], r["preco2"]), max(r["preco"], r["preco2"])
+            obs.append({"tipo": r["tipo"], "base": base, "topo": topo})
+    return sup, res, fvgs, obs
 
 
 def _janela_m5(conn, par: str, n: int) -> dict:
@@ -102,7 +105,7 @@ def _regime(conn, par: str):
 
 def montar_snapshot(conn, par: str, candle_m5) -> dict:
     """Snapshot do par para a decisão, a partir do último candle M5 fechado."""
-    sup, res, fvgs = _niveis(conn, par)
+    sup, res, fvgs, obs = _niveis(conn, par)
     # spread em pontos → pips (pares de 3/5 casas: 1 pip = 10 pontos).
     spread_pips = (candle_m5["spread"] or 0) / 10.0
     hora_utc = time.gmtime(candle_m5["time_utc"]).tm_hour
@@ -118,6 +121,7 @@ def montar_snapshot(conn, par: str, candle_m5) -> dict:
         "suportes": sup,
         "resistencias": res,
         "fvgs": fvgs,
+        "obs": obs,
         "ultimo_evento": _ultimo_evento(conn, par),
         "m5_janela": _janela_m5(conn, par, config.SWEEP_JANELA),
     }
@@ -170,6 +174,25 @@ def avaliar_par(conn, par: str, candle_m5) -> list:
             sweep_recente=config.SWEEP_RECENTE,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             forca_min=config.SR_FORCA_MIN,
+        ))
+    if config.OB_HABILITADA:
+        decs.append(estrategias.avaliar_order_block(
+            snap,
+            sessao_utc=config.SESSAO_UTC,
+            spread_max_pips=config.SPREAD_MAX_PIPS,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            forca_min=config.SR_FORCA_MIN,
+            pavio_min=config.REJEICAO_PAVIO_MIN,
+            exigir_rejeicao=config.EXIGIR_REJEICAO_OB,
+        ))
+    if config.PULLBACK_HABILITADA:
+        decs.append(estrategias.avaliar_pullback_tendencia(
+            snap,
+            sessao_utc=config.SESSAO_UTC,
+            spread_max_pips=config.SPREAD_MAX_PIPS,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            forca_min=config.SR_FORCA_MIN,
+            pavio_min=config.REJEICAO_PAVIO_MIN,
         ))
     for dec in decs:
         _gravar_decisao(conn, par, candle_m5["time_utc"], dec)

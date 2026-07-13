@@ -24,6 +24,8 @@ from . import indicadores
 
 ESTRATEGIA = "confluencia_v1"
 ESTRATEGIA_SWEEP = "sweep_choch_v1"
+ESTRATEGIA_OB = "order_block_v1"
+ESTRATEGIA_PULLBACK = "pullback_tendencia_v1"
 
 
 def _mais_forte_perto(preco: float, niveis: list, tol: float):
@@ -261,3 +263,123 @@ def avaliar_sweep_choch(snap: dict, *, sessao_utc, spread_max_pips, n_swing, swe
 
     return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
                     estrategia=ESTRATEGIA_SWEEP)
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia 3 — reteste de Order Block (M15/H1) + rejeição
+# --------------------------------------------------------------------------- #
+def _ob_retestado(close: float, obs: list, tol: float):
+    """OB fresco cujo preço está retestando (dentro da zona ± tol). O mais PRÓXIMO do
+    preço vence. Retorna (direcao, ob) ou None."""
+    alvo = None
+    for ob in obs:
+        base, topo = ob["base"], ob["topo"]
+        if base - tol <= close <= topo + tol:
+            dist = abs(close - (base + topo) / 2)
+            if alvo is None or dist < alvo[0]:
+                direc = "compra" if ob["tipo"] == "ob_bull" else "venda"
+                alvo = (dist, direc, ob)
+    return (alvo[1], alvo[2]) if alvo else None
+
+
+def avaliar_order_block(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_atr,
+                        forca_min, pavio_min=0.5, exigir_rejeicao=False) -> dict:
+    """Avalia o reteste de Order Block. O OB fresco + preço retestando É o setup; S/R e
+    regime a favor são REFORÇO (nunca veto). Rejeição na borda é confluência (gate só se
+    exigir_rejeicao=True). Gates duros: sessão + spread."""
+    regime = snap.get("regime", "indefinido")
+    atr = snap.get("atr")
+    close = snap["close"]
+    obs = snap.get("obs", [])
+    if atr is None or not obs:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem OB fresco/ATR",
+                        estrategia=ESTRATEGIA_OB)
+    tol = nivel_prox_atr * atr
+    alvo = _ob_retestado(close, obs, tol)
+    if alvo is None:
+        return _decisao("nao_entrou", None, regime, 0, [], "preço fora das zonas de OB",
+                        estrategia=ESTRATEGIA_OB)
+    direcao, ob = alvo
+    conf = ["order_block"]
+    # rejeição na borda de entrada da zona (compra→base como suporte; venda→topo como resistência)
+    nivel_ref = ob["base"] if direcao == "compra" else ob["topo"]
+    rejeitou = candle_rejeicao(snap, direcao, nivel_ref, tol, pavio_min)
+    if rejeitou:
+        conf.append("rejeicao")
+    niveis = snap.get("suportes" if direcao == "compra" else "resistencias", [])
+    nv = _mais_forte_perto(nivel_ref, niveis, tol)
+    if nv and nv[1] >= forca_min:
+        conf.append(f"sr_confluente_{int(nv[1])}")
+    if (direcao == "compra" and regime == "tendencia_alta") or \
+       (direcao == "venda" and regime == "tendencia_baixa"):
+        conf.append("a_favor_regime")
+    score = len(conf)
+
+    if exigir_rejeicao and not rejeitou:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        "sem rejeição no OB (modo estrito)", estrategia=ESTRATEGIA_OB)
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"fora da sessão ({hora}h UTC)", estrategia=ESTRATEGIA_OB)
+    spread = snap.get("spread_pips", 0.0)
+    if spread > spread_max_pips:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
+                        estrategia=ESTRATEGIA_OB)
+    return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
+                    estrategia=ESTRATEGIA_OB)
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia 4 — pullback a favor da tendência + rejeição em S/R forte
+# --------------------------------------------------------------------------- #
+def avaliar_pullback_tendencia(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_atr,
+                               forca_min, pavio_min=0.5) -> dict:
+    """Em tendência (H1), o preço recua a um S/R FORTE na direção da tendência, REJEITA e
+    retoma. A rejeição é o GATILHO (obrigatória — é a tese). OB fresco coincidente = reforço.
+    Gates duros: sessão + spread. Contra a tendência: nem avalia."""
+    regime = snap.get("regime", "indefinido")
+    atr = snap.get("atr")
+    close = snap["close"]
+    if atr is None:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem ATR",
+                        estrategia=ESTRATEGIA_PULLBACK)
+    if regime == "tendencia_alta":
+        direcao = "compra"
+    elif regime == "tendencia_baixa":
+        direcao = "venda"
+    else:
+        return _decisao("nao_entrou", None, regime, 0, [], f"sem tendência (regime={regime})",
+                        estrategia=ESTRATEGIA_PULLBACK)
+    tol = nivel_prox_atr * atr
+    niveis = snap.get("suportes" if direcao == "compra" else "resistencias", [])
+    nv = _mais_forte_perto(close, niveis, tol)
+    if not nv or nv[1] < forca_min:
+        return _decisao("nao_entrou", direcao, regime, 0, ["regime"],
+                        "sem S/R forte no pullback", estrategia=ESTRATEGIA_PULLBACK)
+    conf = ["regime", f"nivel_forca_{int(nv[1])}"]
+    rejeitou = candle_rejeicao(snap, direcao, nv[0], tol, pavio_min)
+    if rejeitou:
+        conf.append("rejeicao")
+    for ob in snap.get("obs", []):
+        d2 = "compra" if ob["tipo"] == "ob_bull" else "venda"
+        if d2 == direcao and ob["base"] - tol <= close <= ob["topo"] + tol:
+            conf.append("ob_confluente")
+            break
+    score = len(conf)
+
+    if not rejeitou:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        "sem rejeição no pullback", estrategia=ESTRATEGIA_PULLBACK)
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"fora da sessão ({hora}h UTC)", estrategia=ESTRATEGIA_PULLBACK)
+    spread = snap.get("spread_pips", 0.0)
+    if spread > spread_max_pips:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
+                        estrategia=ESTRATEGIA_PULLBACK)
+    return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
+                    estrategia=ESTRATEGIA_PULLBACK)
