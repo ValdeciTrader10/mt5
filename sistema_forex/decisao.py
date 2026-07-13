@@ -186,11 +186,13 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
     do mesmo livro de TF não abrem duas posições.
     """
     snap = montar_snapshot(conn, par, tf, candle)
+    # Filtro de spread POR SÍMBOLO (o ouro tem spread bem maior que o forex).
+    spread_max = config.param_simbolo(par, "spread_max_pips", config.SPREAD_MAX_PIPS)
     decs = [
         estrategias.avaliar(
             snap,
             sessao_utc=config.SESSAO_UTC,
-            spread_max_pips=config.SPREAD_MAX_PIPS,
+            spread_max_pips=spread_max,
             score_min=config.SCORE_MIN_CONFLUENCIAS,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             forca_min=config.SR_FORCA_MIN,
@@ -202,7 +204,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
         decs.append(estrategias.avaliar_sweep_choch(
             snap,
             sessao_utc=config.SESSAO_UTC,
-            spread_max_pips=config.SPREAD_MAX_PIPS,
+            spread_max_pips=spread_max,
             n_swing=config.SWEEP_N_SWING,
             sweep_min_atr=config.SWEEP_MIN_ATR,
             sweep_recente=config.SWEEP_RECENTE,
@@ -213,7 +215,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
         decs.append(estrategias.avaliar_order_block(
             snap,
             sessao_utc=config.SESSAO_UTC,
-            spread_max_pips=config.SPREAD_MAX_PIPS,
+            spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             forca_min=config.SR_FORCA_MIN,
             pavio_min=config.REJEICAO_PAVIO_MIN,
@@ -223,7 +225,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
         decs.append(estrategias.avaliar_pullback_tendencia(
             snap,
             sessao_utc=config.SESSAO_UTC,
-            spread_max_pips=config.SPREAD_MAX_PIPS,
+            spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             forca_min=config.SR_FORCA_MIN,
             pavio_min=config.REJEICAO_PAVIO_MIN,
@@ -232,7 +234,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
         decs.append(estrategias.avaliar_fecha_gap(
             snap,
             sessao_utc=config.SESSAO_UTC,
-            spread_max_pips=config.SPREAD_MAX_PIPS,
+            spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             forca_min=config.SR_FORCA_MIN,
             gap_min_atr=config.FECHA_GAP_MIN_ATR,
@@ -241,7 +243,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
         decs.append(estrategias.avaliar_pullback_rompimento(
             snap,
             sessao_utc=config.SESSAO_UTC,
-            spread_max_pips=config.SPREAD_MAX_PIPS,
+            spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             forca_min=config.SR_FORCA_MIN,
             pavio_min=config.REJEICAO_PAVIO_MIN,
@@ -250,7 +252,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
         decs.append(estrategias.avaliar_rompimento_extremos(
             snap,
             sessao_utc=config.SESSAO_UTC,
-            spread_max_pips=config.SPREAD_MAX_PIPS,
+            spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             pavio_min=config.REJEICAO_PAVIO_MIN,
         ))

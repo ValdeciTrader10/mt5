@@ -104,7 +104,10 @@ def resolver_simbolo(par: str) -> str:
     """
     with _LOCK:
         mt5 = _cliente()
-        candidatos = [par, par.rstrip("#"), par + config.SUFIXO_PADRAO]
+        bases = [par] + config.ALIASES_SIMBOLO.get(par, [])
+        candidatos = []
+        for b in bases:                        # cada base, com e sem o sufixo "#"
+            candidatos += [b, b.rstrip("#"), b + config.SUFIXO_PADRAO]
         vistos = set()
         for nome in candidatos:
             if nome in vistos:

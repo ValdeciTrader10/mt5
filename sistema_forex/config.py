@@ -18,7 +18,11 @@ DB_PATH = Path(os.environ.get("DB_PATH", DADOS_DIR / "mercado.db"))
 # --------------------------------------------------------------------------- #
 # Parâmetros de mercado (doc §9 — valores iniciais)
 # --------------------------------------------------------------------------- #
-PARES = ["EURUSD#", "GBPUSD#", "USDCAD"]
+# Pares monitorados (sombra). Ajustável por env (Dokploy) sem mexer no código. Majors de
+# spread razoável + OURO (GOLD) para catalogar — o ouro paga mais, mas é mais arriscado
+# (spread/volatilidade altos): tem parâmetros próprios em PARAMS_SIMBOLO.
+PARES = [s.strip() for s in os.environ.get(
+    "PARES", "EURUSD#,GBPUSD#,USDCAD,USDJPY#,AUDUSD#,GOLD").split(",") if s.strip()]
 TF_OPERACAO = "M5"
 # Timeframes onde o estrategista roda OPERAÇÕES DE SOMBRA INDEPENDENTES (cada TF é um
 # "livro" próprio: abre/gerencia sua posição virtual e é comparado no /analitico "Por
@@ -127,6 +131,30 @@ MT5_TIMEOUT_S = int(os.environ.get("MT5_TIMEOUT_S", "60"))
 # O coletor confirma o nome real via symbols_get na inicialização; este mapa é
 # apenas o palpite inicial para o backfill.
 SUFIXO_PADRAO = "#"
+
+# Nomes-base alternativos por par lógico (o broker pode chamar o ouro de GOLD ou XAUUSD).
+# O resolver tenta cada base com e sem o sufixo "#".
+ALIASES_SIMBOLO = {
+    "GOLD": ["XAUUSD"],
+}
+
+# --------------------------------------------------------------------------- #
+# Parâmetros POR SÍMBOLO (escalas diferentes: forex vs. OURO)
+# --------------------------------------------------------------------------- #
+# O ouro se move DÓLARES por vela; 1 pip ≈ 0.01 e o spread é ~20–50 pontos. Sem override,
+# o SL global (12–40 pips = só ~$0.40 no ouro) insta-estoparia todo trade e o filtro de
+# spread (2.0) barraria quase tudo. Aqui cada símbolo sobrescreve o que precisa; o resto
+# cai no default global. (spread_max_pips está na régua interna pontos/10 do snapshot.)
+PARAMS_SIMBOLO = {
+    # Ouro: pip≈0.01 → SL 100–800 pips = ~$1–$8 (o ATR×3 do M5 costuma cair nessa faixa);
+    # spread razoável do ouro ~20–50 pontos → 2.0–5.0 na régua interna; cap 6.0.
+    "GOLD": {"spread_max_pips": 6.0, "sl_min_pips": 100, "sl_max_pips": 800},
+}
+
+
+def param_simbolo(par, chave, default):
+    """Valor de um parâmetro para o par (override em PARAMS_SIMBOLO) ou o default global."""
+    return PARAMS_SIMBOLO.get(par, {}).get(chave, default)
 
 # --------------------------------------------------------------------------- #
 # Painel web (autenticação)

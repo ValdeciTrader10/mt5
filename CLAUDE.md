@@ -66,6 +66,25 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
 - Env sensíveis (senha do painel, VNC, MT5) só no Environment do Dokploy — nunca no git.
 
+## Pares monitorados (sombra) — 13/07
+`config.PARES` (env-configurável no Dokploy): `EURUSD#, GBPUSD#, USDCAD, USDJPY#, AUDUSD#, GOLD`.
+- **GOLD** (ouro) adicionado a pedido do dono ("paga mais, maior risco, catalogar"). O ouro tem
+  escala MUITO diferente do forex: pip≈0.01, move dólares por vela, spread ~20–50 pontos. Sem
+  cuidado, o SL global (12–40 pips = só ~$0.40) insta-estoparia todo trade e o filtro de spread
+  (2.0) barraria quase tudo. Por isso há **parâmetros por símbolo** (`config.PARAMS_SIMBOLO` +
+  `param_simbolo()`): GOLD usa `sl_min_pips=100`, `sl_max_pips=800` (~$1–$8) e `spread_max_pips=6.0`.
+  Threading: `decisao.avaliar_par` usa o spread por símbolo; `executor._abrir` usa os limites de SL
+  por símbolo. Nome do símbolo resolvido por `ALIASES_SIMBOLO` (GOLD→tenta GOLD/GOLD#/XAUUSD/XAUUSD#);
+  `coletor.resolver_simbolos` agora **pula** (com aviso) um símbolo que o broker não tem, sem derrubar
+  o coletor. ⚠️ Se o ouro não aparecer no painel, conferir o nome real no terminal (VNC) e ajustar
+  `ALIASES_SIMBOLO`/`PARES`. Ressalva: `spread_max_pips` está na régua interna pontos/10, então a
+  coluna de spread do ouro no /analitico não é comparável 1:1 com a do forex (calibrar depois).
+- Majors de spread razoável adicionados: **USDJPY#** e **AUDUSD#** (líquidos, spread baixo; usam os
+  params globais — pip do JPY já sai certo em `tamanho_pip`). USDCHF/NZDUSD são opções extras.
+- ⚠️ Correlação: quase todos compartilham USD (e o ouro é anti-USD). Irrelevante na sombra (catálogo),
+  mas `gestao._moedas("GOLD")` não sabe parsear metal — tratar antes de religar `GUARDA_CORRELACAO`
+  para real.
+
 ## Regras inegociáveis (lições MASMC — NÃO repetir)
 Verificar margem antes de order_send (retcode 10019); pips por `price_open`/`price_current`
 do deal; toda ordem com stop de servidor; todas as chamadas MT5 sob lock global; DEBUG

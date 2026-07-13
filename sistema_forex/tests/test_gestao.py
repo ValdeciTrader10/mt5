@@ -3,10 +3,28 @@
     python -m sistema_forex.tests.test_gestao
 """
 
+from .. import config as cfg
 from .. import gestao as g
 
 PIP = 0.0001
 SAIDA = dict(be_trigger_r=1.0, giveback_r=0.7, tempo_max_h=8)
+
+
+def test_param_simbolo_override_e_default():
+    # OURO tem override; forex cai no default global.
+    assert cfg.param_simbolo("GOLD", "sl_max_pips", cfg.SL_MAX_PIPS) == 800
+    assert cfg.param_simbolo("GOLD", "spread_max_pips", cfg.SPREAD_MAX_PIPS) == 6.0
+    assert cfg.param_simbolo("EURUSD#", "sl_max_pips", cfg.SL_MAX_PIPS) == cfg.SL_MAX_PIPS
+    # chave inexistente também cai no default
+    assert cfg.param_simbolo("GOLD", "inexistente", 123) == 123
+
+
+def test_sl_ouro_muito_mais_largo_que_forex():
+    # Mesmo ATR: no ouro (pip 0.01, min 100) o stop mínimo é ~$1; no forex (pip 0.0001,
+    # min 12) é ~0.0012. Prova que o override evita o insta-stop do ouro.
+    sl_ouro = g.calcular_sl("compra", 2600.0, atr=0.0, mult=3,
+                            min_pips=800, max_pips=800, pip=0.01)   # clampa no min=max
+    assert abs((2600.0 - sl_ouro) - 8.0) < 1e-9, sl_ouro          # 800 * 0.01 = $8
 
 
 def test_sl_respeita_min_e_max():

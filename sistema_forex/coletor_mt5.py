@@ -206,10 +206,18 @@ def loop(conn, simbolos: dict) -> None:
 # Entrada
 # --------------------------------------------------------------------------- #
 def resolver_simbolos() -> dict:
-    """Mapeia cada par lógico (config) para o nome real confirmado no broker."""
+    """Mapeia cada par lógico (config) para o nome real confirmado no broker.
+
+    Um símbolo que não existe no broker (ex.: nome do ouro diferente do esperado) é
+    apenas PULADO com log de aviso — não derruba o coletor (os demais seguem coletando).
+    """
     simbolos = {}
     for par in config.PARES:
-        real = mt5_bridge.resolver_simbolo(par)
+        try:
+            real = mt5_bridge.resolver_simbolo(par)
+        except mt5_bridge.MT5Erro as e:
+            log.warning("Par %s ignorado (não resolvido no broker): %s", par, e)
+            continue
         simbolos[par] = real
         if real != par:
             log.info("Par %s resolvido para símbolo real '%s'", par, real)

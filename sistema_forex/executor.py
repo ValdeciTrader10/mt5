@@ -402,8 +402,11 @@ class Executor:
         entrada = self._preco_entrada(simbolo, direcao)
         if entrada is None:
             return
+        # Limites de SL POR SÍMBOLO (o ouro precisa de stops muito mais largos que o forex).
+        sl_min = config.param_simbolo(par, "sl_min_pips", config.SL_MIN_PIPS)
+        sl_max = config.param_simbolo(par, "sl_max_pips", config.SL_MAX_PIPS)
         sl = gestao.calcular_sl(direcao, entrada, atr, mult=config.SL_SERVIDOR_ATR_MULT,
-                                min_pips=config.SL_MIN_PIPS, max_pips=config.SL_MAX_PIPS, pip=pip)
+                                min_pips=sl_min, max_pips=sl_max, pip=pip)
         risco = abs(entrada - sl)
         if self.ativa:
             if not mt5_bridge.verificar_margem(simbolo, config.LOTE, direcao == "compra"):
