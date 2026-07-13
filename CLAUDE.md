@@ -104,6 +104,11 @@ a sombra (regra: demo/sombra primeiro).
   cortar não ajuda, o problema é a ENTRADA), `com_sinal`, `salvaria`, `usd_salvo_total`. Descobre se
   vale mexer na saída ANTES de mexer. Param `AUDITORIA_INVALIDACAO_TRADES`.
 - Banco: `sistema_forex/db.py` (SQLite WAL, migrações idempotentes em `_migrar`).
+- **Reset de dados** (`manutencao.py`): `python -m sistema_forex.manutencao [status|reset]`. `reset`
+  faz BACKUP consistente (API de backup do SQLite) e apaga `trades`/`decisoes` + derivadas
+  (`niveis`/`estrutura`/`regime_log`, que o motor regenera); **preserva `candles`** (mercado). Usado
+  em 13/07 p/ zerar os dados pré-fix-de-fuso e recomeçar limpo. Sequência: fechar posições do robô no
+  MT5 (magic) → `reset` → redeploy (executor reinicia sem estado velho). Testes em `test_manutencao.py`.
 
 **3 bugs da imagem MT5 já corrigidos** (ver `deploy/mt5/`): (1) `mt5linux 1.0.3` sem
 `-w` → fixado `mt5linux==0.1.9`; (2) RPyC do Wine é **5.2.3** → cliente fixado em
