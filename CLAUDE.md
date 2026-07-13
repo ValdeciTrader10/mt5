@@ -144,6 +144,19 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
   mas `gestao._moedas("GOLD")` não sabe parsear metal — tratar antes de religar `GUARDA_CORRELACAO`
   para real.
 
+## ⚠️ BUG ABERTO — fuso horário (candle server-time vs trade UTC)
+A medição de invalidação (13/07) expôs: `candles.time_utc` = hora do SERVIDOR XM (UTC+3, vem cru
+de `r["time"]` do MT5); mas `trades.abertura_utc`/`fechamento_utc` e `decisoes.criada_utc` usam
+`time.time()` (UTC real). Diferença ~3h. Efeito: `grafico._janela_trade` desalinha a janela ~3h →
+**raio-X (visual+texto) e a simulação de invalidação ficam com candles que não batem com a entrada**
+(vela de entrada a +15 pips, MFE recomputado contradiz o `mfe_r` ao vivo). O `mfe_r`/`mae_r` gravados
+TICK A TICK são a fonte confiável; a reconstrução por candle NÃO. Guarda paliativa: `simular_saida_
+invalidacao` marca `janela_suspeita` (descarta da medição) quando a vela de entrada está >0.5R do
+preço de entrada. Também afeta: filtro de sessão em `decisao` (usa hora do candle=servidor) vs
+`/analitico` (usa abertura_utc=UTC) — inconsistente; `_extremos_dia` (fronteira de dia). **CORRIGIR:**
+normalizar candles p/ UTC real na ingestão (offset = tick.time − time.time(), re-backfill) OU carimbar
+trades/decisões com a MESMA hora dos candles (server) — decisão do dono pendente (afeta live).
+
 ## Regras inegociáveis (lições MASMC — NÃO repetir)
 Verificar margem antes de order_send (retcode 10019); pips por `price_open`/`price_current`
 do deal; toda ordem com stop de servidor; todas as chamadas MT5 sob lock global; DEBUG

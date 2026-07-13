@@ -271,6 +271,12 @@ def simular_saida_invalidacao(conn, t, antes: int = 120) -> dict:
     idx_ent = next((i for i, tm in enumerate(times) if tm >= ab), None)
     if idx_ent is None:
         return {"status": "sem_candles"}
+    # SANIDADE DA JANELA: a vela de entrada tem de estar ~no preço de entrada. Se estiver longe
+    # (candle em hora de SERVIDOR (UTC+3) vs trade em UTC → janela deslocada ~3h), a reconstrução
+    # NÃO corresponde ao trade e qualquer simulação seria lixo — descarta com aviso.
+    r_entrada = abs(gestao.r_por_risco(direcao, ent, closes[idx_ent], risco))
+    if r_entrada > 0.5:
+        return {"status": "janela_suspeita", "r_entrada": round(r_entrada, 2)}
     idx_sai = next((i for i, tm in enumerate(times) if tm >= fe), len(rows) - 1)
     oposto = "baixa" if direcao == "compra" else "alta"
     # 1º candle da vida em que o stop é furado (o "-1R" real).
@@ -322,6 +328,7 @@ def resumo_invalidacao(conn, perdedores: list, limite: int = None) -> dict:
     usd_salvo = round(sum(s["saved_r"] * _por_r_usd(s) for s in salvaria), 2)
     return {
         "n_avaliadas": len(sims),
+        "janela_suspeita": sum(1 for s in sims if s["status"] == "janela_suspeita"),
         "sem_sinal": sum(1 for s in sims if s["status"] == "sem_sinal"),
         "sem_candles": sum(1 for s in sims if s["status"] in ("sem_candles", "sem_dados")),
         "com_sinal": len(com_sinal),
@@ -488,14 +495,16 @@ def dossie_texto(d: dict) -> str:
                  "prejuízo?'. Replay SEM look-ahead sobre as perdedoras: se, durante a vida do "
                  "trade, um CHoCH OPOSTO se confirmasse (no TF do próprio trade — o sinal mais "
                  "RÁPIDO) ANTES do stop, a que R sairia e quanto salvaria vs os -1R.")
-        L.append(f"Avaliadas: {inv['n_avaliadas']} · SEM sinal de reversão antes do stop: "
+        L.append(f"Avaliadas: {inv['n_avaliadas']} · JANELA SUSPEITA (candles não batem com a "
+                 f"entrada, descartadas): {inv['janela_suspeita']} · SEM sinal antes do stop: "
                  f"{inv['sem_sinal']} · sem candles: {inv['sem_candles']} · COM sinal: "
                  f"{inv['com_sinal']} · das quais reduziriam a perda: {inv['salvaria']}")
         L.append(f"R médio de saída na invalidação: {inv['r_saida_medio']} · R médio salvo: "
                  f"{inv['saved_r_medio']} · USD total salvo (estimado): {inv['usd_salvo_total']}")
-        L.append("Leitura: 'sem sinal' alto = o preço vira RÁPIDO e o stop chega antes de qualquer "
-                 "reversão confirmar (cortar não ajuda; o problema é a ENTRADA). USD salvo baixo/≈0 "
-                 "= a saída por invalidação não move o ponteiro nesta amostra.")
+        L.append("Leitura: 'JANELA SUSPEITA' alto = BUG DE FUSO (candle em hora de servidor UTC+3 "
+                 "vs trade em UTC) desloca a janela ~3h → a medição só é confiável DEPOIS de "
+                 "corrigir o fuso. 'sem sinal' alto = o preço vira RÁPIDO e o stop chega antes da "
+                 "reversão (cortar não ajuda; o problema é a ENTRADA).")
         L.append("")
 
     L.append(f"## Perdedoras (detalhe — até {d['detalhe_limitado_a']} mais recentes)")

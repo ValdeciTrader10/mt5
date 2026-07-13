@@ -195,6 +195,15 @@ def test_invalidacao_stop_antes_do_sinal():
     assert s["status"] == "sem_sinal", s
 
 
+def test_invalidacao_janela_desalinhada_e_descartada():
+    # entrada MUITO distante da vela de entrada (janela deslocada, ex.: bug de fuso) → descarta.
+    c = _conn(); _serie_choch_alta(c)
+    s = aud.simular_saida_invalidacao(c, _trade_venda_choch(preco_entrada=1.140))  # ~30 pips longe
+    assert s["status"] == "janela_suspeita", s
+    r = aud.resumo_invalidacao(c, [_trade_venda_choch(preco_entrada=1.140)])
+    assert r["janela_suspeita"] == 1 and r["salvaria"] == 0, r
+
+
 def test_invalidacao_sem_dados_e_resumo():
     c = _conn(); _serie_choch_alta(c)
     faltando = dict(par="Z", tf="M5", direcao="venda", preco_entrada=None, sl_servidor=None,
