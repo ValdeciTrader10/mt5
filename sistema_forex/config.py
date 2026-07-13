@@ -148,6 +148,20 @@ GESTOR_POLL_S = int(os.environ.get("GESTOR_POLL_S", "1"))
 # Saída por reversão: depois de atingir BE_TRIGGER_R, fecha se ceder este tanto de R
 # do pico favorável (a "força contrária" no preço).
 GIVEBACK_R = float(os.environ.get("GIVEBACK_R", "0.7"))
+
+# --- Saída por força contrária de ESTRUTURA (SMC), "com direito a desenvolver" ---
+# Pedido do dono: a força contrária não pode ser instantânea (fechava com centavos de
+# lucro em qualquer BOS de ruído), e o preço precisa ter ESPAÇO para desenvolver.
+# Só protege lucro já feito: exige r >= este valor antes de sair por estrutura contrária.
+SAIDA_ESTRUTURA_MIN_R = float(os.environ.get("SAIDA_ESTRUTURA_MIN_R", "1.0"))
+# TFs de estrutura que valem para SAIR. M5 é ruído (a estrutura de trade é M15/H1),
+# por isso fica de fora por padrão — evita sair a cada BOS de 1 candle no M5.
+SAIDA_ESTRUTURA_TFS = [s.strip() for s in
+                       os.environ.get("SAIDA_ESTRUTURA_TFS", "M15,H1").split(",") if s.strip()]
+# Espaço mínimo (em R) até o próximo nível contrário para AINDA segurar a posição quando
+# o sinal contrário é FRACO (BOS). Com espaço >= isto e BOS → mantém (deixa o preço andar);
+# CHOCH (reversão confirmada) sai assim que há o lucro mínimo, independentemente do espaço.
+SAIDA_ESPACO_SEGURAR_R = float(os.environ.get("SAIDA_ESPACO_SEGURAR_R", "1.0"))
 # Identificador das ordens do robô (magic number) e base de saldo p/ P&L simulado.
 MAGIC = int(os.environ.get("MAGIC", "500250"))
 SALDO_SIMULADO = float(os.environ.get("SALDO_SIMULADO", "1000"))

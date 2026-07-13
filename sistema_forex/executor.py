@@ -21,7 +21,7 @@ import signal
 import time
 from datetime import datetime, timezone
 
-from . import config, db, gestao, indicadores, mt5_bridge, telegram_notif
+from . import analise, config, db, gestao, indicadores, mt5_bridge, telegram_notif
 
 log = logging.getLogger("executor")
 
@@ -53,11 +53,43 @@ def _atr_m5(conn, par: str):
                            [r["close"] for r in rows], config.ATR_PERIODO)
 
 
-def _ultimo_evento(conn, par: str):
+def _evento_saida(conn, par: str):
+    """Último evento SMC nos TFs de ESTRUTURA de saída (M5 é ruído — fica de fora).
+
+    A estrutura de trade é M15/H1 (config.SAIDA_ESTRUTURA_TFS); eventos de M5 não
+    disparam saída, para não fechar a cada BOS de 1 candle.
+    """
+    tfs = config.SAIDA_ESTRUTURA_TFS or ["M15", "H1"]
+    marcadores = ",".join("?" for _ in tfs)
     r = conn.execute(
-        "SELECT evento, direcao, tf FROM estrutura WHERE par=? ORDER BY time_utc DESC LIMIT 1", (par,)
+        f"SELECT evento, direcao, tf FROM estrutura WHERE par=? AND tf IN ({marcadores}) "
+        "ORDER BY time_utc DESC LIMIT 1",
+        (par, *tfs),
     ).fetchone()
     return {"evento": r["evento"], "direcao": r["direcao"], "tf": r["tf"]} if r else None
+
+
+def _espaco_r(conn, par: str, direcao: str, preco: float, risco: float):
+    """Espaço (em múltiplos de R) até o nível contrário mais próximo À FRENTE do preço.
+
+    Compra → resistência acima; venda → suporte abaixo. Sem nível à frente → None
+    (campo aberto; a gestão trata como "muito espaço"). É o que permite dar ao preço a
+    chance de desenvolver antes de sair por um sinal contrário fraco.
+    """
+    if not risco:
+        return None
+    alvo = None
+    for nv in analise.niveis_ativos(conn, par):
+        p = nv.get("preco")
+        if p is None:
+            continue
+        if direcao == "compra" and nv["tipo"] == "resistencia" and p > preco:
+            alvo = p if alvo is None else min(alvo, p)
+        elif direcao == "venda" and nv["tipo"] == "suporte" and p < preco:
+            alvo = p if alvo is None else max(alvo, p)
+    if alvo is None:
+        return None
+    return abs(alvo - preco) / risco
 
 
 def _decisoes_novas(conn, desde_id: int):
@@ -234,11 +266,14 @@ class Executor:
             r = gestao.r_por_risco(p["direcao"], p["preco_entrada"], preco, p["risco"])
             p["r_max"] = max(p["r_max"], r)
             idade_h = (_agora() - p["abertura_utc"]) / 3600
+            espaco_r = _espaco_r(conn, p["par"], p["direcao"], preco, p["risco"])
             acao, motivo = gestao.avaliar_saida(
                 direcao=p["direcao"], r=r, r_max=p["r_max"], idade_h=idade_h,
-                ultimo_evento=_ultimo_evento(conn, p["par"]), be_movido=p["be_movido"],
+                ultimo_evento=_evento_saida(conn, p["par"]), be_movido=p["be_movido"],
                 be_trigger_r=config.BE_TRIGGER_R, giveback_r=config.GIVEBACK_R,
                 tempo_max_h=config.TEMPO_MAX_POSICAO_H,
+                espaco_r=espaco_r, estrut_min_r=config.SAIDA_ESTRUTURA_MIN_R,
+                espaco_segurar_r=config.SAIDA_ESPACO_SEGURAR_R,
             )
             if acao == "fechar":
                 self._fechar(conn, p, preco, pip, motivo)

@@ -32,19 +32,40 @@ def test_saida_por_tempo():
     assert acao == "fechar" and "tempo" in motivo
 
 
-def test_saida_por_forca_contraria_estrutura():
-    acao, motivo = g.avaliar_saida(direcao="compra", r=0.5, r_max=0.6, idade_h=1,
+def test_choch_contrario_sai_com_lucro_desenvolvido():
+    # CHOCH (reversão) contra a posição, com r ≥ estrut_min_r → fecha, mesmo com espaço.
+    acao, motivo = g.avaliar_saida(direcao="compra", r=1.2, r_max=1.3, idade_h=1,
                                    ultimo_evento={"evento": "CHOCH", "direcao": "baixa"},
-                                   be_movido=True, **SAIDA)
+                                   be_movido=True, espaco_r=3.0, estrut_min_r=1.0,
+                                   espaco_segurar_r=1.0, **SAIDA)
     assert acao == "fechar" and "força contrária" in motivo
 
 
-def test_nao_sai_no_ruido_inicial_mesmo_com_evento_contrario():
-    # r <= 0 → não fecha por evento contrário (evita saída no ruído do início)
-    acao, _ = g.avaliar_saida(direcao="compra", r=-0.2, r_max=0.0, idade_h=0.1,
-                              ultimo_evento={"evento": "BOS", "direcao": "baixa"},
-                              be_movido=False, **SAIDA)
+def test_nao_sai_no_ruido_com_lucro_de_centavos():
+    # O bug relatado: BOS contrário com r minúsculo (centavos) NÃO pode fechar.
+    acao, _ = g.avaliar_saida(direcao="venda", r=0.03, r_max=0.05, idade_h=0.2,
+                              ultimo_evento={"evento": "BOS", "direcao": "alta"},
+                              be_movido=False, espaco_r=0.2, estrut_min_r=1.0,
+                              espaco_segurar_r=1.0, **SAIDA)
     assert acao == "manter"
+
+
+def test_bos_contrario_segura_quando_ha_espaco():
+    # BOS fraco, já no lucro (r≥min), MAS com espaço p/ o alvo → segura (deixa desenvolver).
+    acao, _ = g.avaliar_saida(direcao="compra", r=1.2, r_max=1.3, idade_h=1,
+                              ultimo_evento={"evento": "BOS", "direcao": "baixa"},
+                              be_movido=True, espaco_r=2.5, estrut_min_r=1.0,
+                              espaco_segurar_r=1.0, **SAIDA)
+    assert acao == "manter"
+
+
+def test_bos_contrario_sai_quando_perto_do_alvo():
+    # BOS fraco, no lucro, mas SEM espaço (perto do nível contrário) → protege e sai.
+    acao, motivo = g.avaliar_saida(direcao="compra", r=1.2, r_max=1.3, idade_h=1,
+                                   ultimo_evento={"evento": "BOS", "direcao": "baixa"},
+                                   be_movido=True, espaco_r=0.3, estrut_min_r=1.0,
+                                   espaco_segurar_r=1.0, **SAIDA)
+    assert acao == "fechar" and "força contrária" in motivo
 
 
 def test_saida_por_reversao_giveback():

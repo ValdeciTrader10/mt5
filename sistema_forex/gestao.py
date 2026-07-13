@@ -5,7 +5,10 @@ Toda a matemática de "quando e como sair" mora aqui, sem tocar no MT5: o execut
 
 Saída por (nesta ordem de prioridade):
   1. Tempo máximo na posição (`TEMPO_MAX_POSICAO_H`).
-  2. Força contrária de ESTRUTURA — evento SMC (BOS/CHOCH) contra a posição, já no lucro.
+  2. Força contrária de ESTRUTURA — evento SMC (BOS/CHOCH) contra a posição, MAS
+     "com direito a desenvolver" (ver `avaliar_saida`): só protege lucro já feito
+     (r ≥ estrut_min_r) e, se o sinal for fraco (BOS) e ainda houver ESPAÇO até o
+     próximo nível contrário, SEGURA — deixa o preço andar em vez de sair no ruído.
   3. Força contrária de PREÇO — depois de atingir BE_TRIGGER_R, cede GIVEBACK_R do pico
      (reversão do momentum, capturada a cada tick).
   4. Break-even — em BE_TRIGGER_R move o stop para a entrada.
@@ -44,16 +47,34 @@ def _oposto(direcao: str, dir_evento: str) -> bool:
 
 
 def avaliar_saida(*, direcao, r, r_max, idade_h, ultimo_evento, be_movido,
-                  be_trigger_r, giveback_r, tempo_max_h) -> tuple:
+                  be_trigger_r, giveback_r, tempo_max_h,
+                  espaco_r=None, estrut_min_r=1.0, espaco_segurar_r=1.0) -> tuple:
     """Decide a ação para uma posição aberta. Retorna (acao, motivo).
 
     acao ∈ {"manter", "fechar", "mover_be"}. `r` é o R atual; `r_max`, o pico de R.
+
+    Parâmetros da saída por estrutura "com direito a desenvolver":
+      - `ultimo_evento`: dict {evento, direcao, tf} do evento SMC relevante para SAIR
+        (o executor já filtra para os TFs de estrutura — M15/H1 —, deixando o M5 de fora).
+      - `espaco_r`: espaço até o próximo nível contrário à frente, em múltiplos de R.
+        `None` = sem nível à frente (campo aberto) → tratado como "muito espaço".
+      - `estrut_min_r`: só sai por estrutura contrária depois deste lucro (em R).
+      - `espaco_segurar_r`: com espaço ≥ isto e sinal fraco (BOS), SEGURA a posição.
     """
     if idade_h >= tempo_max_h:
         return ("fechar", f"tempo máximo ({idade_h:.1f}h ≥ {tempo_max_h}h)")
 
-    if r > 0 and ultimo_evento and _oposto(direcao, ultimo_evento.get("direcao", "")):
-        return ("fechar", f"força contrária: {ultimo_evento.get('evento')} {ultimo_evento.get('direcao')}")
+    # Força contrária de ESTRUTURA — mas com direito a desenvolver:
+    if r >= estrut_min_r and ultimo_evento and _oposto(direcao, ultimo_evento.get("direcao", "")):
+        ev = (ultimo_evento.get("evento") or "").upper()
+        forte = ev == "CHOCH"                                   # reversão confirmada
+        tem_espaco = (espaco_r is None) or (espaco_r >= espaco_segurar_r)
+        # CHOCH sai já; BOS só sai se NÃO houver espaço (perto do nível contrário).
+        if forte or not tem_espaco:
+            esp = f"{espaco_r:.1f}R" if espaco_r is not None else "aberto"
+            return ("fechar",
+                    f"força contrária: {ev} {ultimo_evento.get('direcao')} "
+                    f"(r={r:.1f}, espaço={esp})")
 
     if r_max >= be_trigger_r and r <= r_max - giveback_r:
         return ("fechar", f"reversão: cedeu {giveback_r:.1f}R do pico ({r_max:.1f}R → {r:.1f}R)")
