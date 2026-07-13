@@ -157,6 +157,95 @@ def _status_dados() -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Analítico de trades (ganhadoras/perdedoras, por estratégia, filtro de datas)
+# --------------------------------------------------------------------------- #
+def _epoch(data_iso: str, fim: bool = False):
+    """Converte 'YYYY-MM-DD' (UTC) em epoch. `fim=True` → 23:59:59 do dia."""
+    if not data_iso:
+        return None
+    from datetime import datetime, timezone
+
+    try:
+        dt = datetime.strptime(data_iso, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    if fim:
+        dt = dt.replace(hour=23, minute=59, second=59)
+    return int(dt.timestamp())
+
+
+def _agregar(trades: list) -> dict:
+    """KPIs de um conjunto de trades fechados."""
+    n = len(trades)
+    ganhos = [t for t in trades if (t["lucro_usd"] or 0) > 0]
+    perdas = [t for t in trades if (t["lucro_usd"] or 0) < 0]
+    zerados = n - len(ganhos) - len(perdas)
+    bruto_ganho = sum(t["lucro_usd"] or 0 for t in ganhos)
+    bruto_perda = sum(t["lucro_usd"] or 0 for t in perdas)  # negativo
+    usd = sum(t["lucro_usd"] or 0 for t in trades)
+    pips = sum(t["pips"] or 0 for t in trades)
+    pf = round(bruto_ganho / abs(bruto_perda), 2) if bruto_perda else None  # None = sem perdas
+    return {
+        "n": n, "ganhos": len(ganhos), "perdas": len(perdas), "zerados": zerados,
+        "winrate": round(100 * len(ganhos) / n, 1) if n else 0.0,
+        "usd": round(usd, 2), "pips": round(pips, 1),
+        "profit_factor": pf,
+        "media_ganho": round(bruto_ganho / len(ganhos), 2) if ganhos else 0.0,
+        "media_perda": round(bruto_perda / len(perdas), 2) if perdas else 0.0,
+        "expectativa": round(usd / n, 2) if n else 0.0,
+    }
+
+
+def _por(trades: list, chave: str) -> list:
+    """Agrupa por uma coluna e agrega; ordena por USD total (pior → melhor no fim)."""
+    grupos: dict = {}
+    for t in trades:
+        grupos.setdefault(t[chave] or "—", []).append(t)
+    linhas = [{"chave": k, **_agregar(v)} for k, v in grupos.items()]
+    linhas.sort(key=lambda x: x["usd"])
+    return linhas
+
+
+def _analitico(de: str = "", ate: str = "") -> dict:
+    """Estatísticas dos trades fechados no intervalo [de, ate] (datas ISO, opcionais)."""
+    de_e, ate_e = _epoch(de), _epoch(ate, fim=True)
+    cond, args = ["fechamento_utc IS NOT NULL"], []
+    if de_e:
+        cond.append("fechamento_utc >= ?"); args.append(de_e)
+    if ate_e:
+        cond.append("fechamento_utc <= ?"); args.append(ate_e)
+    where = " AND ".join(cond)
+    with db.sessao() as conn:
+        rows = conn.execute(
+            f"SELECT par, estrategia, direcao, pips, lucro_usd, motivo_saida, simulado, "
+            f"abertura_utc, fechamento_utc FROM trades WHERE {where} ORDER BY fechamento_utc DESC",
+            args,
+        ).fetchall()
+    from datetime import datetime, timezone
+
+    trades = [dict(r) for r in rows]
+    def _hora(ep):
+        return datetime.fromtimestamp(ep, timezone.utc).strftime("%Y-%m-%d %H:%M") if ep else "—"
+
+    lista = [
+        {
+            "quando": _hora(t["fechamento_utc"]), "par": t["par"], "estrategia": t["estrategia"],
+            "direcao": t["direcao"], "pips": t["pips"], "lucro": t["lucro_usd"],
+            "motivo": t["motivo_saida"], "simulado": bool(t["simulado"]),
+        }
+        for t in trades[:300]
+    ]
+    return {
+        "de": de, "ate": ate,
+        "geral": _agregar(trades),
+        "por_estrategia": _por(trades, "estrategia"),
+        "por_par": _por(trades, "par"),
+        "por_motivo": _por(trades, "motivo_saida"),
+        "trades": lista,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Rotas
 # --------------------------------------------------------------------------- #
 @app.get("/health")
@@ -205,6 +294,23 @@ def api_status(request: Request):
     if not auth.esta_logado(request):
         raise HTTPException(status_code=401, detail="login necessário")
     return JSONResponse(_status_dados())
+
+
+@app.get("/analitico", response_class=HTMLResponse)
+def analitico(request: Request, de: str = "", ate: str = ""):
+    if not auth.esta_logado(request):
+        return auth.redirecionar_login()
+    dados = _analitico(de, ate)
+    return templates.TemplateResponse(
+        request, "analitico.html", {"dados": dados, "execucao_ativa": config.EXECUCAO_ATIVA}
+    )
+
+
+@app.get("/api/analitico")
+def api_analitico(request: Request, de: str = "", ate: str = ""):
+    if not auth.esta_logado(request):
+        raise HTTPException(status_code=401, detail="login necessário")
+    return JSONResponse(_analitico(de, ate))
 
 
 @app.get("/grafico/{par}/{tf}", response_class=HTMLResponse)

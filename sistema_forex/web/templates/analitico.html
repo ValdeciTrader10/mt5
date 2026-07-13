@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Análise de Trades — Forex M5</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #0e1117; color: #e6e6e6; margin: 0; }
+    header { display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 1.5rem; border-bottom: 1px solid #21262d; background: #161b22; }
+    header h1 { font-size: 1.05rem; margin: 0; }
+    header nav a { color: #8b949e; text-decoration: none; font-size: .85rem; margin-left: 1rem; }
+    header nav a:hover, header nav a.on { color: #e6e6e6; }
+    main { padding: 1.5rem; max-width: 1150px; margin: 0 auto; }
+    .filtros { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: 1.2rem; }
+    label.f { color: #8b949e; font-size: .82rem; }
+    input[type=date], .btn, select { background: #0d1117; color: #e6e6e6; border: 1px solid #30363d;
+      border-radius: 8px; padding: .4rem .6rem; font-size: .9rem; }
+    .btn { cursor: pointer; text-decoration: none; }
+    .btn:hover { border-color: #2f81f7; }
+    .btn.p { background: #2f81f7; border-color: #2f81f7; color: #fff; font-weight: 600; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .8rem; margin-bottom: 1.5rem; }
+    .kpi { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: .8rem 1rem; }
+    .kpi h3 { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: #8b949e; margin: 0 0 .3rem; }
+    .kpi .v { font-size: 1.5rem; font-weight: 700; }
+    section { margin-top: 1.8rem; }
+    section > h2 { font-size: .95rem; border-left: 3px solid #2f81f7; padding-left: .6rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .86rem; }
+    th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid #21262d; }
+    th { color: #8b949e; font-weight: 600; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pos { color: #3fb950; } .neg { color: #f85149; } .muted { color: #8b949e; font-size: .82rem; }
+    .tag { font-size: .74rem; font-weight: 600; padding: .06rem .4rem; border-radius: 6px; }
+    .tag-compra { color: #3fb950; background: #10331d; } .tag-venda { color: #f85149; background: #3a1618; }
+    .bar { height: 6px; border-radius: 3px; background: #21262d; overflow: hidden; margin-top: .2rem; }
+    .bar > i { display: block; height: 100%; background: #3fb950; }
+    .badge { font-size: .72rem; font-weight: 700; padding: .12rem .5rem; border-radius: 6px; }
+    .badge-sim { color: #d29922; background: #33280d; border: 1px solid #574116; }
+    .badge-live { color: #f85149; background: #3a1618; border: 1px solid #5c2226; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📈 Análise de Trades <span class="muted">· Empenho</span>
+      {% if execucao_ativa %}<span class="badge badge-live">EXECUÇÃO ATIVA</span>{% else %}<span class="badge badge-sim">SIMULAÇÃO</span>{% endif %}
+    </h1>
+    <nav>
+      <a href="/">Painel</a><a href="/analitico" class="on">Análise</a><a href="/logout">Sair</a>
+    </nav>
+  </header>
+  <main>
+    <div class="filtros">
+      <label class="f">De <input type="date" id="de"></label>
+      <label class="f">Até <input type="date" id="ate"></label>
+      <a class="btn p" id="filtrar">Filtrar</a>
+      <a class="btn" data-preset="hoje">Hoje</a>
+      <a class="btn" data-preset="7">7 dias</a>
+      <a class="btn" data-preset="30">30 dias</a>
+      <a class="btn" data-preset="tudo">Tudo</a>
+      <span class="muted" id="periodo"></span>
+    </div>
+
+    <div class="grid" id="kpis"></div>
+
+    <section>
+      <h2>Por estratégia <span class="muted">— onde atuar para melhorar</span></h2>
+      <table>
+        <thead><tr><th>Estratégia</th><th class="num">Trades</th><th class="num">Acerto</th>
+          <th class="num">Ganho×Perda</th><th class="num">PF</th><th class="num">Média G / P</th>
+          <th class="num">Pips</th><th class="num">USD</th></tr></thead>
+        <tbody id="tb-estrategia"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Por motivo de saída <span class="muted">— revela saídas prematuras (centavos)</span></h2>
+      <table>
+        <thead><tr><th>Motivo</th><th class="num">Trades</th><th class="num">Acerto</th>
+          <th class="num">Média</th><th class="num">Pips</th><th class="num">USD</th></tr></thead>
+        <tbody id="tb-motivo"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Por par</h2>
+      <table>
+        <thead><tr><th>Par</th><th class="num">Trades</th><th class="num">Acerto</th>
+          <th class="num">PF</th><th class="num">Pips</th><th class="num">USD</th></tr></thead>
+        <tbody id="tb-par"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Trades no período</h2>
+      <table>
+        <thead><tr><th>Quando (UTC)</th><th>Par</th><th>Direção</th><th>Estratégia</th>
+          <th class="num">Pips</th><th class="num">USD</th><th>Motivo de saída</th></tr></thead>
+        <tbody id="tb-trades"></tbody>
+      </table>
+    </section>
+    <p class="muted">Datas em UTC. Trades marcados como simulação usam preço ao vivo, sem enviar ordens.</p>
+  </main>
+
+  <script>
+    var DADOS = {{ dados|tojson }};
+
+    function fmt(n, d) {
+      if (n === null || n === undefined) return '—';
+      return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
+    }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function sign(n) { return (n || 0) >= 0 ? 'pos' : 'neg'; }
+    function pf(row) { return row.profit_factor === null ? (row.ganhos > 0 ? '∞' : '—') : fmt(row.profit_factor, 2); }
+    function dirTag(d) { return d === 'compra' ? '<span class="tag tag-compra">▲ compra</span>'
+      : d === 'venda' ? '<span class="tag tag-venda">▼ venda</span>' : '—'; }
+
+    function kpis(g) {
+      var itens = [
+        ['Trades', g.n],
+        ['Ganhadoras', '<span class="pos">' + g.ganhos + '</span>'],
+        ['Perdedoras', '<span class="neg">' + g.perdas + '</span>'],
+        ['Acerto', fmt(g.winrate, 1) + '%'],
+        ['Resultado (USD)', '<span class="' + sign(g.usd) + '">' + fmt(g.usd, 2) + '</span>'],
+        ['Resultado (pips)', '<span class="' + sign(g.pips) + '">' + fmt(g.pips, 1) + '</span>'],
+        ['Profit factor', pf(g)],
+        ['Expectativa/trade', '<span class="' + sign(g.expectativa) + '">' + fmt(g.expectativa, 2) + '</span>']
+      ];
+      document.getElementById('kpis').innerHTML = itens.map(function (i) {
+        return '<div class="kpi"><h3>' + i[0] + '</h3><div class="v">' + i[1] + '</div></div>';
+      }).join('');
+    }
+
+    function linhaEstrategia(r) {
+      return '<tr><td>' + esc(r.chave) + '</td><td class="num">' + r.n + '</td>' +
+        '<td class="num">' + fmt(r.winrate, 1) + '%<div class="bar"><i style="width:' + r.winrate + '%"></i></div></td>' +
+        '<td class="num"><span class="pos">' + r.ganhos + '</span>×<span class="neg">' + r.perdas + '</span></td>' +
+        '<td class="num">' + pf(r) + '</td>' +
+        '<td class="num"><span class="pos">' + fmt(r.media_ganho, 2) + '</span> / <span class="neg">' + fmt(r.media_perda, 2) + '</span></td>' +
+        '<td class="num ' + sign(r.pips) + '">' + fmt(r.pips, 1) + '</td>' +
+        '<td class="num ' + sign(r.usd) + '">' + fmt(r.usd, 2) + '</td></tr>';
+    }
+    function linhaMotivo(r) {
+      return '<tr><td>' + esc(r.chave) + '</td><td class="num">' + r.n + '</td>' +
+        '<td class="num">' + fmt(r.winrate, 1) + '%</td>' +
+        '<td class="num ' + sign(r.expectativa) + '">' + fmt(r.expectativa, 2) + '</td>' +
+        '<td class="num ' + sign(r.pips) + '">' + fmt(r.pips, 1) + '</td>' +
+        '<td class="num ' + sign(r.usd) + '">' + fmt(r.usd, 2) + '</td></tr>';
+    }
+    function linhaPar(r) {
+      return '<tr><td>' + esc(r.chave) + '</td><td class="num">' + r.n + '</td>' +
+        '<td class="num">' + fmt(r.winrate, 1) + '%</td><td class="num">' + pf(r) + '</td>' +
+        '<td class="num ' + sign(r.pips) + '">' + fmt(r.pips, 1) + '</td>' +
+        '<td class="num ' + sign(r.usd) + '">' + fmt(r.usd, 2) + '</td></tr>';
+    }
+
+    function render(d) {
+      kpis(d.geral);
+      var e = document.getElementById('tb-estrategia');
+      e.innerHTML = d.por_estrategia.map(linhaEstrategia).join('') || '<tr><td colspan="8" class="muted">Sem trades no período.</td></tr>';
+      document.getElementById('tb-motivo').innerHTML = d.por_motivo.map(linhaMotivo).join('') || '<tr><td colspan="6" class="muted">—</td></tr>';
+      document.getElementById('tb-par').innerHTML = d.por_par.map(linhaPar).join('') || '<tr><td colspan="6" class="muted">—</td></tr>';
+      document.getElementById('tb-trades').innerHTML = (d.trades || []).map(function (t) {
+        return '<tr><td>' + esc(t.quando) + '</td><td>' + esc(t.par) + (t.simulado ? ' <span class="badge badge-sim">sim</span>' : '') +
+          '</td><td>' + dirTag(t.direcao) + '</td><td>' + esc(t.estrategia) + '</td>' +
+          '<td class="num ' + sign(t.pips) + '">' + fmt(t.pips, 1) + '</td>' +
+          '<td class="num ' + sign(t.lucro) + '">' + fmt(t.lucro, 2) + '</td>' +
+          '<td class="muted">' + esc(t.motivo) + '</td></tr>';
+      }).join('') || '<tr><td colspan="7" class="muted">Sem trades no período.</td></tr>';
+      var p = (d.de || 'início') + ' → ' + (d.ate || 'agora');
+      document.getElementById('periodo').textContent = 'Período: ' + p;
+      document.getElementById('de').value = d.de || '';
+      document.getElementById('ate').value = d.ate || '';
+    }
+
+    async function carregar(de, ate) {
+      try {
+        var q = new URLSearchParams(); if (de) q.set('de', de); if (ate) q.set('ate', ate);
+        var r = await fetch('/api/analitico?' + q.toString(), { headers: { 'Accept': 'application/json' } });
+        if (r.ok) render(await r.json());
+      } catch (e) { /* mantém o último estado */ }
+    }
+
+    function isoHoje(deltaDias) {
+      var d = new Date(); d.setUTCDate(d.getUTCDate() - (deltaDias || 0));
+      return d.toISOString().slice(0, 10);
+    }
+
+    document.getElementById('filtrar').addEventListener('click', function () {
+      carregar(document.getElementById('de').value, document.getElementById('ate').value);
+    });
+    document.querySelectorAll('[data-preset]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var p = b.getAttribute('data-preset');
+        if (p === 'tudo') carregar('', '');
+        else if (p === 'hoje') carregar(isoHoje(0), isoHoje(0));
+        else carregar(isoHoje(parseInt(p, 10)), isoHoje(0));
+      });
+    });
+
+    render(DADOS);  // primeira pintura instantânea (dados do servidor)
+  </script>
+</body>
+</html>
