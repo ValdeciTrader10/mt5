@@ -49,7 +49,11 @@ a sombra (regra: demo/sombra primeiro).
   `MAX_POS_REAL`). Cada ordem real grava a comparação com a sombra: `preco_sinal` (assumido),
   `spread_entrada`, `derrapagem_pips` (fill real vs assumido) e `delay_s` (decisão→fill, via
   `decisoes.criada_utc`). `mt5_bridge.preco_fill` lê o price_open real; DD diário trava só o livro
-  real; correlação só no real e se ligada. SL usa o
+  real; correlação só no real e se ligada. **Painel:** o `/analitico` separa o estudo (livro SOMBRA,
+  simulado=1) da validação (livro REAL) e tem a aba **"Sombra vs Real"** — por (estratégia×TF) com
+  par real, mostra exp. sombra vs exp. real, o **Δ exp.** (quanto o custo real comeu o edge) e as
+  médias de derrapagem/spread/delay (`_sombra_vs_real`/`_exec_custo`). Enquanto não há trade real,
+  sombra==todos (sem mudança). SL usa o
   ATR do TF que operou; trade marcado com `tf`. **Modo CATÁLOGO (sombra):** dedup por
   `(par, tf, ESTRATÉGIA, livro)` → cada estratégia roda a SUA posição virtual ao vivo em paralelo,
   gerida tick a tick; **sem trava de correlação** e **sem cap por livro** (só o teto amplo

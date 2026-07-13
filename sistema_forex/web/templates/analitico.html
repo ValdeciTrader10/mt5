@@ -110,6 +110,26 @@
     </section>
 
     <section>
+      <h2>Sombra vs Real <span class="muted">— validação no demo: quanto o mundo real cobra sobre o que a sombra calculou</span></h2>
+      <p class="muted" id="custo-real"></p>
+      <table>
+        <thead><tr><th>Estratégia · TF</th>
+          <th class="num">N sombra</th><th class="num">Exp. sombra</th>
+          <th class="num">N real</th><th class="num">Exp. real</th>
+          <th class="num" title="Expectância real − sombra: negativo = o custo de execução comeu o edge">Δ exp.</th>
+          <th class="num" title="Derrapagem média: fill real vs preço que a sombra assumiu (pips)">Derrap.</th>
+          <th class="num" title="Spread médio no instante do fill real (pips)">Spread</th>
+          <th class="num" title="Atraso médio decisão→fill (s)">Delay</th>
+          <th class="num">USD sombra</th><th class="num">USD real</th></tr></thead>
+        <tbody id="tb-sombra-real"></tbody>
+      </table>
+      <p class="muted">Cada linha é um gêmeo: a MESMA (estratégia, TF) rodou virtual (sombra) e real
+        (demo) em paralelo. <b>Δ exp.</b> negativo = o real rendeu menos que a sombra prometeu — a
+        derrapagem/spread/delay corroeram o edge. Só aparece quando o modo real curado
+        (<code>EXECUCAO_REAL_CURADA</code>) está ligado no demo e já há trades reais fechados.</p>
+    </section>
+
+    <section>
       <h2>Por regime na entrada <span class="muted">— responde: cada estratégia ganha em qual contexto?</span></h2>
       <table>
         <thead><tr><th>Regime</th><th class="num">Trades</th><th class="num">Acerto</th>
@@ -233,6 +253,20 @@
         '<td class="num ' + sign(r.usd) + '">' + fmt(r.usd, 2) + '</td></tr>';
     }
 
+    function linhaSombraReal(r) {
+      return '<tr><td>' + esc(r.chave) + '</td>' +
+        '<td class="num">' + r.n_sombra + '</td>' +
+        '<td class="num ' + sign(r.exp_sombra) + '">' + fmt(r.exp_sombra, 2) + '</td>' +
+        '<td class="num">' + r.n_real + '</td>' +
+        '<td class="num ' + sign(r.exp_real) + '">' + fmt(r.exp_real, 2) + '</td>' +
+        '<td class="num ' + sign(r.delta_exp) + '">' + fmt(r.delta_exp, 2) + '</td>' +
+        '<td class="num ' + sign(-(r.derrapagem || 0)) + '">' + fmt(r.derrapagem, 2) + '</td>' +
+        '<td class="num">' + fmt(r.spread, 2) + '</td>' +
+        '<td class="num">' + fmt(r.delay, 1) + '</td>' +
+        '<td class="num ' + sign(r.usd_sombra) + '">' + fmt(r.usd_sombra, 2) + '</td>' +
+        '<td class="num ' + sign(r.usd_real) + '">' + fmt(r.usd_real, 2) + '</td></tr>';
+    }
+
     function curva(c) {
       var box = document.getElementById('curva'), stats = document.getElementById('curva-stats');
       var s = (c && c.serie) || [];
@@ -264,6 +298,13 @@
       e.innerHTML = d.por_estrategia.map(linhaEstrategia).join('') || '<tr><td colspan="10" class="muted">Sem trades no período.</td></tr>';
       document.getElementById('tb-timeframe').innerHTML = (d.por_timeframe || []).map(linhaCtx).join('') || '<tr><td colspan="7" class="muted">—</td></tr>';
       document.getElementById('tb-estrategia-tf').innerHTML = (d.por_estrategia_tf || []).map(linhaEstrategiaTf).join('') || '<tr><td colspan="8" class="muted">—</td></tr>';
+      var svr = d.sombra_vs_real || [];
+      document.getElementById('tb-sombra-real').innerHTML = svr.map(linhaSombraReal).join('') ||
+        '<tr><td colspan="11" class="muted">Sem trades reais ainda — ligue EXECUCAO_REAL_CURADA no demo.</td></tr>';
+      var cr = d.custo_real || {};
+      document.getElementById('custo-real').innerHTML = (cr.n ? ('Custo de execução real médio (' + cr.n +
+        ' ordens): derrapagem <b>' + fmt(cr.derrapagem, 2) + ' p</b> · spread <b>' + fmt(cr.spread, 2) +
+        ' p</b> · delay <b>' + fmt(cr.delay, 1) + ' s</b>.') : '');
       document.getElementById('tb-regime').innerHTML = (d.por_regime || []).map(linhaCtx).join('') || '<tr><td colspan="7" class="muted">—</td></tr>';
       document.getElementById('tb-sessao').innerHTML = (d.por_sessao || []).map(linhaCtx).join('') || '<tr><td colspan="7" class="muted">—</td></tr>';
       document.getElementById('tb-motivo').innerHTML = d.por_motivo.map(linhaMotivo).join('') || '<tr><td colspan="6" class="muted">—</td></tr>';

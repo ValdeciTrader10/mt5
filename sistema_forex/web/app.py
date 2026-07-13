@@ -232,6 +232,43 @@ def _por_estrategia_tf(trades: list) -> list:
     return linhas
 
 
+def _exec_custo(reais: list) -> dict:
+    """Custo de execução REAL médio (derrapagem/spread/delay) — só existe em trades reais."""
+    return {
+        "n": len(reais),
+        "derrapagem": _media([t.get("derrapagem_pips") for t in reais]),
+        "spread": _media([t.get("spread_entrada") for t in reais]),
+        "delay": _media([t.get("delay_s") for t in reais]),
+    }
+
+
+def _sombra_vs_real(sombra: list, real: list) -> list:
+    """Compara, por (estratégia × TF), o livro VIRTUAL (sombra) com o REAL (demo) — só as
+    combinações que já têm trade real. Mostra a expectância dos dois lados, o gap (real − sombra)
+    e o custo de execução (derrapagem/spread/delay) medido no real. É a validação: quanto o
+    mundo real cobra em cima do que a sombra calculou."""
+    chaves: dict = {}
+    for t in sombra:
+        chaves.setdefault((t["estrategia"], t["tf"]), {"sombra": [], "real": []})["sombra"].append(t)
+    for t in real:
+        chaves.setdefault((t["estrategia"], t["tf"]), {"sombra": [], "real": []})["real"].append(t)
+    linhas = []
+    for (est, tf), livros in chaves.items():
+        reais = livros["real"]
+        if not reais:                       # só compara o que tem par real
+            continue
+        av, ar, custo = _agregar(livros["sombra"]), _agregar(reais), _exec_custo(reais)
+        linhas.append({
+            "chave": f"{config.nome_estrategia(est)} · {tf}",
+            "n_sombra": av["n"], "exp_sombra": av["expectativa"], "usd_sombra": av["usd"],
+            "n_real": ar["n"], "exp_real": ar["expectativa"], "usd_real": ar["usd"],
+            "delta_exp": round(ar["expectativa"] - av["expectativa"], 2),   # real − sombra
+            "derrapagem": custo["derrapagem"], "spread": custo["spread"], "delay": custo["delay"],
+        })
+    linhas.sort(key=lambda x: x["delta_exp"])   # pior gap (real abaixo da sombra) primeiro
+    return linhas
+
+
 def _normalizar_motivo(motivo: str) -> str:
     """Colapsa o motivo de saída para um rótulo ESTÁVEL, agrupável.
 
@@ -305,7 +342,8 @@ def _analitico(de: str = "", ate: str = "") -> dict:
     with db.sessao() as conn:
         rows = conn.execute(
             f"SELECT id, par, tf, estrategia, direcao, pips, lucro_usd, motivo_saida, simulado, "
-            f"mae_r, mfe_r, regime_entrada, abertura_utc, fechamento_utc FROM trades "
+            f"mae_r, mfe_r, regime_entrada, abertura_utc, fechamento_utc, "
+            f"derrapagem_pips, spread_entrada, delay_s FROM trades "
             f"WHERE {where} ORDER BY fechamento_utc DESC",
             args,
         ).fetchall()
@@ -327,27 +365,33 @@ def _analitico(de: str = "", ate: str = "") -> dict:
             "quando": _hora(t["fechamento_utc"]), "par": t["par"], "tf": t["tf"] or "M5",
             "estrategia": config.nome_estrategia(t["estrategia"]),
             "direcao": t["direcao"], "pips": t["pips"], "lucro": t["lucro_usd"],
-            "motivo": t["motivo_saida"], "simulado": bool(t["simulado"]),
+            "motivo": t["motivo_saida"], "simulado": bool(t["simulado"]), "real": not t["simulado"],
             "mae_r": t["mae_r"], "mfe_r": t["mfe_r"], "regime": t["regime"], "sessao": t["sessao"],
         }
         for t in trades[:300]
     ]
     for t in trades:  # rótulo estável do TF de operação (default M5 p/ trades antigos)
         t["tf"] = t["tf"] or "M5"
-    por_estrategia = _por(trades, "estrategia")
+    # O estudo (catálogo) é o livro SOMBRA; o livro REAL (demo curado) é a validação à parte,
+    # comparada em "Sombra vs Real". Enquanto não houver trade real, sombra == todos os trades.
+    sombra = [t for t in trades if t["simulado"]]
+    real = [t for t in trades if not t["simulado"]]
+    por_estrategia = _por(sombra, "estrategia")
     for r in por_estrategia:  # rótulo amigável (agrupa pelo código, exibe o nome bonito)
         r["chave"] = config.nome_estrategia(r["chave"])
     return {
         "de": de, "ate": ate,
-        "geral": _agregar(trades),
-        "curva": _curva_capital(trades, config.SALDO_SIMULADO),
+        "geral": _agregar(sombra),
+        "curva": _curva_capital(sombra, config.SALDO_SIMULADO),
         "por_estrategia": por_estrategia,
-        "por_estrategia_tf": _por_estrategia_tf(trades),
-        "por_timeframe": _por(trades, "tf"),
-        "por_regime": _por(trades, "regime"),
-        "por_sessao": _por(trades, "sessao"),
-        "por_par": _por(trades, "par"),
-        "por_motivo": _por(trades, "motivo_norm"),
+        "por_estrategia_tf": _por_estrategia_tf(sombra),
+        "por_timeframe": _por(sombra, "tf"),
+        "por_regime": _por(sombra, "regime"),
+        "por_sessao": _por(sombra, "sessao"),
+        "por_par": _por(sombra, "par"),
+        "por_motivo": _por(sombra, "motivo_norm"),
+        "sombra_vs_real": _sombra_vs_real(sombra, real),
+        "custo_real": _exec_custo(real),
         "trades": lista,
     }
 
