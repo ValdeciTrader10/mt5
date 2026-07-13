@@ -103,6 +103,38 @@ def test_snapshot_usa_atr_do_tf():
         os.remove(caminho)
 
 
+def _pos(par, tf, estrat):
+    return {"par": par, "tf": tf, "estrategia": estrat}
+
+
+def test_pode_abrir_sombra_cataloga_cada_estrategia():
+    """Sombra: cada (par,tf,ESTRATÉGIA) roda sua própria operação; não duplica a mesma."""
+    from ..executor import pode_abrir
+    caps = dict(max_pos_por_par=1, max_pos_total=2, max_pos_sombra=200)
+    abertas = [_pos("EURUSD#", "M5", "confluencia_v1")]
+    # outra estratégia no mesmo (par,tf) PODE abrir (catálogo independente, sem correlação)
+    assert pode_abrir(abertas, "EURUSD#", "M5", "sweep_choch_v1", ativa=False, **caps) is True
+    # a MESMA (par,tf,estrategia) já viva NÃO empilha
+    assert pode_abrir(abertas, "EURUSD#", "M5", "confluencia_v1", ativa=False, **caps) is False
+    # só o teto amplo de segurança limita
+    cheia = [_pos("EURUSD#", "M5", f"e{i}") for i in range(3)]
+    caps_baixo = dict(max_pos_por_par=1, max_pos_total=2, max_pos_sombra=3)
+    assert pode_abrir(cheia, "EURUSD#", "M5", "novo", ativa=False, **caps_baixo) is False
+
+
+def test_pode_abrir_real_respeita_cap_por_livro():
+    """Real: travas por LIVRO de TF continuam valendo (proteção de conta)."""
+    from ..executor import pode_abrir
+    caps = dict(max_pos_por_par=1, max_pos_total=2, max_pos_sombra=200)
+    abertas = [_pos("EURUSD#", "M5", "a"), _pos("GBPUSD#", "M5", "b")]
+    # livro M5 cheio (2) → 3ª no M5 bloqueada, mesmo sendo de outra estratégia/par
+    assert pode_abrir(abertas, "USDCAD", "M5", "c", ativa=True, **caps) is False
+    # M15 é livro à parte → permite
+    assert pode_abrir(abertas, "USDCAD", "M15", "c", ativa=True, **caps) is True
+    # mesmo (par,tf) 2x no real → bloqueia por MAX_POS_POR_PAR
+    assert pode_abrir([_pos("EURUSD#", "M5", "a")], "EURUSD#", "M5", "b", ativa=True, **caps) is False
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

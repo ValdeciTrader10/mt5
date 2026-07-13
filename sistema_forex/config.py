@@ -82,16 +82,23 @@ SL_MIN_PIPS = 12
 SL_MAX_PIPS = 40
 BE_TRIGGER_R = 1.0
 DD_DIARIO_MAX_PCT = 5.0
-# Caps aplicados POR LIVRO DE TIMEFRAME (cada TF de TFS_OPERACAO opera de forma
-# independente): no máximo MAX_POS_POR_PAR posições por (par, tf) e MAX_POS_TOTAL
-# posições simultâneas dentro do mesmo TF. Preserva o comportamento do M5 (que antes
-# era o único livro) e dá a M1/M15 a mesma postura, sem um TF sufocar o outro.
-MAX_POS_POR_PAR = 1
-MAX_POS_TOTAL = 2
-# Guarda de correlação: exposição líquida MÁXIMA por moeda (em nº de posições).
-# EURUSD e GBPUSD comprados = ambos short USD → USD líquido -2. Com limite 1, a 2ª
-# entrada correlacionada é bloqueada. USDCAD comprado + EURUSD comprado se cancelam no
-# USD (net 0) → permitido. Evita "risco dobrado escondido" pela mesma moeda.
+# --- Modo MONITORAMENTO / CATALOGAÇÃO (sombra) vs. travas de risco (real) ---
+# Objetivo da sombra: catalogar TUDO. Cada (par, tf, ESTRATÉGIA) roda sua própria posição
+# virtual ao vivo, em paralelo, gerida tick a tick — assim comparamos estratégia × TF ×
+# regime com amostra robusta e decidimos o que fica/sai/calibra. Por isso, em modo sombra
+# (EXECUCAO_ATIVA=false) NÃO se aplica trava de correlação nem cap por livro; só um teto de
+# segurança amplo (MAX_POS_SOMBRA) para não crescer sem limite. As travas abaixo valem só
+# no modo REAL (proteção de conta), onde risco correlacionado importa de verdade.
+MAX_POS_SOMBRA = int(os.environ.get("MAX_POS_SOMBRA", "200"))
+# Caps do modo REAL, aplicados POR LIVRO DE TIMEFRAME: no máximo MAX_POS_POR_PAR posições
+# por (par, tf) e MAX_POS_TOTAL simultâneas dentro do mesmo TF.
+MAX_POS_POR_PAR = int(os.environ.get("MAX_POS_POR_PAR", "1"))
+MAX_POS_TOTAL = int(os.environ.get("MAX_POS_TOTAL", "2"))
+# Guarda de correlação (só REAL, e desligada por padrão a pedido do dono): exposição líquida
+# MÁXIMA por moeda (em nº de posições). EURUSD e GBPUSD comprados = ambos short USD → USD
+# líquido -2. Com o guard ligado e limite 1, a 2ª entrada correlacionada é bloqueada. Deixe
+# GUARDA_CORRELACAO=true (e ajuste MAX_EXPOSICAO_MOEDA) para religar antes de operar real.
+GUARDA_CORRELACAO = os.environ.get("GUARDA_CORRELACAO", "false").lower() in ("1", "true", "sim")
 MAX_EXPOSICAO_MOEDA = int(os.environ.get("MAX_EXPOSICAO_MOEDA", "1"))
 TEMPO_MAX_POSICAO_H = 8
 SCORE_MIN_CONFLUENCIAS = 2

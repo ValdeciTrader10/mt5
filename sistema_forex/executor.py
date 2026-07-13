@@ -94,6 +94,30 @@ def _espaco_r(conn, par: str, direcao: str, preco: float, risco: float):
     return abs(alvo - preco) / risco
 
 
+def pode_abrir(abertas_vals, par: str, tf: str, estrategia: str, *, ativa: bool,
+               max_pos_por_par: int, max_pos_total: int, max_pos_sombra: int) -> bool:
+    """Decide (função PURA, testável) se cabe abrir mais uma posição p/ (par, tf, estrategia).
+
+    Dedup base (sempre): uma posição viva por (par, tf, ESTRATÉGIA) — cada estratégia cataloga
+    a SUA operação, mas não empilha duas iguais ao mesmo tempo.
+      - Sombra (ativa=False): modo catálogo — várias operações simultâneas de estratégias/TFs
+        diferentes; sem trava por livro nem correlação; só o teto amplo `max_pos_sombra`.
+      - Real  (ativa=True): travas de risco por LIVRO de TF (max_pos_total por tf, max_pos_por_par
+        por (par, tf)). A correlação é checada à parte (só real e se ligada).
+    """
+    if any(p["par"] == par and p["tf"] == tf and p["estrategia"] == estrategia
+           for p in abertas_vals):
+        return False
+    if not ativa:
+        return len(abertas_vals) < max_pos_sombra
+    livro = [p for p in abertas_vals if p["tf"] == tf]
+    if len(livro) >= max_pos_total:
+        return False
+    if sum(1 for p in livro if p["par"] == par) >= max_pos_por_par:
+        return False
+    return True
+
+
 def _decisoes_novas(conn, desde_id: int):
     return conn.execute(
         "SELECT id, par, tf, direcao, estrategia FROM decisoes WHERE id > ? AND resultado='entrou' ORDER BY id",
@@ -156,6 +180,7 @@ class Executor:
         self.ativa = config.EXECUCAO_ATIVA
         self.abertas = {}          # trade_id -> estado da posição
         self.simbolos = {}         # par -> símbolo real
+        self._tick_cache = {}      # símbolo -> tick, reusado dentro do MESMO ciclo (fan-out)
         self.ultima_decisao_id = 0
         self.saldo_inicial_dia = None
         self.dia = None
@@ -173,15 +198,23 @@ class Executor:
         except Exception:  # noqa: BLE001
             return 0.0001
 
+    def _tick(self, simbolo):
+        """Tick do símbolo, cacheado por CICLO: com dezenas de posições simuladas de vários
+        (par,tf,estrategia) sobre os mesmos 3 símbolos, evita N chamadas RPyC/lock por segundo
+        (3 leituras/ciclo em vez de uma por posição). O cache é limpo no topo de `ciclo`."""
+        if simbolo not in self._tick_cache:
+            self._tick_cache[simbolo] = mt5_bridge.tick_atual(simbolo)
+        return self._tick_cache[simbolo]
+
     def _preco_saida(self, simbolo, direcao):
         """Preço para VALORAR/fechar: bid p/ compra, ask p/ venda."""
-        t = mt5_bridge.tick_atual(simbolo)
+        t = self._tick(simbolo)
         if not t:
             return None
         return t["bid"] if direcao == "compra" else t["ask"]
 
     def _preco_entrada(self, simbolo, direcao):
-        t = mt5_bridge.tick_atual(simbolo)
+        t = self._tick(simbolo)
         if not t:
             return None
         return t["ask"] if direcao == "compra" else t["bid"]
@@ -240,10 +273,14 @@ class Executor:
         estourou = gestao.drawdown_estourou(self.saldo_inicial_dia, eq, config.DD_DIARIO_MAX_PCT)
         if estourou and not self.dd_avisado:
             self.dd_avisado = True
-            msg = f"⛔ Drawdown diário atingido ({config.DD_DIARIO_MAX_PCT}%). Sem novas entradas hoje."
+            # Na sombra o DD é virtual e NÃO trunca o catálogo (senão perdemos amostra); só
+            # avisa. No real, o teto diário corta novas entradas (proteção de conta).
+            escopo = "Sem novas entradas hoje." if self.ativa else "(sombra: catálogo continua)"
+            msg = f"⛔ Drawdown diário atingido ({config.DD_DIARIO_MAX_PCT}%). {escopo}"
             log.warning(msg)
             telegram_notif.enviar(msg, chave_antispam="dd_dia")
-        return not estourou
+        # Só bloqueia entradas quando é dinheiro real; na sombra segue catalogando.
+        return (not estourou) or (not self.ativa)
 
     def _reconciliar(self, conn):
         """Modo real: detecta posições que o BROKER fechou (SL no servidor/manual)."""
@@ -338,22 +375,23 @@ class Executor:
             self.ultima_decisao_id = max(self.ultima_decisao_id, d["id"])
             par, direcao = d["par"], d["direcao"]
             tf = d["tf"] or config.TF_OPERACAO
-            # Cada TF é um LIVRO independente: os caps e a guarda de correlação contam só as
-            # posições do MESMO tf, para um livro (ex.: M5) não sufocar o do outro (M1/M15) e
-            # a comparação por timeframe ficar limpa. Em modo real, cada TF respeita seu risco.
-            livro = [p for p in self.abertas.values() if p["tf"] == tf]
-            if len(livro) >= config.MAX_POS_TOTAL:
+            estrategia = d["estrategia"]
+            if not pode_abrir(self.abertas.values(), par, tf, estrategia, ativa=self.ativa,
+                              max_pos_por_par=config.MAX_POS_POR_PAR,
+                              max_pos_total=config.MAX_POS_TOTAL,
+                              max_pos_sombra=config.MAX_POS_SOMBRA):
                 continue
-            if sum(1 for p in livro if p["par"] == par) >= config.MAX_POS_POR_PAR:
-                continue
-            # Guarda de correlação: não dobrar risco na mesma moeda (EUR+GBP ambos short-USD).
-            posic = [{"par": p["par"], "direcao": p["direcao"]} for p in livro]
-            if gestao.viola_correlacao(posic, par, direcao, config.MAX_EXPOSICAO_MOEDA):
-                log.info("Bloqueado por correlação [%s]: %s %s (exposição de moeda > %d)",
-                         tf, par, direcao, config.MAX_EXPOSICAO_MOEDA)
-                continue
+            # Guarda de correlação: SÓ no modo real e se ligada (GUARDA_CORRELACAO). Na sombra
+            # (catálogo) não bloqueia — queremos catalogar cada estratégia mesmo correlacionada.
+            if self.ativa and config.GUARDA_CORRELACAO:
+                livro = [p for p in self.abertas.values() if p["tf"] == tf]
+                posic = [{"par": p["par"], "direcao": p["direcao"]} for p in livro]
+                if gestao.viola_correlacao(posic, par, direcao, config.MAX_EXPOSICAO_MOEDA):
+                    log.info("Bloqueado por correlação [%s]: %s %s (exposição de moeda > %d)",
+                             tf, par, direcao, config.MAX_EXPOSICAO_MOEDA)
+                    continue
             try:
-                self._abrir(conn, par, tf, direcao, d["estrategia"])
+                self._abrir(conn, par, tf, direcao, estrategia)
             except Exception:  # noqa: BLE001
                 log.exception("Falha ao abrir %s %s %s", par, tf, direcao)
 
@@ -396,10 +434,11 @@ class Executor:
 
     # -- ciclo --
     def ciclo(self, conn):
+        self._tick_cache = {}            # tick fresco por ciclo (reusado entre posições/símbolo)
         self._checar_dia(conn)
         self.gerir(conn)                 # gestão sempre roda (fecha/protege o que está aberto)
-        if self._dd_ok(conn):
-            self.entrar(conn)            # só abre se o DD do dia permite
+        if self._dd_ok(conn):            # real: respeita o DD diário; sombra: sempre cataloga
+            self.entrar(conn)
 
 
 def main() -> None:
