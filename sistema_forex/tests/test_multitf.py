@@ -11,7 +11,9 @@ Cobre o que a feature adiciona sem depender de MT5/rede:
 import os
 import tempfile
 
-from .. import config, db, decisao
+import json
+
+from .. import analise, config, db, decisao
 
 
 def _tmp_db():
@@ -150,6 +152,31 @@ def test_agora_carimba_hora_do_servidor():
     finally:
         _atualizar_offset(int(_t.time()))                   # reset p/ não afetar outros testes
         assert ex._OFFSET_SERVIDOR == 0
+
+
+def test_confluencia_reforca_zonas_alinhadas():
+    """Níveis do mesmo tipo (de TFs diferentes) dentro da tolerância ganham força; nível isolado
+    fica igual. Reforça as ZONAS de confluência (topos/fundos alinhados)."""
+    caminho = _tmp_db()
+    try:
+        conn = db.conectar(caminho)
+        par = "EURUSD#"
+        # dois suportes MUITO próximos (H1 e D1) = confluência; um isolado longe.
+        analise._grava_nivel(conn, par, "suporte", 1.10000, "H1", 1, 4.0)
+        analise._grava_nivel(conn, par, "suporte", 1.10010, "D1", 1, 3.0)  # 10 pips do 1º
+        analise._grava_nivel(conn, par, "suporte", 1.20000, "W1", 1, 5.0)  # isolado
+        conn.commit()
+        atr = 0.0030  # tol = 0.5*ATR = 0.0015 (15 pips) → os dois primeiros são vizinhos
+        n = analise._marcar_confluencia(conn, par, atr)
+        assert n == 2, n
+        rows = {round(r["preco"], 5): r for r in
+                conn.execute("SELECT preco, forca, meta_json FROM niveis WHERE par=?", (par,))}
+        assert rows[1.10000]["forca"] > 4.0 and rows[1.10010]["forca"] > 3.0, "confluentes reforçados"
+        assert rows[1.20000]["forca"] == 5.0, "isolado inalterado"
+        assert json.loads(rows[1.10000]["meta_json"])["confluencia"] == 1
+        conn.close()
+    finally:
+        os.remove(caminho)
 
 
 def test_combo_real_so_curadas():

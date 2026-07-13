@@ -68,6 +68,7 @@ a sombra (regra: demo/sombra primeiro).
   do trade segue em Plotly). Usa **TradingView lightweight-charts** (CDN, v4.1.7): candles com
   zoom/scroll/arrastar, crosshair OHLC, tela cheia (⛶), enquadrar (⤢), troca de par/TF sem recarregar
   e auto-refresh 5s. Linhas de S/R do motor como price lines. `time` = time_utc (hora do servidor).
+  Precisão do eixo de preço por instrumento (5 casas forex, 3 JPY, 2 ouro — `casas()`).
   O dashboard embute via iframe (`allow="fullscreen"`) + "Abrir em tela cheia".
 - **web** (`web/app.py`): painel + `/analitico` + **`/trade/{id}` ("Raio-X do trade")** +
   **`/auditoria` ("Auditoria IA")**. Caddy
@@ -194,6 +195,11 @@ desde a v1; DD diário máx 5%; anti-spam Telegram por flags; reset diário no t
 - **S/R nunca INVALIDA** entrada de outra análise nem corta trade rodando. "Ativou uma
   estratégia, deixa o preço andar" → saída por força contrária só em **reversão (CHoCH)**,
   não em BOS de continuação nem por proximidade a nível.
+- **Confluência de S/R** (13/07): zonas onde topos/fundos de TFs diferentes se alinham (níveis do
+  mesmo tipo dentro de `SR_CONFLUENCIA_ATR×ATR`) ganham força (`_marcar_confluencia` no motor;
+  `+SR_CONFLUENCIA_BONUS×força` por vizinho; `meta.confluencia`). São os S/R que o preço mais
+  respeita → as estratégias (pontuam pela força + rejeição) priorizam essas regiões. Soft/desligável
+  (bônus 0). ⚠️ Validar na sombra que melhora a expectância — não é conclusão de um gráfico só.
 - S/R serve para **confluência/pullback, reforço de order block, ponto de entrada**. A
   rejeição no nível (pavio ≥ 50% + fecha de volta) é CONFLUÊNCIA (soma no score); só é
   obrigatória se `EXIGIR_REJEICAO_SR=true` (default false).

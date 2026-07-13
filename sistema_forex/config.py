@@ -60,6 +60,13 @@ SR_TOQUE_ATR = float(os.environ.get("SR_TOQUE_ATR", "0.25"))
 SR_RECENCIA_CANDLES = int(os.environ.get("SR_RECENCIA_CANDLES", "500"))
 # Força mínima (qualidade) para o nível ser persistido/usado — corta S/R fraco.
 SR_QUALIDADE_MIN = float(os.environ.get("SR_QUALIDADE_MIN", "2.0"))
+# CONFLUÊNCIA de S/R (pedido do dono): quando níveis do MESMO tipo (topos/fundos), de TFs
+# diferentes, caem dentro desta fração do ATR (do TF de regime), formam uma ZONA — cada
+# vizinho soma `SR_CONFLUENCIA_BONUS`×força. Zonas de confluência (topos/fundos alinhados)
+# viram os S/R mais FORTES, que o preço mais respeita → as estratégias (que pontuam pela
+# força do nível + rejeição) priorizam essas regiões. Desligável com bônus 0.
+SR_CONFLUENCIA_ATR = float(os.environ.get("SR_CONFLUENCIA_ATR", "0.5"))
+SR_CONFLUENCIA_BONUS = float(os.environ.get("SR_CONFLUENCIA_BONUS", "0.5"))
 # Máximo de níveis por tipo (suporte/resistência) por par — anti-proliferação (só os melhores).
 SR_MAX_POR_TIPO = int(os.environ.get("SR_MAX_POR_TIPO", "6"))
 

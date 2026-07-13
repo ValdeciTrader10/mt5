@@ -91,6 +91,38 @@ def _grava_evento(conn, par, tf, time_utc, evento, preco, direcao) -> None:
     )
 
 
+def _marcar_confluencia(conn, par: str, atr_ref: float) -> int:
+    """Reforça as ZONAS DE CONFLUÊNCIA: níveis do MESMO tipo (suporte/resistência), de TFs
+    diferentes, que caem dentro de `SR_CONFLUENCIA_ATR × ATR` um do outro. Cada vizinho soma
+    `SR_CONFLUENCIA_BONUS × força` — a marcação que reúne topos/fundos alinhados vira o S/R mais
+    forte (o que o preço mais respeita). Guarda `confluencia`=nº de vizinhos no `meta`. Idempotente
+    (roda sobre o snapshot recém-gravado do par). Retorna quantos níveis foram reforçados."""
+    if not atr_ref or config.SR_CONFLUENCIA_BONUS <= 0:
+        return 0
+    tol = config.SR_CONFLUENCIA_ATR * atr_ref
+    reforcados = 0
+    for tipo in ("suporte", "resistencia"):
+        rows = conn.execute(
+            "SELECT id, preco, forca, meta_json FROM niveis WHERE par=? AND tipo=? AND ativo=1",
+            (par, tipo),
+        ).fetchall()
+        for r in rows:
+            vizinhos = sum(1 for x in rows if x["id"] != r["id"] and abs(x["preco"] - r["preco"]) <= tol)
+            if not vizinhos:
+                continue
+            nova_forca = round(r["forca"] * (1 + config.SR_CONFLUENCIA_BONUS * vizinhos), 1)
+            meta = {}
+            try:
+                meta = json.loads(r["meta_json"] or "{}")
+            except (ValueError, TypeError):
+                pass
+            meta["confluencia"] = vizinhos
+            conn.execute("UPDATE niveis SET forca=?, meta_json=? WHERE id=?",
+                         (nova_forca, json.dumps(meta), r["id"]))
+            reforcados += 1
+    return reforcados
+
+
 # --------------------------------------------------------------------------- #
 # Análise de um par
 # --------------------------------------------------------------------------- #
@@ -165,6 +197,7 @@ def analisar_par(conn, par: str) -> dict:
 
     # Regime pelo ADX no TF de referência
     dref = _carregar(conn, par, config.TF_REGIME, config.ANALISE_JANELA)
+    atr_ref = None
     if len(dref["close"]) >= config.ADX_PERIODO * 2:
         res = indicadores.adx(dref["high"], dref["low"], dref["close"], config.ADX_PERIODO)
         atr_ref = indicadores.atr(dref["high"], dref["low"], dref["close"], config.ATR_PERIODO)
@@ -178,6 +211,10 @@ def analisar_par(conn, par: str) -> dict:
                 "INSERT INTO regime_log (par, time_utc, regime, adx, atr) VALUES (?, ?, ?, ?, ?)",
                 (par, agora, regime, adx_v, atr_ref),
             )
+
+    # Reforça as zonas de CONFLUÊNCIA de S/R (topos/fundos alinhados de TFs diferentes) — as
+    # marcações que o preço mais respeita (pedido do dono). Roda sobre o snapshot recém-gravado.
+    resumo["confluencias"] = _marcar_confluencia(conn, par, atr_ref)
 
     conn.commit()
     return resumo

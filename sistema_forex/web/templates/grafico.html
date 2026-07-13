@@ -75,7 +75,13 @@
 
     var linhas = [];   // price lines de S/R (para limpar ao recarregar)
 
-    function fmt(v) { return v == null ? '—' : Number(v).toFixed(v >= 20 ? 2 : 5); }
+    // Nº de casas decimais do instrumento: JPY = 3, ouro (>=20) = 2, forex padrão = 5.
+    function casas(preco) {
+      if (CFG.par.indexOf('JPY') >= 0) return 3;
+      if (preco != null && preco >= 20) return 2;
+      return 5;
+    }
+    function fmt(v) { return v == null ? '—' : Number(v).toFixed(casas(v)); }
 
     function pintarOHLC(c) {
       var e = document.getElementById('ohlc');
@@ -107,8 +113,11 @@
             axisLabelVisible: true, title: nv.tipo === 'suporte' ? 'S' : 'R',
           }));
         });
-        if (!manterZoom) chart.timeScale().fitContent();
         var ult = (d.candles || [])[(d.candles || []).length - 1];
+        // Precisão do eixo de preço = casas decimais do instrumento (5 forex, 3 JPY, 2 ouro).
+        var p = casas(ult ? ult.close : null);
+        serie.applyOptions({ priceFormat: { type: 'price', precision: p, minMove: Math.pow(10, -p) } });
+        if (!manterZoom) chart.timeScale().fitContent();
         pintarOHLC(ult);
         document.getElementById('load').style.display = 'none';
       } catch (e) {
