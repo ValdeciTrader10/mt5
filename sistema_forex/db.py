@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS trades (
     motivo_saida  TEXT,
     abertura_utc  INTEGER,
     fechamento_utc INTEGER,
+    decisao_id    INTEGER,             -- FK p/ decisoes.id: a decisão exata que abriu o trade
     simulado      INTEGER DEFAULT 0,   -- 1 = posição do modo simulação (Fase 5 sem EXECUCAO_ATIVA)
     risco_inicial REAL,                -- |entrada - sl_inicial| em preço; base fixa do R
     mae_r         REAL,                -- Maximum Adverse Excursion: pior R contra durante a vida (≤ 0)
@@ -140,6 +141,8 @@ def _migrar(conn) -> None:
     for coluna in ("preco_sinal", "spread_entrada", "derrapagem_pips", "delay_s"):
         if coluna not in cols:
             conn.execute(f"ALTER TABLE trades ADD COLUMN {coluna} REAL")
+    if "decisao_id" not in cols:  # FK p/ a decisão de origem (raio-X "por que entrou")
+        conn.execute("ALTER TABLE trades ADD COLUMN decisao_id INTEGER")
     dcols = {r["name"] for r in conn.execute("PRAGMA table_info(decisoes)").fetchall()}
     if "tf" not in dcols:
         conn.execute("ALTER TABLE decisoes ADD COLUMN tf TEXT DEFAULT 'M5'")

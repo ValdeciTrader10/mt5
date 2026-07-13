@@ -147,16 +147,25 @@ def _res_r(direcao, entrada, saida, risco):
     return gestao.r_por_risco(direcao, entrada, saida, risco)
 
 
-def _contexto_decisao(conn, par, tf, estrategia, direcao, abertura_utc):
+def _contexto_decisao(conn, par, tf, estrategia, direcao, abertura_utc, decisao_id=None):
     """Recupera a decisão de ENTRADA que originou o trade (o 'porquê entrou'): score,
-    confluências e regime gravados pelo estrategista. Casa por (par, tf, estratégia, direção)
+    confluências e regime gravados pelo estrategista.
+
+    Preferência: se o trade tem `decisao_id` (FK gravada na abertura), casa DIRETO — exato,
+    sem heurística. Fallback (trades antigos sem FK): casa por (par, tf, estratégia, direção)
     na decisão 'entrou' mais recente até pouco antes da abertura (o trade abre logo após)."""
     import json
-    r = conn.execute(
-        "SELECT time_utc, motivo, dados_json FROM decisoes WHERE par=? AND tf=? AND estrategia=? "
-        "AND direcao=? AND resultado='entrou' AND time_utc<=? ORDER BY time_utc DESC LIMIT 1",
-        (par, tf, estrategia, direcao, (abertura_utc or 0) + 120),
-    ).fetchone()
+    r = None
+    if decisao_id:
+        r = conn.execute(
+            "SELECT time_utc, motivo, dados_json FROM decisoes WHERE id=?", (decisao_id,)
+        ).fetchone()
+    if r is None:
+        r = conn.execute(
+            "SELECT time_utc, motivo, dados_json FROM decisoes WHERE par=? AND tf=? AND estrategia=? "
+            "AND direcao=? AND resultado='entrou' AND time_utc<=? ORDER BY time_utc DESC LIMIT 1",
+            (par, tf, estrategia, direcao, (abertura_utc or 0) + 120),
+        ).fetchone()
     if not r:
         return None
     dados = {}
@@ -208,7 +217,8 @@ def grafico_trade_html(trade_id: int, antes: int = None, depois: int = None) -> 
         par, tf = t["par"], t["tf"] or config.TF_OPERACAO
         candles = _janela_trade(conn, par, tf, t["abertura_utc"], t["fechamento_utc"], antes, depois)
         niveis = analise.niveis_ativos(conn, par)
-        ctx = _contexto_decisao(conn, par, tf, t["estrategia"], t["direcao"], t["abertura_utc"])
+        ctx = _contexto_decisao(conn, par, tf, t["estrategia"], t["direcao"], t["abertura_utc"],
+                                decisao_id=t.get("decisao_id"))
 
     if not candles:
         return _pagina_erro(f"Sem candles {par} {tf} para o trade #{trade_id}.")

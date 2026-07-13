@@ -140,16 +140,16 @@ def _regime_atual(conn, par: str):
 
 
 def _abrir_trade(conn, par, tf, estrategia, direcao, lote, entrada, sl, ticket, simulado, risco,
-                 regime, fill=None) -> int:
+                 regime, fill=None, decisao_id=None) -> int:
     fill = fill or {}
     cur = conn.execute(
         "INSERT INTO trades (ticket, par, tf, estrategia, direcao, lote, preco_entrada, sl_servidor, "
-        "abertura_utc, simulado, risco_inicial, regime_entrada, "
+        "abertura_utc, simulado, risco_inicial, regime_entrada, decisao_id, "
         "preco_sinal, spread_entrada, derrapagem_pips, delay_s) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (ticket, par, tf, estrategia, direcao, lote, entrada, sl, _agora(), simulado, risco, regime,
-         fill.get("preco_sinal"), fill.get("spread_entrada"), fill.get("derrapagem_pips"),
-         fill.get("delay_s")),
+         decisao_id, fill.get("preco_sinal"), fill.get("spread_entrada"),
+         fill.get("derrapagem_pips"), fill.get("delay_s")),
     )
     conn.commit()
     return cur.lastrowid
@@ -460,7 +460,8 @@ class Executor:
         risco = abs(entrada - sl)
         regime = _regime_atual(conn, par)
         trade_id = _abrir_trade(conn, par, tf, estrategia, direcao, config.LOTE, entrada, sl,
-                                ticket, simulado, risco, regime, fill=fill)
+                                ticket, simulado, risco, regime, fill=fill,
+                                decisao_id=(d["id"] if d else None))
         if ticket is None:
             ticket = -trade_id  # id sintético para o modo simulação
             conn.execute("UPDATE trades SET ticket=? WHERE id=?", (ticket, trade_id))

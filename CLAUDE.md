@@ -70,7 +70,8 @@ a sombra (regra: demo/sombra primeiro).
 - **Raio-X do trade** (`grafico.grafico_trade_html`, rota `/trade/{id}`, link 🔍 na tabela do
   /analitico): gráfico sob demanda com o contexto antes/depois de cada trade (entrada/SL/saída,
   zona da vida do trade, níveis S/R+FVG do motor) + os fatos (pips/USD/R/MAE/MFE/regime/motivo),
-  o "por que entrou" (score/confluências casados em `decisoes`) e uma "Leitura" automática por
+  o "por que entrou" (score/confluências da decisão de origem — casada DIRETO pela FK
+  `trades.decisao_id`, gravada na abertura; heurística por tempo só p/ trades antigos) e uma "Leitura" automática por
   MAE/MFE. Reconstruído do banco a cada acesso (o "futuro" se preenche conforme chegam candles),
   sem salvar PNG. Params `GRAFICO_TRADE_BARRAS_ANTES/DEPOIS`. Testes em `test_grafico.py`.
 - **Auditoria IA** (`auditoria.py`, rotas `/auditoria` + `/api/auditoria`, aba "Auditoria IA"):

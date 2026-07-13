@@ -21,7 +21,7 @@ def _conn():
         "tf TEXT, estrategia TEXT, direcao TEXT, lote REAL, pips REAL, lucro_usd REAL, "
         "motivo_saida TEXT, sl_servidor REAL, preco_entrada REAL, preco_saida REAL, "
         "risco_inicial REAL, mae_r REAL, mfe_r REAL, regime_entrada TEXT, "
-        "abertura_utc INTEGER, fechamento_utc INTEGER, simulado INTEGER)"
+        "abertura_utc INTEGER, fechamento_utc INTEGER, simulado INTEGER, decisao_id INTEGER)"
     )
     c.execute(
         "CREATE TABLE decisoes (id INTEGER PRIMARY KEY AUTOINCREMENT, par TEXT, time_utc INTEGER, "
@@ -143,6 +143,22 @@ def test_dossie_r_resultado_e_contexto_decisao():
     assert abs(t["R"] - (-0.5)) < 1e-9, t["R"]
     assert t["score"] == 4
     assert "rejeição S/R" in t["confluencias"]
+
+
+def test_contexto_por_decisao_id_casa_direto():
+    """Com a FK decisao_id, casa a decisão EXATA — mesmo quando a heurística por tempo
+    falharia (decisão gravada DEPOIS da abertura registrada)."""
+    c = _conn()
+    c.execute("INSERT INTO decisoes (par,time_utc,tf,estrategia,direcao,resultado,motivo,dados_json) "
+              "VALUES (?,?,?,?,?,?,?,?)",
+              ("EURUSD#", 999999, "M5", "confluencia_v1", "compra", "entrou", "x",
+               json.dumps({"score": 3, "confluencias": ["regime", "sr_forte"],
+                           "regime": "tendencia_alta"})))
+    did = c.execute("SELECT last_insert_rowid() AS i").fetchone()["i"]
+    _trade(c, decisao_id=did, abertura_utc=1000)   # abertura MUITO antes do time_utc da decisão
+    t = dict(c.execute("SELECT * FROM trades").fetchone())
+    ctx = aud._contexto_decisao(c, t)
+    assert ctx and ctx["score"] == 3 and "sr_forte" in ctx["confluencias"], ctx
 
 
 def test_dossie_por_estrategia_tf_traz_veredito():
