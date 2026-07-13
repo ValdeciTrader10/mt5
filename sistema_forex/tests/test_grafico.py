@@ -87,6 +87,36 @@ def test_contexto_decisao_casa_entrada():
     assert gr._contexto_decisao(c, "EURUSD#", "M5", "confluencia_v1", "venda", 1005) is None
 
 
+def test_faixa_y_enquadra_candles_ignorando_niveis_distantes():
+    # Candles apertados perto de 217 (caso GBPJPY do raio-X). A faixa deve abraçar os candles,
+    # não os S/R distantes em 168/200 (que o Plotly, sem range fixo, usaria e esmagaria tudo).
+    candles = [{"low": 216.9, "high": 217.4}, {"low": 217.0, "high": 217.3}]
+    faixa = gr._faixa_y(candles, precos=(217.268, 216.965))
+    assert faixa is not None
+    lo, hi = faixa
+    # enquadra o price action: nem perto dos níveis 168/200
+    assert 216.0 < lo < 216.9, faixa
+    assert 217.4 < hi < 218.4, faixa
+    # margem simétrica em torno do span dos candles+preços
+    assert abs((hi - 217.4) - (216.9 - lo)) < 1e-9, faixa
+
+
+def test_faixa_y_inclui_precos_do_trade_fora_dos_candles():
+    # Se entrada/SL/saída caírem fora das máx/mín dos candles, a faixa os inclui (ficam visíveis).
+    candles = [{"low": 1.1000, "high": 1.1020}]
+    faixa = gr._faixa_y(candles, precos=(1.0950, 1.1080))  # SL abaixo, alvo acima
+    lo, hi = faixa
+    assert lo < 1.0950 and hi > 1.1080, faixa
+
+
+def test_faixa_y_degenerada_e_vazia():
+    assert gr._faixa_y([]) is None  # sem candles
+    # todos no mesmo preço: abre uma janela mínima em vez de span zero
+    faixa = gr._faixa_y([{"low": 1.10, "high": 1.10}], precos=(1.10,))
+    lo, hi = faixa
+    assert hi > lo, faixa
+
+
 def run():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

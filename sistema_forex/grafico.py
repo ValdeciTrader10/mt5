@@ -168,6 +168,29 @@ def _contexto_decisao(conn, par, tf, estrategia, direcao, abertura_utc):
             "confluencias": dados.get("confluencias") or [], "regime": dados.get("regime")}
 
 
+def _faixa_y(candles, precos=(), margem: float = 0.08):
+    """Faixa [min, max] do eixo Y para ENQUADRAR o price action do trade.
+
+    Sem isto, o Plotly auto-ajusta o eixo para caber TODOS os S/R desenhados por cima —
+    inclusive níveis fortes distantes (ex.: um nível em 168 num par cotado a ~217) — e os
+    candles ficam ESMAGADOS numa tira ilegível no topo (bug do raio-X das perdedoras). Ancora
+    a faixa nas máximas/mínimas dos candles + os preços do trade (entrada/SL/saída) com uma
+    margem; os níveis fora disso simplesmente saem da tela em vez de comprimir o gráfico
+    inteiro. Retorna None se não houver candles."""
+    lows = [c["low"] for c in candles if c["low"] is not None]
+    highs = [c["high"] for c in candles if c["high"] is not None]
+    if not lows or not highs:
+        return None
+    extras = [p for p in precos if p]
+    lo = min([min(lows)] + extras)
+    hi = max([max(highs)] + extras)
+    span = hi - lo
+    if span <= 0:  # tudo no mesmo preço (dados sintéticos/degenerados) — abre uma janela mínima
+        span = abs(hi) * 0.001 or 1.0
+    pad = span * margem
+    return [lo - pad, hi + pad]
+
+
 def grafico_trade_html(trade_id: int, antes: int = None, depois: int = None) -> str:
     """HTML (offline) do raio-x de UM trade: candles antes/durante/depois com entrada, SL,
     saída, MAE/MFE, níveis do motor e o contexto da decisão que abriu a posição."""
@@ -227,10 +250,14 @@ def grafico_trade_html(trade_id: int, antes: int = None, depois: int = None) -> 
                                  marker=dict(symbol="x", size=13, color=cor_res,
                                              line=dict(width=1, color="#c9d1d9"))))
 
+    # Fixa o eixo Y ao redor dos candles + preços do trade — do contrário os S/R fortes
+    # distantes esticam o auto-range e achatam os candles numa tira ilegível.
+    faixa = _faixa_y(candles, (entrada, sl, saida))
     fig.update_layout(
         title=f"Raio-X #{trade_id} · {par} {tf} · {config.nome_estrategia(t['estrategia'])} · {direcao}",
         xaxis_rangeslider_visible=False, template="plotly_dark",
         margin=dict(l=40, r=20, t=50, b=40), height=560, showlegend=False,
+        yaxis=dict(range=faixa) if faixa else {},
     )
     plot = fig.to_html(include_plotlyjs=True, full_html=False)
     return _pagina_trade(t, ctx, plot, tf, antes, depois)
