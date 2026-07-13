@@ -216,6 +216,51 @@ def _por(trades: list, chave: str) -> list:
     return linhas
 
 
+def _sessao(hora_utc: int) -> str:
+    """Sessão de mercado pela hora UTC de abertura (foco Londres/NY, onde há liquidez)."""
+    if 7 <= hora_utc <= 11:
+        return "Londres (07–11)"
+    if 12 <= hora_utc <= 15:
+        return "Londres/NY (12–15)"
+    if 16 <= hora_utc <= 20:
+        return "Nova York (16–20)"
+    if 0 <= hora_utc <= 6:
+        return "Ásia (00–06)"
+    return "Fora de sessão (21–23)"
+
+
+def _curva_capital(trades: list, base: float) -> dict:
+    """Curva de capital (ordem cronológica de fechamento) + drawdown máximo.
+
+    `base` = saldo inicial de referência (equity acumulada parte dele). Retorna a série
+    para plotar, o DD máximo em USD/%, e o recovery factor (lucro/|maxDD|)."""
+    from datetime import datetime, timezone
+
+    ordenados = sorted([t for t in trades if t["fechamento_utc"]], key=lambda t: t["fechamento_utc"])
+    eq = base
+    pico = base
+    max_dd = 0.0
+    serie = []
+    for t in ordenados:
+        eq += t["lucro_usd"] or 0
+        pico = max(pico, eq)
+        dd = eq - pico  # ≤ 0
+        max_dd = min(max_dd, dd)
+        serie.append({
+            "t": datetime.fromtimestamp(t["fechamento_utc"], timezone.utc).strftime("%m-%d %H:%M"),
+            "eq": round(eq, 2), "dd": round(dd, 2),
+        })
+    lucro = eq - base
+    return {
+        "serie": serie,
+        "base": round(base, 2),
+        "final": round(eq, 2),
+        "max_dd": round(max_dd, 2),
+        "max_dd_pct": round(100 * max_dd / pico, 2) if pico else 0.0,
+        "recovery_factor": round(lucro / abs(max_dd), 2) if max_dd < 0 else None,
+    }
+
+
 def _analitico(de: str = "", ate: str = "") -> dict:
     """Estatísticas dos trades fechados no intervalo [de, ate] (datas ISO, opcionais)."""
     de_e, ate_e = _epoch(de), _epoch(ate, fim=True)
@@ -228,13 +273,18 @@ def _analitico(de: str = "", ate: str = "") -> dict:
     with db.sessao() as conn:
         rows = conn.execute(
             f"SELECT par, estrategia, direcao, pips, lucro_usd, motivo_saida, simulado, "
-            f"mae_r, mfe_r, abertura_utc, fechamento_utc FROM trades WHERE {where} "
-            f"ORDER BY fechamento_utc DESC",
+            f"mae_r, mfe_r, regime_entrada, abertura_utc, fechamento_utc FROM trades "
+            f"WHERE {where} ORDER BY fechamento_utc DESC",
             args,
         ).fetchall()
     from datetime import datetime, timezone
 
     trades = [dict(r) for r in rows]
+    for t in trades:  # rótulos derivados para os agrupamentos
+        t["regime"] = t["regime_entrada"] or "—"
+        h = datetime.fromtimestamp(t["abertura_utc"], timezone.utc).hour if t["abertura_utc"] else 0
+        t["sessao"] = _sessao(h)
+
     def _hora(ep):
         return datetime.fromtimestamp(ep, timezone.utc).strftime("%Y-%m-%d %H:%M") if ep else "—"
 
@@ -243,14 +293,17 @@ def _analitico(de: str = "", ate: str = "") -> dict:
             "quando": _hora(t["fechamento_utc"]), "par": t["par"], "estrategia": t["estrategia"],
             "direcao": t["direcao"], "pips": t["pips"], "lucro": t["lucro_usd"],
             "motivo": t["motivo_saida"], "simulado": bool(t["simulado"]),
-            "mae_r": t["mae_r"], "mfe_r": t["mfe_r"],
+            "mae_r": t["mae_r"], "mfe_r": t["mfe_r"], "regime": t["regime"], "sessao": t["sessao"],
         }
         for t in trades[:300]
     ]
     return {
         "de": de, "ate": ate,
         "geral": _agregar(trades),
+        "curva": _curva_capital(trades, config.SALDO_SIMULADO),
         "por_estrategia": _por(trades, "estrategia"),
+        "por_regime": _por(trades, "regime"),
+        "por_sessao": _por(trades, "sessao"),
         "por_par": _por(trades, "par"),
         "por_motivo": _por(trades, "motivo_saida"),
         "trades": lista,

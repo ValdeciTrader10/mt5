@@ -66,6 +66,12 @@
     <div class="grid" id="kpis"></div>
 
     <section>
+      <h2>Curva de capital <span class="muted">— equity e drawdown ao longo dos trades</span></h2>
+      <div id="curva"></div>
+      <p class="muted" id="curva-stats"></p>
+    </section>
+
+    <section>
       <h2>Por estratégia <span class="muted">— onde atuar para melhorar</span></h2>
       <table>
         <thead><tr><th>Estratégia</th><th class="num">Trades</th><th class="num">Acerto</th>
@@ -78,6 +84,24 @@
       <p class="muted">MAE = pior R contra durante o trade; MFE = melhor R a favor. <b>Calor venc.</b>
         próximo de 0 = stop pode ser mais justo; <b>Devolv. perd.</b> alto = os perdedores chegaram a
         andar a favor e viraram (alvo/parcial ou saída por estrutura cedo demais).</p>
+    </section>
+
+    <section>
+      <h2>Por regime na entrada <span class="muted">— responde: cada estratégia ganha em qual contexto?</span></h2>
+      <table>
+        <thead><tr><th>Regime</th><th class="num">Trades</th><th class="num">Acerto</th>
+          <th class="num">PF</th><th class="num">Expect.</th><th class="num">Pips</th><th class="num">USD</th></tr></thead>
+        <tbody id="tb-regime"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Por sessão <span class="muted">— Londres/NY vs. resto</span></h2>
+      <table>
+        <thead><tr><th>Sessão (UTC)</th><th class="num">Trades</th><th class="num">Acerto</th>
+          <th class="num">PF</th><th class="num">Expect.</th><th class="num">Pips</th><th class="num">USD</th></tr></thead>
+        <tbody id="tb-sessao"></tbody>
+      </table>
     </section>
 
     <section>
@@ -168,11 +192,45 @@
         '<td class="num ' + sign(r.pips) + '">' + fmt(r.pips, 1) + '</td>' +
         '<td class="num ' + sign(r.usd) + '">' + fmt(r.usd, 2) + '</td></tr>';
     }
+    function linhaCtx(r) {  // regime / sessão: Trades | Acerto | PF | Expect. | Pips | USD
+      return '<tr><td>' + esc(r.chave) + '</td><td class="num">' + r.n + '</td>' +
+        '<td class="num">' + fmt(r.winrate, 1) + '%</td><td class="num">' + pf(r) + '</td>' +
+        '<td class="num ' + sign(r.expectativa) + '">' + fmt(r.expectativa, 2) + '</td>' +
+        '<td class="num ' + sign(r.pips) + '">' + fmt(r.pips, 1) + '</td>' +
+        '<td class="num ' + sign(r.usd) + '">' + fmt(r.usd, 2) + '</td></tr>';
+    }
+
+    function curva(c) {
+      var box = document.getElementById('curva'), stats = document.getElementById('curva-stats');
+      var s = (c && c.serie) || [];
+      if (s.length < 2) { box.innerHTML = '<p class="muted">Poucos trades para desenhar a curva.</p>'; stats.textContent = ''; return; }
+      var eqs = s.map(function (p) { return p.eq; }).concat([c.base]);
+      var min = Math.min.apply(null, eqs), max = Math.max.apply(null, eqs);
+      var pad = (max - min) * 0.08 || 1; min -= pad; max += pad;
+      var W = 100, H = 100;
+      function X(i) { return (i / (s.length - 1)) * W; }
+      function Y(v) { return H - ((v - min) / (max - min)) * H; }
+      var pts = s.map(function (p, i) { return X(i).toFixed(2) + ',' + Y(p.eq).toFixed(2); }).join(' ');
+      var area = 'M0,' + H.toFixed(2) + ' L' + pts.split(' ').join(' L') + ' L' + W + ',' + H + ' Z';
+      var yBase = Y(c.base).toFixed(2), up = c.final >= c.base, col = up ? '#3fb950' : '#f85149';
+      box.innerHTML =
+        '<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:220px;background:#0d1117;border:1px solid #21262d;border-radius:10px">' +
+        '<path d="' + area + '" fill="' + (up ? 'rgba(63,185,80,.12)' : 'rgba(248,81,73,.12)') + '"/>' +
+        '<line x1="0" y1="' + yBase + '" x2="100" y2="' + yBase + '" stroke="#30363d" stroke-width="0.4" stroke-dasharray="2"/>' +
+        '<polyline points="' + pts + '" fill="none" stroke="' + col + '" stroke-width="1.2" vector-effect="non-scaling-stroke"/>' +
+        '</svg>';
+      stats.innerHTML = 'Base ' + fmt(c.base, 2) + ' → Final <b class="' + sign(c.final - c.base) + '">' + fmt(c.final, 2) +
+        '</b> · Max DD <span class="neg">' + fmt(c.max_dd, 2) + '</span> (' + fmt(c.max_dd_pct, 1) + '%)' +
+        ' · Recovery factor ' + (c.recovery_factor == null ? '—' : fmt(c.recovery_factor, 2));
+    }
 
     function render(d) {
       kpis(d.geral);
+      curva(d.curva);
       var e = document.getElementById('tb-estrategia');
       e.innerHTML = d.por_estrategia.map(linhaEstrategia).join('') || '<tr><td colspan="10" class="muted">Sem trades no período.</td></tr>';
+      document.getElementById('tb-regime').innerHTML = (d.por_regime || []).map(linhaCtx).join('') || '<tr><td colspan="7" class="muted">—</td></tr>';
+      document.getElementById('tb-sessao').innerHTML = (d.por_sessao || []).map(linhaCtx).join('') || '<tr><td colspan="7" class="muted">—</td></tr>';
       document.getElementById('tb-motivo').innerHTML = d.por_motivo.map(linhaMotivo).join('') || '<tr><td colspan="6" class="muted">—</td></tr>';
       document.getElementById('tb-par').innerHTML = d.por_par.map(linhaPar).join('') || '<tr><td colspan="6" class="muted">—</td></tr>';
       document.getElementById('tb-trades').innerHTML = (d.trades || []).map(function (t) {

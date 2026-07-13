@@ -109,11 +109,18 @@ def _abertas_do_banco(conn):
 # --------------------------------------------------------------------------- #
 # Persistência de trades
 # --------------------------------------------------------------------------- #
-def _abrir_trade(conn, par, estrategia, direcao, lote, entrada, sl, ticket, simulado, risco) -> int:
+def _regime_atual(conn, par: str):
+    r = conn.execute(
+        "SELECT regime FROM regime_log WHERE par=? ORDER BY time_utc DESC LIMIT 1", (par,)
+    ).fetchone()
+    return r["regime"] if r else None
+
+
+def _abrir_trade(conn, par, estrategia, direcao, lote, entrada, sl, ticket, simulado, risco, regime) -> int:
     cur = conn.execute(
         "INSERT INTO trades (ticket, par, estrategia, direcao, lote, preco_entrada, sl_servidor, "
-        "abertura_utc, simulado, risco_inicial) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (ticket, par, estrategia, direcao, lote, entrada, sl, _agora(), simulado, risco),
+        "abertura_utc, simulado, risco_inicial, regime_entrada) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (ticket, par, estrategia, direcao, lote, entrada, sl, _agora(), simulado, risco, regime),
     )
     conn.commit()
     return cur.lastrowid
@@ -333,6 +340,12 @@ class Executor:
                 continue
             if sum(1 for p in self.abertas.values() if p["par"] == par) >= config.MAX_POS_POR_PAR:
                 continue
+            # Guarda de correlação: não dobrar risco na mesma moeda (EUR+GBP ambos short-USD).
+            posic = [{"par": p["par"], "direcao": p["direcao"]} for p in self.abertas.values()]
+            if gestao.viola_correlacao(posic, par, direcao, config.MAX_EXPOSICAO_MOEDA):
+                log.info("Bloqueado por correlação: %s %s (exposição de moeda > %d)",
+                         par, direcao, config.MAX_EXPOSICAO_MOEDA)
+                continue
             try:
                 self._abrir(conn, par, direcao, d["estrategia"])
             except Exception:  # noqa: BLE001
@@ -357,8 +370,9 @@ class Executor:
         else:
             ticket = None
             simulado = 1
+        regime = _regime_atual(conn, par)
         trade_id = _abrir_trade(conn, par, estrategia, direcao, config.LOTE, entrada, sl,
-                                ticket, simulado, risco)
+                                ticket, simulado, risco, regime)
         if ticket is None:
             ticket = -trade_id  # id sintético para o modo simulação
             conn.execute("UPDATE trades SET ticket=? WHERE id=?", (ticket, trade_id))

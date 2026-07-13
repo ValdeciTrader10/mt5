@@ -85,6 +85,33 @@ def avaliar_saida(*, direcao, r, r_max, idade_h, ultimo_evento, be_movido,
     return ("manter", "")
 
 
+def _moedas(par: str) -> tuple:
+    """(base, quote) de um par tipo 'EURUSD#', 'GBPUSD#', 'USDCAD'."""
+    p = par.replace("#", "").upper()
+    return p[:3], p[3:6]
+
+
+def exposicao_moedas(posicoes) -> dict:
+    """Exposição líquida por moeda. `posicoes`: iterável de dicts com {par, direcao}.
+
+    Compra do par = +1 na base / −1 na quote; venda = o inverso (1 unidade por posição).
+    Ex.: comprar EURUSD e GBPUSD → {EUR:+1, GBP:+1, USD:−2} (risco dobrado short-USD).
+    """
+    exp: dict = {}
+    for p in posicoes:
+        base, quote = _moedas(p["par"])
+        s = 1 if p["direcao"] == "compra" else -1
+        exp[base] = exp.get(base, 0) + s
+        exp[quote] = exp.get(quote, 0) - s
+    return exp
+
+
+def viola_correlacao(posicoes, par_novo: str, direcao_nova: str, limite: int) -> bool:
+    """True se abrir (par_novo, direcao_nova) faria alguma moeda passar de `limite` líquido."""
+    futuras = list(posicoes) + [{"par": par_novo, "direcao": direcao_nova}]
+    return any(abs(v) > limite for v in exposicao_moedas(futuras).values())
+
+
 def drawdown_estourou(saldo_inicial_dia: float, equity_atual: float, dd_max_pct: float) -> bool:
     """True se a perda do dia atingiu o teto (equity caiu dd_max_pct% do saldo inicial)."""
     if not saldo_inicial_dia:

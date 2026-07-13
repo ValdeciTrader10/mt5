@@ -85,6 +85,19 @@ def test_move_break_even():
     assert acao2 == "manter"
 
 
+def test_exposicao_e_correlacao():
+    # EURUSD e GBPUSD comprados → ambos short USD (net -2)
+    exp = g.exposicao_moedas([{"par": "EURUSD#", "direcao": "compra"},
+                              {"par": "GBPUSD#", "direcao": "compra"}])
+    assert exp["USD"] == -2 and exp["EUR"] == 1 and exp["GBP"] == 1
+    # com limite 1, abrir a 2ª compra (mesmo short-USD) VIOLA
+    assert g.viola_correlacao([{"par": "EURUSD#", "direcao": "compra"}], "GBPUSD#", "compra", 1) is True
+    # USDCAD comprado + EURUSD comprado se cancelam no USD (net 0) → NÃO viola
+    assert g.viola_correlacao([{"par": "EURUSD#", "direcao": "compra"}], "USDCAD", "compra", 1) is False
+    # primeira posição nunca viola (limite 1)
+    assert g.viola_correlacao([], "EURUSD#", "compra", 1) is False
+
+
 def test_drawdown():
     assert g.drawdown_estourou(1000, 949, 5.0) is True     # -5.1%
     assert g.drawdown_estourou(1000, 960, 5.0) is False    # -4%

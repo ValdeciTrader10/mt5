@@ -50,6 +50,11 @@ BE_TRIGGER_R = 1.0
 DD_DIARIO_MAX_PCT = 5.0
 MAX_POS_POR_PAR = 1
 MAX_POS_TOTAL = 2
+# Guarda de correlação: exposição líquida MÁXIMA por moeda (em nº de posições).
+# EURUSD e GBPUSD comprados = ambos short USD → USD líquido -2. Com limite 1, a 2ª
+# entrada correlacionada é bloqueada. USDCAD comprado + EURUSD comprado se cancelam no
+# USD (net 0) → permitido. Evita "risco dobrado escondido" pela mesma moeda.
+MAX_EXPOSICAO_MOEDA = int(os.environ.get("MAX_EXPOSICAO_MOEDA", "1"))
 TEMPO_MAX_POSICAO_H = 8
 SCORE_MIN_CONFLUENCIAS = 2
 

@@ -105,7 +105,8 @@ CREATE TABLE IF NOT EXISTS trades (
     simulado      INTEGER DEFAULT 0,   -- 1 = posição do modo simulação (Fase 5 sem EXECUCAO_ATIVA)
     risco_inicial REAL,                -- |entrada - sl_inicial| em preço; base fixa do R
     mae_r         REAL,                -- Maximum Adverse Excursion: pior R contra durante a vida (≤ 0)
-    mfe_r         REAL                 -- Maximum Favorable Excursion: melhor R a favor durante a vida (≥ 0)
+    mfe_r         REAL,                -- Maximum Favorable Excursion: melhor R a favor durante a vida (≥ 0)
+    regime_entrada TEXT                -- regime de mercado no momento da abertura (p/ análise por regime)
 );
 CREATE INDEX IF NOT EXISTS idx_trades_par ON trades (par);
 CREATE INDEX IF NOT EXISTS idx_trades_abertos ON trades (fechamento_utc);
@@ -123,6 +124,8 @@ def _migrar(conn) -> None:
         conn.execute("ALTER TABLE trades ADD COLUMN mae_r REAL")
     if "mfe_r" not in cols:
         conn.execute("ALTER TABLE trades ADD COLUMN mfe_r REAL")
+    if "regime_entrada" not in cols:
+        conn.execute("ALTER TABLE trades ADD COLUMN regime_entrada TEXT")
 
 
 def conectar(db_path=None) -> sqlite3.Connection:
