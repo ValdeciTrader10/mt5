@@ -217,6 +217,37 @@ def _por(trades: list, chave: str) -> list:
     return linhas
 
 
+def _por_estrategia_tf(trades: list) -> list:
+    """Cruzamento ESTRATÉGIA × TIMEFRAME — responde direto "qual estratégia funciona melhor
+    em qual timeframe" (o objetivo da sombra). A chave junta o nome amigável e o TF; só
+    grupos com trades aparecem. Ordena por USD (pior → melhor)."""
+    grupos: dict = {}
+    for t in trades:
+        nome = config.nome_estrategia(t["estrategia"])
+        tf = t["tf"] or "M5"
+        grupos.setdefault((nome, tf), []).append(t)
+    linhas = [{"chave": f"{nome} · {tf}", "estrategia": nome, "tf": tf, **_agregar(v)}
+              for (nome, tf), v in grupos.items()]
+    linhas.sort(key=lambda x: x["usd"])
+    return linhas
+
+
+def _normalizar_motivo(motivo: str) -> str:
+    """Colapsa o motivo de saída para um rótulo ESTÁVEL, agrupável.
+
+    Os motivos embutem números/direção que variam a cada trade ("CHOCH alta (r=1.3)",
+    "cedeu 0.7R do pico (1.4R → 0.7R)", "tempo máximo (1.2h ≥ 8h)"), o que fragmentava o
+    /analitico em dezenas de linhas quase iguais. Aqui removemos os parênteses, a direção e
+    os valores de R para agrupar por CAUSA (ex.: todos os "reversão confirmada: CHOCH")."""
+    if not motivo:
+        return "—"
+    import re
+    m = re.sub(r"\s*\([^)]*\)", "", motivo)          # remove "(...)"
+    m = re.sub(r"\s+(alta|baixa)\b", "", m)          # remove direção
+    m = re.sub(r"\d+\.?\d*\s*R", "R", m)             # normaliza valores de R
+    return m.strip() or "—"
+
+
 def _sessao(hora_utc: int) -> str:
     """Sessão de mercado pela hora UTC de abertura (foco Londres/NY, onde há liquidez)."""
     if 7 <= hora_utc <= 11:
@@ -285,6 +316,7 @@ def _analitico(de: str = "", ate: str = "") -> dict:
         t["regime"] = t["regime_entrada"] or "—"
         h = datetime.fromtimestamp(t["abertura_utc"], timezone.utc).hour if t["abertura_utc"] else 0
         t["sessao"] = _sessao(h)
+        t["motivo_norm"] = _normalizar_motivo(t["motivo_saida"])
 
     def _hora(ep):
         return datetime.fromtimestamp(ep, timezone.utc).strftime("%Y-%m-%d %H:%M") if ep else "—"
@@ -309,11 +341,12 @@ def _analitico(de: str = "", ate: str = "") -> dict:
         "geral": _agregar(trades),
         "curva": _curva_capital(trades, config.SALDO_SIMULADO),
         "por_estrategia": por_estrategia,
+        "por_estrategia_tf": _por_estrategia_tf(trades),
         "por_timeframe": _por(trades, "tf"),
         "por_regime": _por(trades, "regime"),
         "por_sessao": _por(trades, "sessao"),
         "por_par": _por(trades, "par"),
-        "por_motivo": _por(trades, "motivo_saida"),
+        "por_motivo": _por(trades, "motivo_norm"),
         "trades": lista,
     }
 

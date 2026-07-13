@@ -26,6 +26,9 @@ ESTRATEGIA = "confluencia_v1"
 ESTRATEGIA_SWEEP = "sweep_choch_v1"
 ESTRATEGIA_OB = "order_block_v1"
 ESTRATEGIA_PULLBACK = "pullback_tendencia_v1"
+ESTRATEGIA_GAP = "fecha_gap_v1"
+ESTRATEGIA_ROMPIMENTO = "pullback_rompimento_v1"
+ESTRATEGIA_EXTREMOS = "rompimento_extremos_v1"
 
 
 def _mais_forte_perto(preco: float, niveis: list, tol: float):
@@ -383,3 +386,185 @@ def avaliar_pullback_tendencia(snap: dict, *, sessao_utc, spread_max_pips, nivel
                         estrategia=ESTRATEGIA_PULLBACK)
     return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
                     estrategia=ESTRATEGIA_PULLBACK)
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia 5 — fechamento de gap (fade rumo ao fechamento anterior)
+# --------------------------------------------------------------------------- #
+def avaliar_fecha_gap(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_atr,
+                      forca_min, gap_min_atr=0.5) -> dict:
+    """Gap de sessão/notícia tende a ser PREENCHIDO (o preço volta ao fechamento anterior).
+    Opera A FAVOR do preenchimento: gap de ALTA (abriu acima) → VENDA rumo ao nível de
+    fechamento (abaixo); gap de BAIXA → COMPRA rumo ao nível (acima). Gatilho = a vela virou
+    na direção do fill (momentum) e o gap AINDA tem espaço (não preenchido). S/R no alvo e a
+    rejeição no extremo são REFORÇO (nunca veto). Gates duros: sessão + spread.
+
+    `gaps` no snapshot: [{'direcao': 'alta'|'baixa', 'nivel': preço-alvo (fechamento anterior)}].
+    O gap mais PRÓXIMO com espaço suficiente vence (evita alvo longe demais/já preenchido).
+    """
+    regime = snap.get("regime", "indefinido")
+    atr = snap.get("atr")
+    close = snap["close"]
+    o = snap.get("open")
+    gaps = snap.get("gaps", [])
+    if atr is None or o is None or not gaps:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem gap aberto/ATR",
+                        estrategia=ESTRATEGIA_GAP)
+    tol = nivel_prox_atr * atr
+    alvo = None
+    for g in gaps:
+        nivel = g["nivel"]
+        if g["direcao"] == "alta" and close > nivel:        # abriu acima → fill p/ baixo → venda
+            dist = close - nivel
+            if alvo is None or dist < alvo[0]:
+                alvo = (dist, "venda", nivel)
+        elif g["direcao"] == "baixa" and close < nivel:     # abriu abaixo → fill p/ cima → compra
+            dist = nivel - close
+            if alvo is None or dist < alvo[0]:
+                alvo = (dist, "compra", nivel)
+    if alvo is None:
+        return _decisao("nao_entrou", None, regime, 0, [], "gap já preenchido",
+                        estrategia=ESTRATEGIA_GAP)
+    dist, direcao, nivel = alvo
+    if dist < gap_min_atr * atr:
+        return _decisao("nao_entrou", direcao, regime, 0, ["gap"],
+                        "sem espaço até o alvo do gap", estrategia=ESTRATEGIA_GAP)
+    # Gatilho: a vela fechou NA direção do fill (momentum de reversão para o gap).
+    momentum = (close < o) if direcao == "venda" else (close > o)
+    conf = ["gap"]
+    if momentum:
+        conf.append("momentum_fill")
+    if candle_rejeicao(snap, direcao, close, tol, 0.5):     # rejeição no extremo = reforço
+        conf.append("rejeicao")
+    niveis = snap.get("suportes" if direcao == "compra" else "resistencias", [])
+    nv = _mais_forte_perto(nivel, niveis, tol)
+    if nv and nv[1] >= forca_min:
+        conf.append(f"sr_alvo_{int(nv[1])}")
+    score = len(conf)
+
+    if not momentum:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        "sem momentum p/ o fill", estrategia=ESTRATEGIA_GAP)
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"fora da sessão ({hora}h UTC)", estrategia=ESTRATEGIA_GAP)
+    spread = snap.get("spread_pips", 0.0)
+    if spread > spread_max_pips:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
+                        estrategia=ESTRATEGIA_GAP)
+    return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
+                    estrategia=ESTRATEGIA_GAP)
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia 6 — pullback ao rompimento (reteste com inversão de polaridade)
+# --------------------------------------------------------------------------- #
+def avaliar_pullback_rompimento(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_atr,
+                                forca_min, pavio_min=0.5) -> dict:
+    """Rompimento + reteste (polaridade): um nível S/R foi ROMPIDO (BOS) e o preço RETESTA o
+    nível agora INVERTIDO — resistência rompida vira suporte / suporte rompido vira resistência
+    — e REJEITA, retomando na direção do rompimento. A rejeição no nível invertido é o GATILHO
+    (é a confirmação do reteste). Direção pelo BOS; regime a favor e força do nível = reforço.
+    Gates duros: sessão + spread. Distinto do `pullback_tendencia` (que rejeita num S/R do MESMO
+    lado da tendência) — aqui o nível é o que FOI rompido (polaridade invertida)."""
+    regime = snap.get("regime", "indefinido")
+    atr = snap.get("atr")
+    close = snap["close"]
+    ev = snap.get("ultimo_evento")
+    if atr is None or not ev or ev.get("evento") != "BOS":
+        return _decisao("nao_entrou", None, regime, 0, [], "sem rompimento (BOS)",
+                        estrategia=ESTRATEGIA_ROMPIMENTO)
+    if ev["direcao"] == "alta":
+        direcao = "compra"
+        niveis = snap.get("resistencias", [])      # resistência rompida → agora suporte
+    elif ev["direcao"] == "baixa":
+        direcao = "venda"
+        niveis = snap.get("suportes", [])           # suporte rompido → agora resistência
+    else:
+        return _decisao("nao_entrou", None, regime, 0, [], "BOS sem direção",
+                        estrategia=ESTRATEGIA_ROMPIMENTO)
+    tol = nivel_prox_atr * atr
+    nv = _mais_forte_perto(close, niveis, tol)
+    if not nv:
+        return _decisao("nao_entrou", direcao, regime, 0, ["bos"],
+                        "sem nível rompido no reteste", estrategia=ESTRATEGIA_ROMPIMENTO)
+    conf = ["bos", "reteste_rompimento"]
+    if nv[1] >= forca_min:
+        conf.append(f"nivel_forca_{int(nv[1])}")
+    rejeitou = candle_rejeicao(snap, direcao, nv[0], tol, pavio_min)
+    if rejeitou:
+        conf.append("rejeicao")
+    if (direcao == "compra" and regime == "tendencia_alta") or \
+       (direcao == "venda" and regime == "tendencia_baixa"):
+        conf.append("a_favor_regime")
+    score = len(conf)
+
+    if not rejeitou:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        "sem rejeição no reteste", estrategia=ESTRATEGIA_ROMPIMENTO)
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"fora da sessão ({hora}h UTC)", estrategia=ESTRATEGIA_ROMPIMENTO)
+    spread = snap.get("spread_pips", 0.0)
+    if spread > spread_max_pips:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
+                        estrategia=ESTRATEGIA_ROMPIMENTO)
+    return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
+                    estrategia=ESTRATEGIA_ROMPIMENTO)
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia 7 — rompimento da máx/mín do dia anterior (PDH/PDL) + reteste
+# --------------------------------------------------------------------------- #
+def avaliar_rompimento_extremos(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_atr,
+                                pavio_min=0.5) -> dict:
+    """Rompimento da MÁXIMA/MÍNIMA do dia anterior (PDH/PDL — liquidez clássica) + reteste.
+    Preço rompe a PDH e RETESTA por cima (nível vira suporte) rejeitando → COMPRA; rompe a PDL
+    e retesta por baixo (vira resistência) → VENDA. A rejeição no reteste é o GATILHO; regime a
+    favor = reforço. Gates duros: sessão + spread.
+
+    `max_dia`/`min_dia` no snapshot = high/low do último dia FECHADO (D1)."""
+    regime = snap.get("regime", "indefinido")
+    atr = snap.get("atr")
+    close = snap["close"]
+    pdh = snap.get("max_dia")
+    pdl = snap.get("min_dia")
+    if atr is None or pdh is None or pdl is None:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem máx/mín do dia/ATR",
+                        estrategia=ESTRATEGIA_EXTREMOS)
+    tol = nivel_prox_atr * atr
+    # Rompeu (close além do extremo) e ainda RETESTANDO (a até `tol` do nível rompido).
+    if close >= pdh and (close - pdh) <= tol:
+        direcao, nivel = "compra", pdh
+    elif close <= pdl and (pdl - close) <= tol:
+        direcao, nivel = "venda", pdl
+    else:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem reteste de máx/mín do dia",
+                        estrategia=ESTRATEGIA_EXTREMOS)
+    conf = ["rompeu_extremo_dia"]
+    rejeitou = candle_rejeicao(snap, direcao, nivel, tol, pavio_min)
+    if rejeitou:
+        conf.append("rejeicao")
+    if (direcao == "compra" and regime == "tendencia_alta") or \
+       (direcao == "venda" and regime == "tendencia_baixa"):
+        conf.append("a_favor_regime")
+    score = len(conf)
+
+    if not rejeitou:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        "sem rejeição no reteste", estrategia=ESTRATEGIA_EXTREMOS)
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"fora da sessão ({hora}h UTC)", estrategia=ESTRATEGIA_EXTREMOS)
+    spread = snap.get("spread_pips", 0.0)
+    if spread > spread_max_pips:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
+                        estrategia=ESTRATEGIA_EXTREMOS)
+    return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
+                    estrategia=ESTRATEGIA_EXTREMOS)

@@ -257,6 +257,140 @@ def test_pullback_ob_confluente_soma():
     assert "ob_confluente" in d["confluencias"], d
 
 
+# --------------------------------------------------------------------------- #
+# Estratégia 5 — fechamento de gap (fade rumo ao fechamento anterior)
+# --------------------------------------------------------------------------- #
+CFG_GAP = dict(sessao_utc=(7, 20), spread_max_pips=2.0, nivel_prox_atr=0.5, forca_min=3,
+               gap_min_atr=0.5)
+
+
+def _snap_gap(**kw):
+    # gap de ALTA (alvo do fill 1.0990, abaixo); vela virou p/ baixo (momentum de fill).
+    base = dict(close=1.1000, open=1.1005, high=1.1006, low=1.0999,
+                atr=0.0010, regime="lateral", hora_utc=10, spread_pips=1.0,
+                suportes=[], resistencias=[],
+                gaps=[{"direcao": "alta", "nivel": 1.0990}])
+    base.update(kw)
+    return base
+
+
+def test_gap_entra_venda_com_momentum():
+    d = e.avaliar_fecha_gap(_snap_gap(), **CFG_GAP)
+    assert d["resultado"] == "entrou" and d["direcao"] == "venda", d
+    assert d["estrategia"] == "fecha_gap_v1", d
+    assert "gap" in d["confluencias"] and "momentum_fill" in d["confluencias"], d
+
+
+def test_gap_sem_espaco_nao_entra():
+    d = e.avaliar_fecha_gap(_snap_gap(gaps=[{"direcao": "alta", "nivel": 1.0997}]), **CFG_GAP)
+    assert d["resultado"] == "nao_entrou" and "espaço" in d["motivo"], d
+
+
+def test_gap_ja_preenchido_nao_entra():
+    # gap de alta mas preço JÁ está abaixo do alvo → preenchido, sem trade.
+    d = e.avaliar_fecha_gap(_snap_gap(gaps=[{"direcao": "alta", "nivel": 1.1010}]), **CFG_GAP)
+    assert d["resultado"] == "nao_entrou" and "preenchido" in d["motivo"], d
+
+
+def test_gap_sem_momentum_nao_entra():
+    # vela subindo (contra o fill de um gap de alta) → sem momentum p/ o fill.
+    d = e.avaliar_fecha_gap(_snap_gap(open=1.0999, close=1.1000), **CFG_GAP)
+    assert d["resultado"] == "nao_entrou" and "momentum" in d["motivo"], d
+
+
+def test_gap_sr_alvo_reforco():
+    d = e.avaliar_fecha_gap(_snap_gap(resistencias=[(1.0990, 4)]), **CFG_GAP)
+    assert "sr_alvo_4" in d["confluencias"], d
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia 6 — pullback ao rompimento (reteste com inversão de polaridade)
+# --------------------------------------------------------------------------- #
+CFG_ROMP = dict(sessao_utc=(7, 20), spread_max_pips=2.0, nivel_prox_atr=0.5, forca_min=3,
+                pavio_min=0.5)
+
+
+def _snap_romp(**kw):
+    # BOS de alta rompeu a resistência 1.1000; preço retesta por cima e REJEITA (pavio inferior).
+    base = dict(close=1.1003, open=1.1001, high=1.1004, low=1.0998,
+                atr=0.0010, regime="tendencia_alta", hora_utc=10, spread_pips=1.0,
+                suportes=[], resistencias=[(1.1000, 4)],
+                ultimo_evento={"evento": "BOS", "direcao": "alta", "tf": "M15"})
+    base.update(kw)
+    return base
+
+
+def test_rompimento_entra_compra_no_reteste():
+    d = e.avaliar_pullback_rompimento(_snap_romp(), **CFG_ROMP)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["estrategia"] == "pullback_rompimento_v1", d
+    assert "reteste_rompimento" in d["confluencias"] and "rejeicao" in d["confluencias"], d
+
+
+def test_rompimento_sem_bos_nao_entra():
+    d = e.avaliar_pullback_rompimento(_snap_romp(ultimo_evento=None), **CFG_ROMP)
+    assert d["resultado"] == "nao_entrou" and "BOS" in d["motivo"], d
+
+
+def test_rompimento_choch_nao_dispara():
+    ev = {"evento": "CHOCH", "direcao": "alta", "tf": "M15"}
+    d = e.avaliar_pullback_rompimento(_snap_romp(ultimo_evento=ev), **CFG_ROMP)
+    assert d["resultado"] == "nao_entrou" and "BOS" in d["motivo"], d
+
+
+def test_rompimento_sem_nivel_no_reteste():
+    d = e.avaliar_pullback_rompimento(_snap_romp(resistencias=[(1.2000, 4)]), **CFG_ROMP)
+    assert d["resultado"] == "nao_entrou" and "sem nível" in d["motivo"], d
+
+
+def test_rompimento_sem_rejeicao_nao_entra():
+    # preço no nível invertido mas sem rejeição (sem pavio) → não confirma o reteste.
+    snap = _snap_romp(close=1.1003, open=1.1002, high=1.1004, low=1.1002)
+    d = e.avaliar_pullback_rompimento(snap, **CFG_ROMP)
+    assert d["resultado"] == "nao_entrou" and "rejeição" in d["motivo"], d
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia 7 — rompimento da máx/mín do dia anterior (PDH/PDL) + reteste
+# --------------------------------------------------------------------------- #
+CFG_EXT = dict(sessao_utc=(7, 20), spread_max_pips=2.0, nivel_prox_atr=0.5, pavio_min=0.5)
+
+
+def _snap_ext(**kw):
+    # rompeu a máxima do dia (1.1000) e retesta por cima, REJEITANDO (pavio inferior).
+    base = dict(close=1.1003, open=1.1001, high=1.1004, low=1.0998,
+                atr=0.0010, regime="tendencia_alta", hora_utc=10, spread_pips=1.0,
+                max_dia=1.1000, min_dia=1.0950)
+    base.update(kw)
+    return base
+
+
+def test_extremos_entra_compra_na_pdh():
+    d = e.avaliar_rompimento_extremos(_snap_ext(), **CFG_EXT)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["estrategia"] == "rompimento_extremos_v1", d
+    assert "rompeu_extremo_dia" in d["confluencias"] and "rejeicao" in d["confluencias"], d
+
+
+def test_extremos_entra_venda_na_pdl():
+    # rompeu a mínima do dia (1.0950) e retesta por baixo, rejeitando (pavio superior).
+    snap = _snap_ext(close=1.0947, open=1.0949, high=1.0952, low=1.0946,
+                     regime="tendencia_baixa")
+    d = e.avaliar_rompimento_extremos(snap, **CFG_EXT)
+    assert d["resultado"] == "entrou" and d["direcao"] == "venda", d
+
+
+def test_extremos_sem_reteste_nao_entra():
+    # preço já correu bem além da PDH → passou do reteste.
+    d = e.avaliar_rompimento_extremos(_snap_ext(close=1.1050), **CFG_EXT)
+    assert d["resultado"] == "nao_entrou" and "reteste" in d["motivo"], d
+
+
+def test_extremos_sem_extremos_nao_entra():
+    d = e.avaliar_rompimento_extremos(_snap_ext(max_dia=None), **CFG_EXT)
+    assert d["resultado"] == "nao_entrou" and "máx/mín" in d["motivo"], d
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

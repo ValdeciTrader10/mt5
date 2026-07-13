@@ -29,9 +29,13 @@ a sombra (regra: demo/sombra primeiro).
 - **coletor** (`coletor_mt5.py`): Fase 1 — candles M5/M15/H1/D1/**W1** em SQLite.
 - **motor** (`analise.py`): Fase 2 — níveis (S/R, FVG, gaps), estrutura SMC, regime (ADX).
 - **estrategista** (`decisao.py`): Fase 4 sombra — decide e registra (sem operar). Roda
-  QUATRO estratégias em paralelo: `confluencia_v1`, `sweep_choch_v1`, `order_block_v1` e
-  `pullback_tendencia_v1` (cada uma grava sua própria linha em `decisoes`; o executor
-  deduplica no nível de posição). Todas desligáveis por env (`*_HABILITADA`). **Multi-TF:**
+  SETE estratégias em paralelo: `confluencia_v1` (Confluência), `sweep_choch_v1` (Caça-stops
+  + reversão), `order_block_v1` (Order block), `pullback_tendencia_v1` (Pullback na tendência),
+  `fecha_gap_v1` (Fechamento de gap), `pullback_rompimento_v1` (Pullback ao rompimento — reteste
+  com inversão de polaridade: nível rompido por BOS vira suporte/resistência e rejeita) e
+  `rompimento_extremos_v1` (Rompimento máx/mín do dia — PDH/PDL + reteste). Cada uma grava sua
+  própria linha em `decisoes`; o executor deduplica no nível de posição. Todas desligáveis por
+  env (`*_HABILITADA`). **Multi-TF:**
   avalia por (par, **TF de operação**) para cada TF em `config.TFS_OPERACAO` (default
   `M1,M5,M15`) — cada TF é um LIVRO de sombra INDEPENDENTE (vela/ATR/janela do próprio TF;
   S/R/regime são contexto par-level). A decisão é marcada com `tf`. ⚠️ M1 é observação de
@@ -57,7 +61,7 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
 
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
-  `test_indicadores`, `test_multitf`). **50 testes, todos passando.** Rodar sempre antes de commitar.
+  `test_indicadores`, `test_multitf`). **64 testes, todos passando.** Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
 - Env sensíveis (senha do painel, VNC, MT5) só no Environment do Dokploy — nunca no git.
@@ -85,17 +89,22 @@ desde a v1; DD diário máx 5%; anti-spam Telegram por flags; reset diário no t
 ## O que já foi entregue (Fases 1–5 + ferramentas)
 Fases 1–5 no ar (sombra); saída "com direito a desenvolver"; **dashboard analítico**
 (ganho/perda, filtro de datas, por estratégia/**timeframe**/motivo/par/regime/sessão,
-**MAE/MFE**, **curva de capital + drawdown**); **operações de sombra independentes por TF
-(M1/M5/M15)** com comparação "Por timeframe" no /analitico; **modo catálogo** (cada estratégia
-simula ao vivo sua própria operação, várias simultâneas, sem trava de correlação na sombra);
-**guard de correlação por moeda** (código mantido, `GUARDA_CORRELACAO` off — só religa p/ real);
-S/R forte por
-TF+qualidade; entrada por rejeição (confluência); **4 estratégias na sombra**:
-`confluencia_v1`; **`sweep_choch_v1`** (liquidity sweep + CHoCH no M5, `detectar_sweep_choch`);
-**`order_block_v1`** (reteste de OB fresco M15/H1 + rejeição — detecção `indicadores.order_blocks`
-persistida como nível `ob_bull`/`ob_bear`, zona base/topo); **`pullback_tendencia_v1`** (a favor
-do H1: recua a S/R forte e rejeita). Todas: S/R/OB como reforço, nunca veto; funções puras
-testadas; params por env. Skill em `.claude/skills/trading-quant-expert/` (referências+roadmap).
+**MAE/MFE**, **curva de capital + drawdown**, **cruzamento Estratégia × timeframe** — responde
+"qual estratégia rende melhor em qual TF", objetivo da sombra — e **motivo de saída normalizado**
+para não fragmentar por r/direção); **operações de sombra independentes por TF (M1/M5/M15)** com
+comparação "Por timeframe" no /analitico; **modo catálogo** (cada estratégia simula ao vivo sua
+própria operação, várias simultâneas, sem trava de correlação na sombra); **guard de correlação por
+moeda** (código mantido, `GUARDA_CORRELACAO` off — só religa p/ real); S/R forte por TF+qualidade;
+entrada por rejeição (confluência); **7 estratégias na sombra**: `confluencia_v1`;
+**`sweep_choch_v1`** (liquidity sweep + CHoCH no M5, `detectar_sweep_choch`); **`order_block_v1`**
+(reteste de OB fresco M15/H1 + rejeição — detecção `indicadores.order_blocks` persistida como nível
+`ob_bull`/`ob_bear`); **`pullback_tendencia_v1`** (a favor do H1: recua a S/R forte e rejeita);
+**`fecha_gap_v1`** (fade do gap de sessão rumo ao fechamento anterior — momentum p/ o fill + espaço,
+usa os níveis `gap_*` do motor); **`pullback_rompimento_v1`** (break-and-retest: nível rompido por
+BOS vira polaridade invertida e rejeita); **`rompimento_extremos_v1`** (rompimento da máx/mín do dia
+anterior/PDH-PDL + reteste com rejeição — `_extremos_dia` no D1). Todas: S/R/OB/regime como reforço,
+nunca veto; rejeição é o gatilho nas de reversão/reteste; funções puras testadas; params por env.
+Skill em `.claude/skills/trading-quant-expert/` (referências+roadmap).
 
 ## PRÓXIMOS PASSOS (priorizados)
 1. **Deixar a sombra rodar alguns dias** e auditar `/analitico` → especialmente
@@ -110,10 +119,17 @@ testadas; params por env. Skill em `.claude/skills/trading-quant-expert/` (refer
    exige displacement/FVG, só M15/H1, zona fresca não mitigada; entra no reteste + rejeição).
 4. ~~**Pullback em tendência** (a favor do H1, recua a S/R/OB e rejeita)~~ **✅ ENTREGUE** —
    `pullback_tendencia_v1` (rejeição é o gatilho obrigatório; OB coincidente é reforço).
-5. Auditar as 4 estratégias no /analitico **Por estratégia** conforme a sombra roda. Nota de
-   calibração (comum a todas): o SL ainda é ATR (3×) genérico; OB e pullback pedem stop
-   estrutural (atrás da zona/pavio) — item 6 do roadmap, guiado por MAE/MFE por estratégia.
+4b. ~~**Codar as 3 estratégias que faltavam** para catalogar TUDO na sombra~~ **✅ ENTREGUE** —
+   `fecha_gap_v1`, `pullback_rompimento_v1` e `rompimento_extremos_v1` já rodam em paralelo às
+   outras 4 (total 7). Agora são 7 livros por TF (M1/M5/M15). Auditar cada uma no /analitico
+   quando houver ≥30 trades. **Nota:** a nova aba **Estratégia × timeframe** é a ferramenta para
+   escolher a melhor combinação (estratégia, TF) — era o pedido do dono.
+5. Auditar as 7 estratégias no /analitico **Por estratégia** e **Estratégia × timeframe** conforme
+   a sombra roda. Nota de calibração (comum a todas): o SL ainda é ATR (3×) genérico; OB, pullback,
+   reteste e gap pedem stop estrutural (atrás da zona/pavio/nível) — item 6 do roadmap, guiado por
+   MAE/MFE por estratégia.
 6. Só depois de ≥30 trades/estratégia com expectância positiva na sombra: avaliar
-   `EXECUCAO_ATIVA=true` em DEMO por 30 dias (nunca real antes disso).
+   `EXECUCAO_ATIVA=true` em DEMO por 30 dias (nunca real antes disso). Provável que várias das 7
+   fiquem negativas — a sombra existe justamente para cortar as ruins e manter as boas por TF.
 
 Consultar SEMPRE a skill `trading-quant-expert` ao mexer em estratégia/risco/execução.

@@ -194,6 +194,9 @@ NOMES_ESTRATEGIAS = {
     "sweep_choch_v1": "Caça-stops + reversão",
     "order_block_v1": "Order block (reteste)",
     "pullback_tendencia_v1": "Pullback na tendência",
+    "fecha_gap_v1": "Fechamento de gap",
+    "pullback_rompimento_v1": "Pullback ao rompimento",
+    "rompimento_extremos_v1": "Rompimento máx/mín do dia",
 }
 
 
@@ -231,6 +234,23 @@ EXIGIR_REJEICAO_OB = os.environ.get("EXIGIR_REJEICAO_OB", "false").lower() in ("
 # (candle_rejeicao) e retoma. A rejeição é o GATILHO (obrigatória aqui). OB fresco coincidente
 # soma como reforço.
 PULLBACK_HABILITADA = os.environ.get("PULLBACK_HABILITADA", "true").lower() in ("1", "true", "sim")
+
+# --- 5ª estratégia: fechamento de gap (fade rumo ao fechamento anterior) ---
+# Gap de sessão/notícia tende a ser preenchido. Opera a favor do fill quando a vela vira
+# na direção do alvo (momentum) e o gap ainda tem ESPAÇO. S/R no alvo/rejeição = reforço.
+GAP_HABILITADA = os.environ.get("GAP_HABILITADA", "true").lower() in ("1", "true", "sim")
+# Espaço mínimo (fração do ATR) do preço até o alvo do gap para valer a pena entrar.
+FECHA_GAP_MIN_ATR = float(os.environ.get("FECHA_GAP_MIN_ATR", "0.5"))
+
+# --- 6ª estratégia: pullback ao rompimento (reteste com inversão de polaridade) ---
+# Um nível S/R rompido (BOS) é retestado já invertido (resistência→suporte, suporte→resistência)
+# e rejeita. Direção pelo BOS; a rejeição no reteste é o gatilho. Regime/força = reforço.
+ROMPIMENTO_HABILITADA = os.environ.get("ROMPIMENTO_HABILITADA", "true").lower() in ("1", "true", "sim")
+
+# --- 7ª estratégia: rompimento da máx/mín do dia anterior (PDH/PDL) + reteste ---
+# Preço rompe a máxima/mínima do dia anterior (liquidez clássica) e retesta o nível rompido,
+# rejeitando. A rejeição no reteste é o gatilho; regime a favor = reforço.
+EXTREMOS_HABILITADA = os.environ.get("EXTREMOS_HABILITADA", "true").lower() in ("1", "true", "sim")
 
 # --------------------------------------------------------------------------- #
 # Executor + gestor de saída (Fase 5)

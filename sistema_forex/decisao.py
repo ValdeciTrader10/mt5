@@ -59,7 +59,7 @@ def _atr(conn, par: str, tf: str):
 
 
 def _niveis(conn, par: str):
-    sup, res, fvgs, obs = [], [], [], []
+    sup, res, fvgs, obs, gaps = [], [], [], [], []
     for r in conn.execute(
         "SELECT tipo, preco, preco2, forca FROM niveis WHERE par=? AND ativo=1", (par,)
     ):
@@ -73,7 +73,23 @@ def _niveis(conn, par: str):
         elif r["tipo"].startswith("ob") and r["preco2"] is not None:
             base, topo = min(r["preco"], r["preco2"]), max(r["preco"], r["preco2"])
             obs.append({"tipo": r["tipo"], "base": base, "topo": topo})
-    return sup, res, fvgs, obs
+        elif r["tipo"].startswith("gap"):
+            # gap_alta / gap_baixa; preco = fechamento anterior (alvo do fill).
+            gaps.append({"direcao": "alta" if r["tipo"].endswith("alta") else "baixa",
+                         "nivel": r["preco"]})
+    return sup, res, fvgs, obs, gaps
+
+
+def _extremos_dia(conn, par: str, agora_utc: int):
+    """Máxima/mínima do último dia FECHADO (D1) — liquidez PDH/PDL. Pega o candle D1 cujo
+    início é ANTERIOR à meia-noite UTC do dia corrente, evitando o dia em formação."""
+    dia_inicio = agora_utc - (agora_utc % 86400)
+    r = conn.execute(
+        "SELECT high, low FROM candles WHERE par=? AND tf='D1' AND time_utc < ? "
+        "ORDER BY time_utc DESC LIMIT 1",
+        (par, dia_inicio),
+    ).fetchone()
+    return (r["high"], r["low"]) if r else (None, None)
 
 
 def _janela(conn, par: str, tf: str, n: int) -> dict:
@@ -115,7 +131,8 @@ def montar_snapshot(conn, par: str, tf: str, candle) -> dict:
     H1) e não mudam com o TF de operação — cada livro de TF opera a mesma "memória", mas com
     a régua de volatilidade e o gatilho do seu próprio timeframe.
     """
-    sup, res, fvgs, obs = _niveis(conn, par)
+    sup, res, fvgs, obs, gaps = _niveis(conn, par)
+    max_dia, min_dia = _extremos_dia(conn, par, candle["time_utc"])
     # spread em pontos → pips (pares de 3/5 casas: 1 pip = 10 pontos).
     spread_pips = (candle["spread"] or 0) / 10.0
     hora_utc = time.gmtime(candle["time_utc"]).tm_hour
@@ -133,6 +150,9 @@ def montar_snapshot(conn, par: str, tf: str, candle) -> dict:
         "resistencias": res,
         "fvgs": fvgs,
         "obs": obs,
+        "gaps": gaps,
+        "max_dia": max_dia,
+        "min_dia": min_dia,
         "ultimo_evento": _ultimo_evento(conn, par),
         # Janela do TF de operação p/ o sweep+CHoCH (chave histórica "m5_janela" mantida
         # para as estratégias/tests; aqui contém a janela do `tf` corrente).
@@ -206,6 +226,32 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
             spread_max_pips=config.SPREAD_MAX_PIPS,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             forca_min=config.SR_FORCA_MIN,
+            pavio_min=config.REJEICAO_PAVIO_MIN,
+        ))
+    if config.GAP_HABILITADA:
+        decs.append(estrategias.avaliar_fecha_gap(
+            snap,
+            sessao_utc=config.SESSAO_UTC,
+            spread_max_pips=config.SPREAD_MAX_PIPS,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            forca_min=config.SR_FORCA_MIN,
+            gap_min_atr=config.FECHA_GAP_MIN_ATR,
+        ))
+    if config.ROMPIMENTO_HABILITADA:
+        decs.append(estrategias.avaliar_pullback_rompimento(
+            snap,
+            sessao_utc=config.SESSAO_UTC,
+            spread_max_pips=config.SPREAD_MAX_PIPS,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            forca_min=config.SR_FORCA_MIN,
+            pavio_min=config.REJEICAO_PAVIO_MIN,
+        ))
+    if config.EXTREMOS_HABILITADA:
+        decs.append(estrategias.avaliar_rompimento_extremos(
+            snap,
+            sessao_utc=config.SESSAO_UTC,
+            spread_max_pips=config.SPREAD_MAX_PIPS,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
             pavio_min=config.REJEICAO_PAVIO_MIN,
         ))
     for dec in decs:

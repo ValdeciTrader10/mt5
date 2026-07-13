@@ -98,6 +98,18 @@
     </section>
 
     <section>
+      <h2>Estratégia × timeframe <span class="muted">— qual estratégia funciona melhor em qual TF (objetivo da sombra)</span></h2>
+      <table>
+        <thead><tr><th>Estratégia</th><th>TF</th><th class="num">Trades</th><th class="num">Acerto</th>
+          <th class="num">PF</th><th class="num">Expect.</th><th class="num">Pips</th><th class="num">USD</th></tr></thead>
+        <tbody id="tb-estrategia-tf"></tbody>
+      </table>
+      <p class="muted">Cada linha é um par (estratégia, timeframe) rodando na sombra. Compare a mesma
+        estratégia entre M1/M5/M15 para achar o TF onde ela rende melhor — e descarte as combinações
+        de expectância negativa. Precisa de amostra (≥30 trades por linha) para concluir.</p>
+    </section>
+
+    <section>
       <h2>Por regime na entrada <span class="muted">— responde: cada estratégia ganha em qual contexto?</span></h2>
       <table>
         <thead><tr><th>Regime</th><th class="num">Trades</th><th class="num">Acerto</th>
@@ -211,6 +223,15 @@
         '<td class="num ' + sign(r.usd) + '">' + fmt(r.usd, 2) + '</td></tr>';
     }
 
+    function linhaEstrategiaTf(r) {  // Estratégia | TF | Trades | Acerto | PF | Expect. | Pips | USD
+      return '<tr><td>' + esc(r.estrategia) + '</td><td>' + esc(r.tf) + '</td>' +
+        '<td class="num">' + r.n + '</td><td class="num">' + fmt(r.winrate, 1) + '%</td>' +
+        '<td class="num">' + pf(r) + '</td>' +
+        '<td class="num ' + sign(r.expectativa) + '">' + fmt(r.expectativa, 2) + '</td>' +
+        '<td class="num ' + sign(r.pips) + '">' + fmt(r.pips, 1) + '</td>' +
+        '<td class="num ' + sign(r.usd) + '">' + fmt(r.usd, 2) + '</td></tr>';
+    }
+
     function curva(c) {
       var box = document.getElementById('curva'), stats = document.getElementById('curva-stats');
       var s = (c && c.serie) || [];
@@ -241,6 +262,7 @@
       var e = document.getElementById('tb-estrategia');
       e.innerHTML = d.por_estrategia.map(linhaEstrategia).join('') || '<tr><td colspan="10" class="muted">Sem trades no período.</td></tr>';
       document.getElementById('tb-timeframe').innerHTML = (d.por_timeframe || []).map(linhaCtx).join('') || '<tr><td colspan="7" class="muted">—</td></tr>';
+      document.getElementById('tb-estrategia-tf').innerHTML = (d.por_estrategia_tf || []).map(linhaEstrategiaTf).join('') || '<tr><td colspan="8" class="muted">—</td></tr>';
       document.getElementById('tb-regime').innerHTML = (d.por_regime || []).map(linhaCtx).join('') || '<tr><td colspan="7" class="muted">—</td></tr>';
       document.getElementById('tb-sessao').innerHTML = (d.por_sessao || []).map(linhaCtx).join('') || '<tr><td colspan="7" class="muted">—</td></tr>';
       document.getElementById('tb-motivo').innerHTML = d.por_motivo.map(linhaMotivo).join('') || '<tr><td colspan="6" class="muted">—</td></tr>';
