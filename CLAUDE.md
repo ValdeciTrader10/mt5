@@ -50,8 +50,15 @@ a sombra (regra: demo/sombra primeiro).
   por ciclo (aguenta dezenas de posições sem martelar a ponte).
 - **coletor**: agora coleta **M1** também (cap de backfill via `BACKFILL_M1_BARRAS`, default
   3000) e o loop dispara pelo TF de operação MAIS FINO (M1 chega ao banco a cada minuto).
-- **web** (`web/app.py`): painel + `/analitico`. Caddy NÃO é usado no Dokploy (o Traefik
-  dele faz proxy). Compose do Dokploy: `deploy/docker-compose.dokploy.yml`.
+- **web** (`web/app.py`): painel + `/analitico` + **`/trade/{id}` ("Raio-X do trade")**. Caddy
+  NÃO é usado no Dokploy (o Traefik dele faz proxy). Compose do Dokploy:
+  `deploy/docker-compose.dokploy.yml`.
+- **Raio-X do trade** (`grafico.grafico_trade_html`, rota `/trade/{id}`, link 🔍 na tabela do
+  /analitico): gráfico sob demanda com o contexto antes/depois de cada trade (entrada/SL/saída,
+  zona da vida do trade, níveis S/R+FVG do motor) + os fatos (pips/USD/R/MAE/MFE/regime/motivo),
+  o "por que entrou" (score/confluências casados em `decisoes`) e uma "Leitura" automática por
+  MAE/MFE. Reconstruído do banco a cada acesso (o "futuro" se preenche conforme chegam candles),
+  sem salvar PNG. Params `GRAFICO_TRADE_BARRAS_ANTES/DEPOIS`. Testes em `test_grafico.py`.
 - Banco: `sistema_forex/db.py` (SQLite WAL, migrações idempotentes em `_migrar`).
 
 **3 bugs da imagem MT5 já corrigidos** (ver `deploy/mt5/`): (1) `mt5linux 1.0.3` sem
