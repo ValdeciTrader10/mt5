@@ -69,6 +69,22 @@ def _niveis(conn, par: str):
     return sup, res, fvgs
 
 
+def _janela_m5(conn, par: str, n: int) -> dict:
+    """Últimos `n` candles M5 (cronológicos) para a detecção de sweep+CHoCH."""
+    rows = conn.execute(
+        "SELECT open, high, low, close FROM candles WHERE par=? AND tf='M5' "
+        "ORDER BY time_utc DESC LIMIT ?",
+        (par, n),
+    ).fetchall()
+    rows = list(reversed(rows))
+    return {
+        "open": [r["open"] for r in rows],
+        "high": [r["high"] for r in rows],
+        "low": [r["low"] for r in rows],
+        "close": [r["close"] for r in rows],
+    }
+
+
 def _ultimo_evento(conn, par: str):
     r = conn.execute(
         "SELECT evento, direcao, tf FROM estrutura WHERE par=? ORDER BY time_utc DESC LIMIT 1",
@@ -103,6 +119,7 @@ def montar_snapshot(conn, par: str, candle_m5) -> dict:
         "resistencias": res,
         "fvgs": fvgs,
         "ultimo_evento": _ultimo_evento(conn, par),
+        "m5_janela": _janela_m5(conn, par, config.SWEEP_JANELA),
     }
 
 
@@ -123,21 +140,41 @@ def _gravar_decisao(conn, par: str, time_utc: int, dec: dict) -> None:
     )
 
 
-def avaliar_par(conn, par: str, candle_m5) -> dict:
+def avaliar_par(conn, par: str, candle_m5) -> list:
+    """Avalia TODAS as estratégias ativas sobre o candle M5 e grava cada decisão.
+
+    Cada estratégia grava a sua própria linha em `decisoes` (entrou/não + motivo), o que
+    mantém a auditoria por estratégia no /analitico. O executor deduplica no nível de
+    posição (MAX_POS_POR_PAR), então duas entradas simultâneas não abrem duas posições.
+    """
     snap = montar_snapshot(conn, par, candle_m5)
-    dec = estrategias.avaliar(
-        snap,
-        sessao_utc=config.SESSAO_UTC,
-        spread_max_pips=config.SPREAD_MAX_PIPS,
-        score_min=config.SCORE_MIN_CONFLUENCIAS,
-        nivel_prox_atr=config.NIVEL_PROX_ATR,
-        forca_min=config.SR_FORCA_MIN,
-        pavio_min=config.REJEICAO_PAVIO_MIN,
-        exigir_rejeicao=config.EXIGIR_REJEICAO_SR,
-    )
-    _gravar_decisao(conn, par, candle_m5["time_utc"], dec)
+    decs = [
+        estrategias.avaliar(
+            snap,
+            sessao_utc=config.SESSAO_UTC,
+            spread_max_pips=config.SPREAD_MAX_PIPS,
+            score_min=config.SCORE_MIN_CONFLUENCIAS,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            forca_min=config.SR_FORCA_MIN,
+            pavio_min=config.REJEICAO_PAVIO_MIN,
+            exigir_rejeicao=config.EXIGIR_REJEICAO_SR,
+        ),
+    ]
+    if config.SWEEP_HABILITADA:
+        decs.append(estrategias.avaliar_sweep_choch(
+            snap,
+            sessao_utc=config.SESSAO_UTC,
+            spread_max_pips=config.SPREAD_MAX_PIPS,
+            n_swing=config.SWEEP_N_SWING,
+            sweep_min_atr=config.SWEEP_MIN_ATR,
+            sweep_recente=config.SWEEP_RECENTE,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            forca_min=config.SR_FORCA_MIN,
+        ))
+    for dec in decs:
+        _gravar_decisao(conn, par, candle_m5["time_utc"], dec)
     conn.commit()
-    return dec
+    return decs
 
 
 # --------------------------------------------------------------------------- #
@@ -152,12 +189,12 @@ def um_ciclo(conn, ultimo_visto: dict) -> None:
             continue  # nada novo neste par
         ultimo_visto[par] = candle["time_utc"]
         try:
-            dec = avaliar_par(conn, par, candle)
-            log.info(
-                "Decisão %s @%s: %s %s | score=%d | %s",
-                par, candle["time_utc"], dec["resultado"], dec["direcao"] or "-",
-                dec["score"], dec["motivo"],
-            )
+            for dec in avaliar_par(conn, par, candle):
+                log.info(
+                    "Decisão %s @%s [%s]: %s %s | score=%d | %s",
+                    par, candle["time_utc"], dec["estrategia"], dec["resultado"],
+                    dec["direcao"] or "-", dec["score"], dec["motivo"],
+                )
         except Exception:  # noqa: BLE001 - um par não derruba o serviço
             log.exception("Falha ao decidir %s", par)
 

@@ -28,7 +28,9 @@ a sombra (regra: demo/sombra primeiro).
   Expõe VNC (`:3100` no host, login VNC) e a API Python RPyC (`:8001`, interna).
 - **coletor** (`coletor_mt5.py`): Fase 1 — candles M5/M15/H1/D1/**W1** em SQLite.
 - **motor** (`analise.py`): Fase 2 — níveis (S/R, FVG, gaps), estrutura SMC, regime (ADX).
-- **estrategista** (`decisao.py`): Fase 4 sombra — decide e registra (sem operar).
+- **estrategista** (`decisao.py`): Fase 4 sombra — decide e registra (sem operar). Roda
+  DUAS estratégias em paralelo por candle M5: `confluencia_v1` e `sweep_choch_v1` (cada uma
+  grava sua própria linha em `decisoes`; o executor deduplica no nível de posição).
 - **executor** (`executor.py`): Fase 5 — abre/gerencia posições (simulação ou real).
 - **web** (`web/app.py`): painel + `/analitico`. Caddy NÃO é usado no Dokploy (o Traefik
   dele faz proxy). Compose do Dokploy: `deploy/docker-compose.dokploy.yml`.
@@ -70,15 +72,19 @@ desde a v1; DD diário máx 5%; anti-spam Telegram por flags; reset diário no t
 Fases 1–5 no ar (sombra); saída "com direito a desenvolver"; **dashboard analítico**
 (ganho/perda, filtro de datas, por estratégia/motivo/par/regime/sessão, **MAE/MFE**,
 **curva de capital + drawdown**); **guard de correlação por moeda**; S/R forte por
-TF+qualidade; entrada por rejeição (confluência). Skill de conhecimento em
-`.claude/skills/trading-quant-expert/` (com referências reais e roadmap).
+TF+qualidade; entrada por rejeição (confluência); **2ª estratégia `sweep_choch_v1`**
+(liquidity sweep + CHoCH no M5 — função pura `estrategias.detectar_sweep_choch`, testada;
+S/R como reforço, regime nunca gateia; params `SWEEP_*` em config, desligável por env).
+Skill de conhecimento em `.claude/skills/trading-quant-expert/` (com referências e roadmap).
 
 ## PRÓXIMOS PASSOS (priorizados)
 1. **Deixar a sombra rodar alguns dias** e auditar `/analitico` → especialmente
    **Por estratégia** e **Por regime** (o `lateral`/fade de S/R estava negativo).
-2. **Plugar a 2ª estratégia**: o doc aponta **sweep de liquidez + CHoCH** como a de maior
-   acerto. Hoje só existe `confluencia_v1` (todas as ordens simuladas são dela). Regra:
-   S/R como reforço, nunca veto. Diversifica gatilhos sem baixar qualidade.
+2. ~~**Plugar a 2ª estratégia** (sweep de liquidez + CHoCH)~~ **✅ ENTREGUE** — `sweep_choch_v1`
+   já roda na sombra em paralelo à `confluencia_v1`. Auditar no /analitico **Por estratégia**
+   quando houver ≥30 trades dela. Nota p/ calibrar depois: o SL ainda é ATR (3×) genérico do
+   executor; a reversão pós-sweep pede stop estrutural (atrás do pavio) — item 6 do roadmap +
+   MAE/MFE por estratégia darão o número. Enquanto sombra, ATR basta para observar.
 3. **Order block** com S/R/FVG como reforço (usar `meta` de qualidade dos níveis).
 4. **Pullback em tendência**: entrar a favor do H1 quando o preço recua a S/R/OB forte e
    rejeita (reutilizar `estrategias.candle_rejeicao`).

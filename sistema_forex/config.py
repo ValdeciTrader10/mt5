@@ -164,6 +164,19 @@ NIVEL_PROX_ATR = float(os.environ.get("NIVEL_PROX_ATR", "0.5"))
 REJEICAO_PAVIO_MIN = float(os.environ.get("REJEICAO_PAVIO_MIN", "0.5"))
 EXIGIR_REJEICAO_SR = os.environ.get("EXIGIR_REJEICAO_SR", "false").lower() in ("1", "true", "sim")
 
+# --- 2ª estratégia: liquidity sweep + CHoCH no M5 (doc/skill §4) ---
+# Roda em paralelo à confluencia_v1 (cada uma grava sua decisão; o executor deduplica no
+# nível de posição). Desligável por env se a sombra mostrar que não presta.
+SWEEP_HABILITADA = os.environ.get("SWEEP_HABILITADA", "true").lower() in ("1", "true", "sim")
+# Janela de candles M5 lida para procurar o padrão (≈ N velas de memória recente).
+SWEEP_JANELA = int(os.environ.get("SWEEP_JANELA", "60"))
+# Tamanho do fractal (candles de cada lado) para os swings do M5 no padrão.
+SWEEP_N_SWING = int(os.environ.get("SWEEP_N_SWING", str(SWING_N_M5)))
+# Penetração mínima do pavio ALÉM do nível varrido (fração do ATR) — evita "sweep" de tick.
+SWEEP_MIN_ATR = float(os.environ.get("SWEEP_MIN_ATR", "0.1"))
+# O sweep tem de ter ocorrido há no máximo estes candles do CHoCH (follow-through no tempo).
+SWEEP_RECENTE = int(os.environ.get("SWEEP_RECENTE", "6"))
+
 # --------------------------------------------------------------------------- #
 # Executor + gestor de saída (Fase 5)
 # --------------------------------------------------------------------------- #

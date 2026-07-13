@@ -12,9 +12,18 @@ Modelo v1 — confluências + filtros (gates):
 
 O catálogo de estratégias do doc pode ser plugado depois; a espinha (snapshot →
 confluências → gates → decisão auditável) já fica pronta e testada.
+
+2ª estratégia — `sweep_choch_v1` (liquidity sweep + CHoCH no M5):
+  A entrada de MAIOR qualidade do doc/skill (§4). Roda EM PARALELO à confluencia_v1
+  (cada uma grava a própria decisão; o executor deduplica no nível de posição). É uma
+  hipótese própria (stop-hunt + mudança de caráter), com gatilho autossuficiente — S/R
+  entra só como REFORÇO (nunca veto), regime nunca gateia (é reversão, brilha no extremo).
 """
 
+from . import indicadores
+
 ESTRATEGIA = "confluencia_v1"
+ESTRATEGIA_SWEEP = "sweep_choch_v1"
 
 
 def _mais_forte_perto(preco: float, niveis: list, tol: float):
@@ -48,11 +57,11 @@ def candle_rejeicao(snap: dict, direcao: str, nivel: float, tol: float, pavio_mi
     return tocou and pavio >= pavio_min and fechou_a_favor
 
 
-def _decisao(resultado, direcao, regime, score, confluencias, motivo):
+def _decisao(resultado, direcao, regime, score, confluencias, motivo, estrategia=ESTRATEGIA):
     return {
         "resultado": resultado,           # entrou | nao_entrou
         "direcao": direcao,               # compra | venda | None
-        "estrategia": ESTRATEGIA,
+        "estrategia": estrategia,
         "regime": regime,
         "score": score,
         "confluencias": confluencias,
@@ -140,3 +149,115 @@ def avaliar(snap: dict, *, sessao_utc, spread_max_pips, score_min, nivel_prox_at
                         f"confluências insuficientes ({score} < {score_min})")
 
     return _decisao("entrou", direcao, regime, score, conf, "+".join(conf))
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia 2 — liquidity sweep + CHoCH (M5). Função PURA de detecção.
+# --------------------------------------------------------------------------- #
+def _swings_hl(highs, lows, n_swing):
+    """Swings fractais separados em (highs, lows) como listas de (indice, preco)."""
+    sw = indicadores.swings(highs, lows, n_swing)
+    hs = [(s["i"], s["preco"]) for s in sw if s["tipo"] == "high"]
+    ls = [(s["i"], s["preco"]) for s in sw if s["tipo"] == "low"]
+    return hs, ls
+
+
+def detectar_sweep_choch(opens, highs, lows, closes, atr, *, n_swing, sweep_min_atr,
+                         sweep_recente):
+    """Liquidity sweep + CHoCH nas velas M5 (a ÚLTIMA é a vela de decisão, já fechada).
+
+    Sem look-ahead: decide só sobre candles fechados. Sequência (compra):
+      1) SWEEP de um swing LOW: uma vela posterior fura o nível (pavio abaixo, penetração
+         ≥ `sweep_min_atr`·ATR) mas FECHA de volta acima — stop-hunt/falha (bear trap).
+      2) CHoCH de alta: a vela atual FECHA acima do swing HIGH mais recente (mudança de
+         caráter), e a vela anterior ainda não — rompimento fresco (dispara uma vez).
+    Venda é o espelho (varre swing high, fecha de volta abaixo, CHoCH de baixa).
+
+    Retorna {'direcao','nivel_sweep','nivel_choch','i_sweep'} ou None.
+    """
+    n = len(closes)
+    if not atr or atr <= 0 or n < n_swing * 2 + 2:
+        return None
+    last = n - 1
+    pen = sweep_min_atr * atr
+    highs_sw, lows_sw = _swings_hl(highs, lows, n_swing)
+
+    # ---- Compra: varre swing low, fecha de volta, e rompe o swing high recente ----
+    h_ref = next((p for i, p in reversed(highs_sw) if i < last), None)
+    if h_ref is not None and closes[last] > h_ref >= closes[last - 1]:   # CHoCH de alta fresco
+        for i_low, nivel in reversed(lows_sw):          # swing low mais recente primeiro
+            if nivel >= h_ref:
+                continue
+            i_sweep = None
+            for k in range(i_low + 1, last + 1):        # vela que varreu e fechou de volta
+                if lows[k] < nivel - pen and closes[k] > nivel:
+                    i_sweep = k
+            if i_sweep is not None and (last - i_sweep) <= sweep_recente:
+                return {"direcao": "compra", "nivel_sweep": nivel,
+                        "nivel_choch": h_ref, "i_sweep": i_sweep}
+
+    # ---- Venda: varre swing high, fecha de volta, e rompe o swing low recente ----
+    l_ref = next((p for i, p in reversed(lows_sw) if i < last), None)
+    if l_ref is not None and closes[last] < l_ref <= closes[last - 1]:   # CHoCH de baixa fresco
+        for i_high, nivel in reversed(highs_sw):
+            if nivel <= l_ref:
+                continue
+            i_sweep = None
+            for k in range(i_high + 1, last + 1):
+                if highs[k] > nivel + pen and closes[k] < nivel:
+                    i_sweep = k
+            if i_sweep is not None and (last - i_sweep) <= sweep_recente:
+                return {"direcao": "venda", "nivel_sweep": nivel,
+                        "nivel_choch": l_ref, "i_sweep": i_sweep}
+    return None
+
+
+def avaliar_sweep_choch(snap: dict, *, sessao_utc, spread_max_pips, n_swing, sweep_min_atr,
+                        sweep_recente, nivel_prox_atr, forca_min) -> dict:
+    """Avalia a 2ª estratégia (sweep+CHoCH) sobre a janela M5 do snapshot.
+
+    O padrão É o sinal (não exige score mínimo de confluências como a confluencia_v1).
+    Gates duros continuam valendo (sessão + spread — liquidez/custo). S/R forte no nível
+    varrido é REFORÇO informativo (nunca veto); regime nunca gateia.
+    """
+    regime = snap.get("regime", "indefinido")
+    jan = snap.get("m5_janela")
+    atr = snap.get("atr")
+    if not jan or not jan.get("close") or not atr:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem janela M5/ATR",
+                        estrategia=ESTRATEGIA_SWEEP)
+
+    det = detectar_sweep_choch(jan["open"], jan["high"], jan["low"], jan["close"], atr,
+                               n_swing=n_swing, sweep_min_atr=sweep_min_atr,
+                               sweep_recente=sweep_recente)
+    if det is None:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem sweep+choch",
+                        estrategia=ESTRATEGIA_SWEEP)
+
+    direcao = det["direcao"]
+    conf = ["sweep+choch"]
+
+    # S/R forte no nível varrido = versão premium (sweep de liquidez EM S/R real). Reforço.
+    tol = nivel_prox_atr * atr
+    niveis = snap.get("suportes" if direcao == "compra" else "resistencias", [])
+    nv = _mais_forte_perto(det["nivel_sweep"], niveis, tol)
+    if nv and nv[1] >= forca_min:
+        conf.append(f"sr_confluente_{int(nv[1])}")
+    if (direcao == "compra" and regime == "tendencia_alta") or \
+       (direcao == "venda" and regime == "tendencia_baixa"):
+        conf.append("a_favor_regime")
+    score = len(conf)
+
+    # Gates duros (iguais aos da confluencia_v1): sessão e spread.
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"fora da sessão ({hora}h UTC)", estrategia=ESTRATEGIA_SWEEP)
+    spread = snap.get("spread_pips", 0.0)
+    if spread > spread_max_pips:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
+                        estrategia=ESTRATEGIA_SWEEP)
+
+    return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
+                    estrategia=ESTRATEGIA_SWEEP)
