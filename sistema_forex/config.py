@@ -349,6 +349,9 @@ GRAFICO_TRADE_BARRAS_DEPOIS = int(os.environ.get("GRAFICO_TRADE_BARRAS_DEPOIS", 
 AUDITORIA_RAIOX_ANTES = int(os.environ.get("AUDITORIA_RAIOX_ANTES", "30"))
 AUDITORIA_RAIOX_DEPOIS = int(os.environ.get("AUDITORIA_RAIOX_DEPOIS", "30"))
 AUDITORIA_RAIOX_TRADES = int(os.environ.get("AUDITORIA_RAIOX_TRADES", "6"))
+# Quantas perdedoras entram na simulação de "saída por invalidação" (CHoCH oposto): mede se
+# cortar o perdedor num padrão de reversão forte reduziria o prejuízo (vs esperar o stop).
+AUDITORIA_INVALIDACAO_TRADES = int(os.environ.get("AUDITORIA_INVALIDACAO_TRADES", "60"))
 
 # --------------------------------------------------------------------------- #
 # Logging

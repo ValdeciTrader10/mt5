@@ -41,7 +41,7 @@ import re
 import sys
 from datetime import datetime, timezone
 
-from . import analise, config, db, gestao
+from . import analise, config, db, gestao, indicadores
 
 log = logging.getLogger("auditoria")
 
@@ -229,6 +229,110 @@ def _res_r(t) -> float:
     return round(gestao.r_por_risco(t["direcao"], t["preco_entrada"], t["preco_saida"], risco), 2)
 
 
+# --------------------------------------------------------------------------- #
+# Medição: "cortar o perdedor num padrão de reversão forte reduziria o prejuízo?"
+# --------------------------------------------------------------------------- #
+def simular_saida_invalidacao(conn, t, antes: int = 120) -> dict:
+    """Replay de UM trade perdedor: se, durante a vida da posição, um CHoCH OPOSTO confirmado
+    (a mesma reversão de estrutura que o motor detecta) tivesse disparado uma saída ANTES do
+    stop, em que R sairia e quanto de prejuízo salvaria?
+
+    Regras (fiéis ao sistema e SEM look-ahead):
+      - Usa o TF do PRÓPRIO trade — o sinal mais rápido possível (MELHOR caso para a ideia).
+        Se nem assim salva, um CHoCH estrutural (M15/H1, mais lento) salvaria menos.
+      - Um evento no swing i só é CONHECIDO em i + n_swing (o fractal precisa das n velas à
+        direita) — nada de decidir com o futuro.
+      - Só conta se o CHoCH oposto se confirma ANTES de o stop ser furado.
+
+    status: 'salvaria' | 'nao_salva' (teve sinal, mas não à frente do stop / não reduz) |
+            'sem_sinal' (nenhum CHoCH oposto confirmado antes do stop) | 'sem_dados'/'sem_candles'.
+    """
+    par, tf = t["par"], t.get("tf") or "M5"
+    ent, sl = t.get("preco_entrada"), t.get("sl_servidor")
+    risco = t.get("risco_inicial") or (abs(ent - sl) if (ent and sl) else None)
+    direcao, ab, fe = t.get("direcao"), t.get("abertura_utc"), t.get("fechamento_utc")
+    if not (ent and sl and risco and ab and fe and direcao):
+        return {"status": "sem_dados"}
+    rows = conn.execute(
+        "SELECT time_utc, high, low, close FROM candles WHERE par=? AND tf=? AND time_utc<=? "
+        "ORDER BY time_utc DESC LIMIT ?",
+        (par, tf, fe, antes + 500),
+    ).fetchall()
+    rows = list(reversed(rows))
+    if len(rows) < 10:
+        return {"status": "sem_candles"}
+    highs = [r["high"] for r in rows]
+    lows = [r["low"] for r in rows]
+    closes = [r["close"] for r in rows]
+    times = [r["time_utc"] for r in rows]
+    n = config.SWING_N.get(tf, config.SWING_N_M5)
+    eventos = indicadores.eventos_estrutura(
+        indicadores.rotular_swings(indicadores.swings(highs, lows, n)))
+    idx_ent = next((i for i, tm in enumerate(times) if tm >= ab), None)
+    if idx_ent is None:
+        return {"status": "sem_candles"}
+    idx_sai = next((i for i, tm in enumerate(times) if tm >= fe), len(rows) - 1)
+    oposto = "baixa" if direcao == "compra" else "alta"
+    # 1º candle da vida em que o stop é furado (o "-1R" real).
+    idx_stop = None
+    for j in range(idx_ent, idx_sai + 1):
+        if (direcao == "compra" and lows[j] <= sl) or (direcao == "venda" and highs[j] >= sl):
+            idx_stop = j
+            break
+    # 1º CHoCH oposto CONFIRMADO (i+n) dentro da vida e ANTES do stop.
+    fire = None
+    for e in eventos:
+        if e["evento"] != "CHOCH" or e["direcao"] != oposto:
+            continue
+        conf = e["i"] + n
+        if conf < idx_ent or conf > idx_sai:
+            continue
+        if idx_stop is not None and conf >= idx_stop:
+            continue
+        fire = conf
+        break
+    if fire is None:
+        return {"status": "sem_sinal"}
+    r_saida = round(gestao.r_por_risco(direcao, ent, closes[fire], risco), 2)
+    r_atual = t.get("r_result") if t.get("r_result") is not None else -1.0
+    saved_r = round(r_saida - r_atual, 2)
+    return {
+        "status": "salvaria" if saved_r > 0 else "nao_salva",
+        "r_saida": r_saida, "r_atual": round(r_atual, 2), "saved_r": saved_r,
+        "velas_ate_sinal": fire - idx_ent,
+    }
+
+
+def resumo_invalidacao(conn, perdedores: list, limite: int = None) -> dict:
+    """Agrega a simulação de saída-por-invalidação sobre as perdedoras: quantas teriam sinal
+    de reversão ANTES do stop, e quanto de R/USD isso salvaria no total. Responde de forma
+    empírica: 'cortar o perdedor num padrão de reversão forte reduz o prejuízo?'."""
+    limite = limite if limite is not None else config.AUDITORIA_INVALIDACAO_TRADES
+    sims = []
+    for t in perdedores[:limite]:
+        s = simular_saida_invalidacao(conn, t)
+        s["id"], s["usd"] = t["id"], t.get("lucro_usd")
+        sims.append(s)
+    com_sinal = [s for s in sims if s["status"] in ("salvaria", "nao_salva")]
+    salvaria = [s for s in com_sinal if s["saved_r"] > 0]
+
+    def _por_r_usd(s):  # USD por 1R do trade (o real foi ~ -1R)
+        return abs(s["usd"] or 0) / abs(s["r_atual"]) if s.get("r_atual") else abs(s["usd"] or 0)
+
+    usd_salvo = round(sum(s["saved_r"] * _por_r_usd(s) for s in salvaria), 2)
+    return {
+        "n_avaliadas": len(sims),
+        "sem_sinal": sum(1 for s in sims if s["status"] == "sem_sinal"),
+        "sem_candles": sum(1 for s in sims if s["status"] in ("sem_candles", "sem_dados")),
+        "com_sinal": len(com_sinal),
+        "salvaria": len(salvaria),
+        "r_saida_medio": round(sum(s["r_saida"] for s in com_sinal) / len(com_sinal), 2) if com_sinal else None,
+        "saved_r_medio": round(sum(s["saved_r"] for s in com_sinal) / len(com_sinal), 2) if com_sinal else None,
+        "usd_salvo_total": usd_salvo,
+        "detalhe": sims,
+    }
+
+
 def _contexto_decisao(conn, t):
     """Recupera score/confluências da decisão que abriu o trade. Casa DIRETO pela FK
     `decisao_id` quando o trade a tem (exato); senão cai na heurística por (par, tf,
@@ -313,6 +417,7 @@ def dossie_perdedores(conn, de: str = "", ate: str = "", limite_detalhe: int = 6
         "perdas_por_motivo": _por(perdedores, "motivo_norm"),
         "perdedores": detalhe,
         "detalhe_limitado_a": limite_detalhe,
+        "invalidacao": resumo_invalidacao(conn, perdedores),
         "raiox": raiox,
     }
 
@@ -375,6 +480,23 @@ def dossie_texto(d: dict) -> str:
     _bloco_grupo("Perdas por sessão", d["perdas_por_sessao"])
     _bloco_grupo("Perdas por par × TF", d["perdas_por_par_tf"])
     _bloco_grupo("Perdas por motivo de saída", d["perdas_por_motivo"])
+
+    inv = d.get("invalidacao")
+    if inv:
+        L.append("## Simulação: cortar o perdedor num padrão de reversão (CHoCH oposto)")
+        L.append("Responde 'cortar o perdedor quando o preço mostra reversão forte reduz o "
+                 "prejuízo?'. Replay SEM look-ahead sobre as perdedoras: se, durante a vida do "
+                 "trade, um CHoCH OPOSTO se confirmasse (no TF do próprio trade — o sinal mais "
+                 "RÁPIDO) ANTES do stop, a que R sairia e quanto salvaria vs os -1R.")
+        L.append(f"Avaliadas: {inv['n_avaliadas']} · SEM sinal de reversão antes do stop: "
+                 f"{inv['sem_sinal']} · sem candles: {inv['sem_candles']} · COM sinal: "
+                 f"{inv['com_sinal']} · das quais reduziriam a perda: {inv['salvaria']}")
+        L.append(f"R médio de saída na invalidação: {inv['r_saida_medio']} · R médio salvo: "
+                 f"{inv['saved_r_medio']} · USD total salvo (estimado): {inv['usd_salvo_total']}")
+        L.append("Leitura: 'sem sinal' alto = o preço vira RÁPIDO e o stop chega antes de qualquer "
+                 "reversão confirmar (cortar não ajuda; o problema é a ENTRADA). USD salvo baixo/≈0 "
+                 "= a saída por invalidação não move o ponteiro nesta amostra.")
+        L.append("")
 
     L.append(f"## Perdedoras (detalhe — até {d['detalhe_limitado_a']} mais recentes)")
     L.append("id | quando | par | tf | estratégia | dir | pips | USD | R | MAE | MFE | "

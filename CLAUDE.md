@@ -96,6 +96,13 @@ a sombra (regra: demo/sombra primeiro).
   a IA LÊ o price action e conclui sobre stop real / confirmação do padrão / ponto de entrada — não
   só os agregados. Qualquer trade sob demanda: `/api/raiox/{id}?formato=texto` (link 📄 na tabela) ou
   `python -m sistema_forex.auditoria raiox <id>`. Params `AUDITORIA_RAIOX_ANTES/DEPOIS/TRADES`.
+  **Simulação "saída por invalidação"** (`simular_saida_invalidacao`/`resumo_invalidacao`, seção no
+  dossiê): responde EMPIRICAMENTE "cortar o perdedor num padrão de reversão forte reduz o prejuízo?".
+  Replay SEM look-ahead sobre as perdedoras — se um CHoCH OPOSTO (mesma detecção do motor, no TF do
+  próprio trade = sinal mais rápido) confirmasse ANTES do stop (evento no swing i só conhecido em
+  i+n), a que R sairia e quanto salvaria vs -1R. Agrega: `sem_sinal` (vira rápido, stop chega antes →
+  cortar não ajuda, o problema é a ENTRADA), `com_sinal`, `salvaria`, `usd_salvo_total`. Descobre se
+  vale mexer na saída ANTES de mexer. Param `AUDITORIA_INVALIDACAO_TRADES`.
 - Banco: `sistema_forex/db.py` (SQLite WAL, migrações idempotentes em `_migrar`).
 
 **3 bugs da imagem MT5 já corrigidos** (ver `deploy/mt5/`): (1) `mt5linux 1.0.3` sem

@@ -161,6 +161,49 @@ def test_contexto_por_decisao_id_casa_direto():
     assert ctx and ctx["score"] == 3 and "sr_forte" in ctx["confluencias"], ctx
 
 
+def _serie_choch_alta(c, par="Z"):
+    """20 velas M5 com pivôs A(high) B(low) C(high<A) D(low<B) E(high>A): gera um CHoCH ALTA
+    confirmado (HH depois de bias baixa). Preço = 1.10 + v/1000; range fixo."""
+    vals = [10, 11, 12, 15, 12, 11, 10, 8, 10, 11, 13, 10, 8, 6, 9, 13, 17, 14, 12, 11]
+    for i, v in enumerate(vals):
+        cl = 1.10 + v * 0.001
+        c.execute("INSERT INTO candles VALUES (?,?,?,?,?,?,?)",
+                  (par, "M5", 1000 + i * 300, cl, cl + 0.0002, cl - 0.0002, cl))
+    c.commit()
+
+
+def _trade_venda_choch(**kw):
+    t = dict(par="Z", tf="M5", direcao="venda", preco_entrada=1.111, sl_servidor=1.1300,
+             risco_inicial=0.0050, abertura_utc=1000 + 5 * 300, fechamento_utc=1000 + 19 * 300,
+             lucro_usd=-5.0, id=1, r_result=-1.0, preco_saida=1.111)
+    t.update(kw)
+    return t
+
+
+def test_invalidacao_choch_oposto_salva():
+    # VENDA: um CHoCH ALTA (oposto) confirma antes do stop (sl distante) → reduz a perda.
+    c = _conn(); _serie_choch_alta(c)
+    s = aud.simular_saida_invalidacao(c, _trade_venda_choch())
+    assert s["status"] == "salvaria", s
+    assert s["r_saida"] is not None and s["saved_r"] > 0, s
+
+
+def test_invalidacao_stop_antes_do_sinal():
+    # sl apertado (1.1150) → o stop é furado ANTES do CHoCH confirmar → sem sinal aproveitável.
+    c = _conn(); _serie_choch_alta(c)
+    s = aud.simular_saida_invalidacao(c, _trade_venda_choch(sl_servidor=1.1150))
+    assert s["status"] == "sem_sinal", s
+
+
+def test_invalidacao_sem_dados_e_resumo():
+    c = _conn(); _serie_choch_alta(c)
+    faltando = dict(par="Z", tf="M5", direcao="venda", preco_entrada=None, sl_servidor=None,
+                    risco_inicial=None, abertura_utc=1, fechamento_utc=2)
+    assert aud.simular_saida_invalidacao(c, faltando)["status"] == "sem_dados"
+    r = aud.resumo_invalidacao(c, [_trade_venda_choch()])
+    assert r["n_avaliadas"] == 1 and r["salvaria"] == 1 and r["usd_salvo_total"] > 0, r
+
+
 def test_dossie_por_estrategia_tf_traz_veredito():
     c = _conn()
     for _ in range(6):  # 6 perdas alvo_curto na mesma (estratégia, TF) → CALIBRA SAÍDA
