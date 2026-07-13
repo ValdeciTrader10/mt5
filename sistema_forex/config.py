@@ -158,9 +158,11 @@ SWING_N = {"M5": SWING_N_M5, "M15": SWING_N_M15, "H1": SWING_N_H1,
 DECISAO_POLL_S = int(os.environ.get("DECISAO_POLL_S", "5"))
 # Proximidade (em ATR) do preço a um nível para contar como confluência.
 NIVEL_PROX_ATR = float(os.environ.get("NIVEL_PROX_ATR", "0.5"))
-# Entrada via S/R só se o candle REJEITOU o nível: pavio contrário ≥ esta fração do range
-# (doc §6.2 — "pavio ≥ 50% do range"). É o "preço parou no nível e mostrou reversão".
+# Rejeição no nível: pavio contrário ≥ esta fração do range (doc §6.2). Por padrão a
+# rejeição é apenas uma CONFLUÊNCIA (soma no score); não obriga a entrada — para não
+# engessar. Ligue EXIGIR_REJEICAO_SR para torná-la gate no fade lateral (modo estrito).
 REJEICAO_PAVIO_MIN = float(os.environ.get("REJEICAO_PAVIO_MIN", "0.5"))
+EXIGIR_REJEICAO_SR = os.environ.get("EXIGIR_REJEICAO_SR", "false").lower() in ("1", "true", "sim")
 
 # --------------------------------------------------------------------------- #
 # Executor + gestor de saída (Fase 5)

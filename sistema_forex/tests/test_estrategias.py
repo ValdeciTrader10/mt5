@@ -58,22 +58,32 @@ def test_sem_vies_quando_indefinido():
     assert d["resultado"] == "nao_entrou" and d["direcao"] is None
 
 
-def test_lateral_vende_no_topo_com_rejeicao():
-    # lateral, preço na resistência forte, e candle de REJEIÇÃO (pavio superior, fecha embaixo)
+def test_lateral_rejeicao_conta_como_confluencia():
+    # lateral, preço na resistência forte, candle de REJEIÇÃO → entra e 'rejeicao' no score
     snap = _snap(regime="lateral", open=1.1050, high=1.1055, low=1.1045, close=1.1047,
                  resistencias=[(1.1051, 4)], suportes=[(1.0900, 4)],
                  ultimo_evento={"evento": "CHOCH", "direcao": "baixa", "tf": "M15"})
     d = e.avaliar(snap, **CFG)
     assert d["direcao"] == "venda" and d["resultado"] == "entrou", d
+    assert "rejeicao" in d["confluencias"], d
 
 
-def test_lateral_sem_rejeicao_nao_entra():
-    # mesma resistência, mas candle SEM rejeição (fechou no topo, sem pavio) → não entra
+def test_lateral_sem_rejeicao_ainda_entra_soft():
+    # SEM rejeição, mas com confluências suficientes → ENTRA (rejeição não é obrigatória)
     snap = _snap(regime="lateral", open=1.1046, high=1.1052, low=1.1045, close=1.1051,
                  resistencias=[(1.1051, 4)], suportes=[(1.0900, 4)],
                  ultimo_evento={"evento": "CHOCH", "direcao": "baixa", "tf": "M15"})
     d = e.avaliar(snap, **CFG)
-    assert d["resultado"] == "nao_entrou" and "rejeição" in d["motivo"], d
+    assert d["resultado"] == "entrou" and "rejeicao" not in d["confluencias"], d
+
+
+def test_lateral_modo_estrito_exige_rejeicao():
+    # com exigir_rejeicao=True e sem rejeição → não entra
+    snap = _snap(regime="lateral", open=1.1046, high=1.1052, low=1.1045, close=1.1051,
+                 resistencias=[(1.1051, 4)], suportes=[(1.0900, 4)],
+                 ultimo_evento={"evento": "CHOCH", "direcao": "baixa", "tf": "M15"})
+    d = e.avaliar(snap, **{**CFG, "exigir_rejeicao": True})
+    assert d["resultado"] == "nao_entrou" and "estrito" in d["motivo"], d
 
 
 def main() -> int:

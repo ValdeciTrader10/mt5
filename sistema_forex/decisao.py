@@ -133,6 +133,7 @@ def avaliar_par(conn, par: str, candle_m5) -> dict:
         nivel_prox_atr=config.NIVEL_PROX_ATR,
         forca_min=config.SR_FORCA_MIN,
         pavio_min=config.REJEICAO_PAVIO_MIN,
+        exigir_rejeicao=config.EXIGIR_REJEICAO_SR,
     )
     _gravar_decisao(conn, par, candle_m5["time_utc"], dec)
     conn.commit()

@@ -61,7 +61,7 @@ def _decisao(resultado, direcao, regime, score, confluencias, motivo):
 
 
 def avaliar(snap: dict, *, sessao_utc, spread_max_pips, score_min, nivel_prox_atr,
-            forca_min, pavio_min=0.5) -> dict:
+            forca_min, pavio_min=0.5, exigir_rejeicao=False) -> dict:
     """Avalia o snapshot e devolve a decisão (dict). Ver módulo para o modelo."""
     regime = snap.get("regime", "indefinido")
     atr = snap.get("atr")
@@ -113,15 +113,17 @@ def avaliar(snap: dict, *, sessao_utc, spread_max_pips, score_min, nivel_prox_at
             conf.append("fvg")
             break
 
+    # Rejeição no nível (compra→suporte / venda→resistência) vira CONFLUÊNCIA que aumenta o
+    # score — NÃO é obrigatória por padrão (para não engessar e secar as entradas). Só vira
+    # gate no fade lateral quando exigir_rejeicao=True (modo estrito, opcional).
+    nivel_ref = perto_sup if direcao == "compra" else perto_res
+    rejeitou = bool(nivel_ref and candle_rejeicao(snap, direcao, nivel_ref[0], tol, pavio_min))
+    if rejeitou:
+        conf.append("rejeicao")
     score = len(conf)
-
-    # --- Entrada via S/R exige REJEIÇÃO no nível (só no fade de regime lateral) ---
-    # "Só usa o S/R se o preço parar na região e mostrar que vai reverter."
-    if regime == "lateral":
-        nivel = perto_sup if direcao == "compra" else perto_res
-        if not (nivel and candle_rejeicao(snap, direcao, nivel[0], tol, pavio_min)):
-            return _decisao("nao_entrou", direcao, regime, score, conf,
-                            "sem rejeição no nível (aguardando reversão)")
+    if exigir_rejeicao and regime == "lateral" and not rejeitou:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        "sem rejeição no nível (modo estrito)")
 
     # --- Filtros duros (gates) ---
     hora = snap.get("hora_utc", 0)
