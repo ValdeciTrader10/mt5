@@ -290,9 +290,28 @@ EXTREMOS_HABILITADA = os.environ.get("EXTREMOS_HABILITADA", "true").lower() in (
 # Executor + gestor de saída (Fase 5)
 # --------------------------------------------------------------------------- #
 # TRAVA DE SEGURANÇA. false = simulação sobre preço AO VIVO (nenhuma ordem é
-# enviada). true = envia e gerencia ordens de verdade na conta demo (exige
-# "Algo Trading" habilitado no terminal). Mude só quando decidir operar.
+# enviada). true = envia e gerencia TODAS as ordens de verdade na conta demo (exige
+# "Algo Trading" habilitado no terminal). Mude só quando decidir operar tudo real.
 EXECUCAO_ATIVA = os.environ.get("EXECUCAO_ATIVA", "false").lower() in ("1", "true", "sim")
+
+# --- Modo PARALELO CURADO (validação em DEMO) -------------------------------- #
+# A SOMBRA segue catalogando TODAS as combinações (virtual) E, em paralelo, um livro
+# REAL (demo) roda só para as combinações JÁ POSITIVAS — para comparar o que a sombra
+# ASSUME (preço-sinal) com o fill REAL: spread no fill, DERRAPAGEM (fill vs assumido) e
+# DELAY (decisão→execução). Cada sinal curado abre um GÊMEO real ao lado do virtual.
+# Ligar SÓ em conta DEMO. Ignorado se EXECUCAO_ATIVA=true (aí é tudo real).
+EXECUCAO_REAL_CURADA = os.environ.get("EXECUCAO_REAL_CURADA", "false").lower() in ("1", "true", "sim")
+# Estratégias e TFs elegíveis ao livro real curado (as positivas na sombra; pula M1).
+EXEC_REAL_ESTRATEGIAS = [s.strip() for s in os.environ.get(
+    "EXEC_REAL_ESTRATEGIAS", "confluencia_v1,fecha_gap_v1").split(",") if s.strip()]
+EXEC_REAL_TFS = [s.strip() for s in os.environ.get("EXEC_REAL_TFS", "M5,M15").split(",") if s.strip()]
+# Teto de posições REAIS simultâneas no demo (protege a margem da conta de validação).
+MAX_POS_REAL = int(os.environ.get("MAX_POS_REAL", "12"))
+
+
+def combo_real(estrategia, tf):
+    """(estratégia, tf) é elegível ao livro REAL curado (demo)?"""
+    return estrategia in EXEC_REAL_ESTRATEGIAS and tf in EXEC_REAL_TFS
 # Intervalo (segundos) do gestor de saída — poll de tick por posição aberta.
 GESTOR_POLL_S = int(os.environ.get("GESTOR_POLL_S", "1"))
 # Saída por reversão: depois de atingir BE_TRIGGER_R, fecha se ceder este tanto de R

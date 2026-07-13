@@ -265,6 +265,15 @@ def posicoes(simbolo: str = None, magic: int = None) -> list:
         return out
 
 
+def preco_fill(simbolo: str, ticket: int, magic: int = None):
+    """Preço de execução REAL (price_open do deal) da posição recém-aberta, para medir a
+    derrapagem contra o preço que a sombra assumiu. None se a posição não for encontrada."""
+    for p in posicoes(simbolo=simbolo, magic=magic):
+        if p["ticket"] == int(ticket):
+            return p["preco_entrada"]
+    return None
+
+
 def _filling(mt5, simbolo):
     """Modo de preenchimento suportado pelo símbolo (varia por broker)."""
     try:

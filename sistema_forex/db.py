@@ -83,7 +83,8 @@ CREATE TABLE IF NOT EXISTS decisoes (
     direcao    TEXT,
     resultado  TEXT,                   -- entrou / nao_entrou
     motivo     TEXT,
-    dados_json TEXT
+    dados_json TEXT,
+    criada_utc INTEGER                 -- wall-clock da gravação da decisão (p/ medir delay decisão→fill)
 );
 CREATE INDEX IF NOT EXISTS idx_decisoes_par_time ON decisoes (par, time_utc);
 
@@ -108,7 +109,12 @@ CREATE TABLE IF NOT EXISTS trades (
     risco_inicial REAL,                -- |entrada - sl_inicial| em preço; base fixa do R
     mae_r         REAL,                -- Maximum Adverse Excursion: pior R contra durante a vida (≤ 0)
     mfe_r         REAL,                -- Maximum Favorable Excursion: melhor R a favor durante a vida (≥ 0)
-    regime_entrada TEXT                -- regime de mercado no momento da abertura (p/ análise por regime)
+    regime_entrada TEXT,               -- regime de mercado no momento da abertura (p/ análise por regime)
+    -- Instrumentação do fill REAL (modo paralelo curado) p/ comparar com a sombra:
+    preco_sinal    REAL,               -- preço que a SOMBRA assume (ask/bid no momento da decisão)
+    spread_entrada REAL,               -- spread (pips) no instante do fill real
+    derrapagem_pips REAL,              -- fill real vs preço-sinal, em pips (adverso = positivo)
+    delay_s        REAL                -- segundos entre a gravação da decisão e o fill real
 );
 CREATE INDEX IF NOT EXISTS idx_trades_par ON trades (par);
 CREATE INDEX IF NOT EXISTS idx_trades_abertos ON trades (fechamento_utc);
@@ -130,9 +136,15 @@ def _migrar(conn) -> None:
         conn.execute("ALTER TABLE trades ADD COLUMN regime_entrada TEXT")
     if "tf" not in cols:
         conn.execute("ALTER TABLE trades ADD COLUMN tf TEXT DEFAULT 'M5'")
+    # Instrumentação do fill real (modo paralelo curado).
+    for coluna in ("preco_sinal", "spread_entrada", "derrapagem_pips", "delay_s"):
+        if coluna not in cols:
+            conn.execute(f"ALTER TABLE trades ADD COLUMN {coluna} REAL")
     dcols = {r["name"] for r in conn.execute("PRAGMA table_info(decisoes)").fetchall()}
     if "tf" not in dcols:
         conn.execute("ALTER TABLE decisoes ADD COLUMN tf TEXT DEFAULT 'M5'")
+    if "criada_utc" not in dcols:
+        conn.execute("ALTER TABLE decisoes ADD COLUMN criada_utc INTEGER")
 
 
 def conectar(db_path=None) -> sqlite3.Connection:

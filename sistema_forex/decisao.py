@@ -166,13 +166,15 @@ def montar_snapshot(conn, par: str, tf: str, candle) -> dict:
 def _gravar_decisao(conn, par: str, tf: str, time_utc: int, dec: dict) -> None:
     conn.execute(
         """
-        INSERT INTO decisoes (par, time_utc, tf, estrategia, direcao, resultado, motivo, dados_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO decisoes (par, time_utc, tf, estrategia, direcao, resultado, motivo, dados_json,
+                              criada_utc)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             par, time_utc, tf, dec["estrategia"], dec["direcao"], dec["resultado"], dec["motivo"],
             json.dumps({"score": dec["score"], "confluencias": dec["confluencias"],
                         "regime": dec["regime"]}),
+            int(time.time()),
         ),
     )
 

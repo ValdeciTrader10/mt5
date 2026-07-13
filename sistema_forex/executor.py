@@ -94,33 +94,30 @@ def _espaco_r(conn, par: str, direcao: str, preco: float, risco: float):
     return abs(alvo - preco) / risco
 
 
-def pode_abrir(abertas_vals, par: str, tf: str, estrategia: str, *, ativa: bool,
-               max_pos_por_par: int, max_pos_total: int, max_pos_sombra: int) -> bool:
-    """Decide (função PURA, testável) se cabe abrir mais uma posição p/ (par, tf, estrategia).
+def pode_abrir(abertas_vals, par: str, tf: str, estrategia: str, *, livro: str, cap: int) -> bool:
+    """Decide (função PURA, testável) se cabe abrir mais uma posição p/ (par, tf, estrategia)
+    no LIVRO indicado.
 
-    Dedup base (sempre): uma posição viva por (par, tf, ESTRATÉGIA) — cada estratégia cataloga
-    a SUA operação, mas não empilha duas iguais ao mesmo tempo.
-      - Sombra (ativa=False): modo catálogo — várias operações simultâneas de estratégias/TFs
-        diferentes; sem trava por livro nem correlação; só o teto amplo `max_pos_sombra`.
-      - Real  (ativa=True): travas de risco por LIVRO de TF (max_pos_total por tf, max_pos_por_par
-        por (par, tf)). A correlação é checada à parte (só real e se ligada).
+    Há DOIS livros independentes que podem coexistir para a MESMA combinação (gêmeos):
+      - `livro="sombra"` (virtual): catálogo — cada (par, tf, ESTRATÉGIA) roda a sua; o único
+        limite é o teto amplo `cap` (MAX_POS_SOMBRA).
+      - `livro="real"` (demo): idem, mas conta só as posições reais e usa `cap`=MAX_POS_REAL
+        (protege a margem do demo). A correlação é checada à parte (só real e se ligada).
+
+    Dedup: uma posição viva por (par, tf, ESTRATÉGIA) DENTRO do mesmo livro — uma virtual e
+    uma real da mesma combinação podem viver juntas (é o par sombra↔real que queremos comparar).
     """
-    if any(p["par"] == par and p["tf"] == tf and p["estrategia"] == estrategia
-           for p in abertas_vals):
+    quer_real = livro == "real"
+    mesmas = [p for p in abertas_vals if bool(p.get("real")) == quer_real]
+    if any(p["par"] == par and p["tf"] == tf and p["estrategia"] == estrategia for p in mesmas):
         return False
-    if not ativa:
-        return len(abertas_vals) < max_pos_sombra
-    livro = [p for p in abertas_vals if p["tf"] == tf]
-    if len(livro) >= max_pos_total:
-        return False
-    if sum(1 for p in livro if p["par"] == par) >= max_pos_por_par:
-        return False
-    return True
+    return len(mesmas) < cap
 
 
 def _decisoes_novas(conn, desde_id: int):
     return conn.execute(
-        "SELECT id, par, tf, direcao, estrategia FROM decisoes WHERE id > ? AND resultado='entrou' ORDER BY id",
+        "SELECT id, par, tf, direcao, estrategia, criada_utc FROM decisoes "
+        "WHERE id > ? AND resultado='entrou' ORDER BY id",
         (desde_id,),
     ).fetchall()
 
@@ -142,11 +139,17 @@ def _regime_atual(conn, par: str):
     return r["regime"] if r else None
 
 
-def _abrir_trade(conn, par, tf, estrategia, direcao, lote, entrada, sl, ticket, simulado, risco, regime) -> int:
+def _abrir_trade(conn, par, tf, estrategia, direcao, lote, entrada, sl, ticket, simulado, risco,
+                 regime, fill=None) -> int:
+    fill = fill or {}
     cur = conn.execute(
         "INSERT INTO trades (ticket, par, tf, estrategia, direcao, lote, preco_entrada, sl_servidor, "
-        "abertura_utc, simulado, risco_inicial, regime_entrada) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (ticket, par, tf, estrategia, direcao, lote, entrada, sl, _agora(), simulado, risco, regime),
+        "abertura_utc, simulado, risco_inicial, regime_entrada, "
+        "preco_sinal, spread_entrada, derrapagem_pips, delay_s) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (ticket, par, tf, estrategia, direcao, lote, entrada, sl, _agora(), simulado, risco, regime,
+         fill.get("preco_sinal"), fill.get("spread_entrada"), fill.get("derrapagem_pips"),
+         fill.get("delay_s")),
     )
     conn.commit()
     return cur.lastrowid
@@ -177,7 +180,11 @@ def _atualizar_sl(conn, trade_id, sl) -> None:
 # --------------------------------------------------------------------------- #
 class Executor:
     def __init__(self):
-        self.ativa = config.EXECUCAO_ATIVA
+        self.ativa = config.EXECUCAO_ATIVA          # full-real: TODAS as ordens reais
+        # Paralelo curado: sombra cataloga tudo + livro real (demo) só das positivas.
+        # Ignorado quando full-real já está ligado (aí é tudo real de qualquer forma).
+        self.real_curada = config.EXECUCAO_REAL_CURADA and not self.ativa
+        self.tem_real = self.ativa or self.real_curada   # envia ordens reais em algum livro?
         self.abertas = {}          # trade_id -> estado da posição
         self.simbolos = {}         # par -> símbolo real
         self._tick_cache = {}      # símbolo -> tick, reusado dentro do MESMO ciclo (fan-out)
@@ -185,6 +192,7 @@ class Executor:
         self.saldo_inicial_dia = None
         self.dia = None
         self.dd_avisado = False
+        self._dd_real_ok = True    # atualizado por ciclo; trava só o livro REAL
 
     # -- infraestrutura --
     def _simbolo(self, par: str) -> str:
@@ -223,7 +231,7 @@ class Executor:
     def carregar(self, conn):
         for r in _abertas_do_banco(conn):
             if self.ativa and r["simulado"]:
-                continue  # em modo real, ignora resíduos simulados
+                continue  # full-real: ignora resíduos simulados (o livro é só real)
             entrada, sl = r["preco_entrada"], r["sl_servidor"]
             be = (r["direcao"] == "compra" and sl >= entrada) or (r["direcao"] == "venda" and sl <= entrada)
             risco = r["risco_inicial"] or abs(entrada - sl)
@@ -235,16 +243,23 @@ class Executor:
                 "sl": sl, "risco": risco, "abertura_utc": r["abertura_utc"],
                 "r_max": r["mfe_r"] or 0.0, "be_movido": be,
                 "mae_r": r["mae_r"] or 0.0, "mfe_r": r["mfe_r"] or 0.0,
+                "real": not r["simulado"],   # livro da posição (real=demo, else sombra)
             }
         mx = conn.execute("SELECT MAX(id) m FROM decisoes").fetchone()["m"]
         self.ultima_decisao_id = mx or 0
-        log.info("Executor iniciado (%s). Posições abertas retomadas: %d",
-                 "EXECUÇÃO ATIVA" if self.ativa else "SIMULAÇÃO (preço ao vivo)", len(self.abertas))
+        if self.ativa:
+            modo = "EXECUÇÃO REAL TOTAL (todas as ordens no broker)"
+        elif self.real_curada:
+            modo = (f"PARALELO CURADO — sombra cataloga tudo + real (demo) p/ "
+                    f"{','.join(config.EXEC_REAL_ESTRATEGIAS)} em {','.join(config.EXEC_REAL_TFS)}")
+        else:
+            modo = "SIMULAÇÃO (sombra sobre preço ao vivo)"
+        log.info("Executor iniciado (%s). Posições abertas retomadas: %d", modo, len(self.abertas))
 
     # -- drawdown --
     def _equity(self, conn):
-        if self.ativa:
-            return mt5_bridge.equity()
+        if self.tem_real:
+            return mt5_bridge.equity()   # equity REAL do demo (o livro real é o que protegemos)
         # simulado: saldo base + realizado no dia + não-realizado das posições sim
         hoje0 = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
         realizado = conn.execute(
@@ -267,20 +282,21 @@ class Executor:
             log.info("Novo dia %s — saldo inicial de referência: %.2f", dia, self.saldo_inicial_dia)
 
     def _dd_ok(self, conn) -> bool:
+        """DD diário do livro REAL (equity do demo). Só trava o livro real; a sombra nunca
+        trunca (senão perdemos amostra do catálogo)."""
+        if not self.tem_real:
+            return True   # pura sombra: DD é virtual, catálogo segue
         eq = self._equity(conn)
         if eq is None:
             return True
         estourou = gestao.drawdown_estourou(self.saldo_inicial_dia, eq, config.DD_DIARIO_MAX_PCT)
         if estourou and not self.dd_avisado:
             self.dd_avisado = True
-            # Na sombra o DD é virtual e NÃO trunca o catálogo (senão perdemos amostra); só
-            # avisa. No real, o teto diário corta novas entradas (proteção de conta).
-            escopo = "Sem novas entradas hoje." if self.ativa else "(sombra: catálogo continua)"
-            msg = f"⛔ Drawdown diário atingido ({config.DD_DIARIO_MAX_PCT}%). {escopo}"
+            msg = (f"⛔ Drawdown diário atingido ({config.DD_DIARIO_MAX_PCT}%). Sem novas ordens "
+                   "REAIS hoje (a sombra continua catalogando).")
             log.warning(msg)
             telegram_notif.enviar(msg, chave_antispam="dd_dia")
-        # Só bloqueia entradas quando é dinheiro real; na sombra segue catalogando.
-        return (not estourou) or (not self.ativa)
+        return not estourou
 
     def _reconciliar(self, conn):
         """Modo real: detecta posições que o BROKER fechou (SL no servidor/manual)."""
@@ -290,6 +306,8 @@ class Executor:
             return
         for trade_id in list(self.abertas):
             p = self.abertas[trade_id]
+            if not p.get("real"):
+                continue  # posições virtuais têm ticket sintético — não reconciliar
             if p["ticket"] not in vivos:
                 preco = self._preco_saida(p["simbolo"], p["direcao"]) or p["preco_entrada"]
                 pip = self._pip(p["simbolo"])
@@ -302,8 +320,8 @@ class Executor:
 
     # -- gestão das posições abertas (tick-speed) --
     def gerir(self, conn):
-        if self.ativa:
-            self._reconciliar(conn)
+        if self.tem_real:
+            self._reconciliar(conn)   # fecha no banco o que o broker fechou (só posições reais)
         for trade_id in list(self.abertas):
             p = self.abertas[trade_id]
             preco = self._preco_saida(p["simbolo"], p["direcao"])
@@ -311,8 +329,9 @@ class Executor:
                 continue
             pip = self._pip(p["simbolo"])
 
-            # Stop de emergência: no modo real o broker cuida; na simulação, garantimos aqui.
-            if not self.ativa:
+            # Stop de emergência: posição REAL o broker cuida (SL de servidor); a VIRTUAL
+            # (sombra) é emulada aqui tick a tick.
+            if not p.get("real"):
                 bateu = (p["direcao"] == "compra" and preco <= p["sl"]) or \
                         (p["direcao"] == "venda" and preco >= p["sl"])
                 if bateu:
@@ -341,7 +360,7 @@ class Executor:
                 self._mover_be(conn, p)
 
     def _fechar(self, conn, p, preco, pip, motivo):
-        if self.ativa:
+        if p.get("real"):
             try:
                 mt5_bridge.fechar(p["ticket"], config.MAGIC)
             except Exception:  # noqa: BLE001
@@ -352,7 +371,7 @@ class Executor:
         _fechar_trade(conn, p["trade_id"], preco, round(pips, 1), lucro, motivo,
                       round(p["mae_r"], 3), round(p["mfe_r"], 3))
         del self.abertas[p["trade_id"]]
-        tag = "" if self.ativa else " [sim]"
+        tag = " [real]" if p.get("real") else " [sim]"
         msg = f"🔚{tag} {p['par']} {p.get('tf', '')} {p['direcao']} fechada: {pips:+.1f} pips | {motivo}"
         log.info(msg)
         telegram_notif.enviar(msg)
@@ -360,7 +379,7 @@ class Executor:
     def _mover_be(self, conn, p):
         p["sl"] = p["preco_entrada"]
         p["be_movido"] = True
-        if self.ativa:
+        if p.get("real"):
             try:
                 mt5_bridge.mover_sl(p["ticket"], p["preco_entrada"])
             except Exception:  # noqa: BLE001
@@ -376,50 +395,72 @@ class Executor:
             par, direcao = d["par"], d["direcao"]
             tf = d["tf"] or config.TF_OPERACAO
             estrategia = d["estrategia"]
-            if not pode_abrir(self.abertas.values(), par, tf, estrategia, ativa=self.ativa,
-                              max_pos_por_par=config.MAX_POS_POR_PAR,
-                              max_pos_total=config.MAX_POS_TOTAL,
-                              max_pos_sombra=config.MAX_POS_SOMBRA):
-                continue
-            # Guarda de correlação: SÓ no modo real e se ligada (GUARDA_CORRELACAO). Na sombra
-            # (catálogo) não bloqueia — queremos catalogar cada estratégia mesmo correlacionada.
-            if self.ativa and config.GUARDA_CORRELACAO:
-                livro = [p for p in self.abertas.values() if p["tf"] == tf]
-                posic = [{"par": p["par"], "direcao": p["direcao"]} for p in livro]
-                if gestao.viola_correlacao(posic, par, direcao, config.MAX_EXPOSICAO_MOEDA):
-                    log.info("Bloqueado por correlação [%s]: %s %s (exposição de moeda > %d)",
-                             tf, par, direcao, config.MAX_EXPOSICAO_MOEDA)
-                    continue
-            try:
-                self._abrir(conn, par, tf, direcao, estrategia)
-            except Exception:  # noqa: BLE001
-                log.exception("Falha ao abrir %s %s %s", par, tf, direcao)
 
-    def _abrir(self, conn, par, tf, direcao, estrategia):
+            # LIVRO SOMBRA (virtual): cataloga TODAS as combinações — salvo no full-real, em
+            # que só existe o livro real.
+            if not self.ativa and pode_abrir(self.abertas.values(), par, tf, estrategia,
+                                             livro="sombra", cap=config.MAX_POS_SOMBRA):
+                self._abrir_seguro(conn, par, tf, direcao, estrategia, real=False, d=d)
+
+            # LIVRO REAL (demo): full-real abre tudo; curado abre só as combinações positivas.
+            quer_real = self.ativa or (self.real_curada and config.combo_real(estrategia, tf))
+            if quer_real and self._pode_abrir_real(par, tf, direcao, estrategia):
+                self._abrir_seguro(conn, par, tf, direcao, estrategia, real=True, d=d)
+
+    def _pode_abrir_real(self, par, tf, direcao, estrategia) -> bool:
+        if not self._dd_real_ok:            # teto de DD diário trava só o livro real
+            return False
+        # Guarda de correlação: só se ligada (GUARDA_CORRELACAO) — avalia só as posições reais.
+        if config.GUARDA_CORRELACAO:
+            reais = [p for p in self.abertas.values() if p.get("real") and p["tf"] == tf]
+            posic = [{"par": p["par"], "direcao": p["direcao"]} for p in reais]
+            if gestao.viola_correlacao(posic, par, direcao, config.MAX_EXPOSICAO_MOEDA):
+                log.info("Real bloqueado por correlação [%s]: %s %s", tf, par, direcao)
+                return False
+        return pode_abrir(self.abertas.values(), par, tf, estrategia,
+                          livro="real", cap=config.MAX_POS_REAL)
+
+    def _abrir_seguro(self, conn, par, tf, direcao, estrategia, *, real, d):
+        try:
+            self._abrir(conn, par, tf, direcao, estrategia, real=real, d=d)
+        except Exception:  # noqa: BLE001 - uma falha de abertura não derruba o ciclo
+            log.exception("Falha ao abrir %s %s %s [%s]", par, tf, direcao,
+                          "real" if real else "sombra")
+
+    def _abrir(self, conn, par, tf, direcao, estrategia, *, real, d):
         simbolo = self._simbolo(par)
         pip = self._pip(simbolo)
         atr = _atr(conn, par, tf)
-        entrada = self._preco_entrada(simbolo, direcao)
-        if entrada is None:
+        assumido = self._preco_entrada(simbolo, direcao)   # preço-sinal (o que a sombra assume)
+        if assumido is None:
             return
         # Limites de SL POR SÍMBOLO (o ouro precisa de stops muito mais largos que o forex).
         sl_min = config.param_simbolo(par, "sl_min_pips", config.SL_MIN_PIPS)
         sl_max = config.param_simbolo(par, "sl_max_pips", config.SL_MAX_PIPS)
-        sl = gestao.calcular_sl(direcao, entrada, atr, mult=config.SL_SERVIDOR_ATR_MULT,
+        sl = gestao.calcular_sl(direcao, assumido, atr, mult=config.SL_SERVIDOR_ATR_MULT,
                                 min_pips=sl_min, max_pips=sl_max, pip=pip)
-        risco = abs(entrada - sl)
-        if self.ativa:
+        entrada, ticket, fill = assumido, None, {}
+        if real:
             if not mt5_bridge.verificar_margem(simbolo, config.LOTE, direcao == "compra"):
-                log.warning("Sem margem p/ %s %s — pulando", par, direcao)
+                log.warning("Sem margem p/ %s %s [real] — pulando", par, direcao)
                 return
             ticket = mt5_bridge.abrir(simbolo, direcao, config.LOTE, sl, config.MAGIC, estrategia)
-            simulado = 0
-        else:
-            ticket = None
-            simulado = 1
+            # Fill REAL vs preço-sinal → derrapagem/spread/delay (comparação com a sombra).
+            preenchido = mt5_bridge.preco_fill(simbolo, ticket, magic=config.MAGIC)
+            entrada = preenchido if preenchido is not None else assumido
+            derr = ((entrada - assumido) if direcao == "compra" else (assumido - entrada)) / pip
+            t = self._tick(simbolo)
+            fill = {
+                "preco_sinal": round(assumido, 5),
+                "spread_entrada": round((t["ask"] - t["bid"]) / pip, 2) if t and pip else None,
+                "derrapagem_pips": round(derr, 2),
+                "delay_s": (_agora() - d["criada_utc"]) if d and d["criada_utc"] else None,
+            }
+        simulado = 0 if real else 1
+        risco = abs(entrada - sl)
         regime = _regime_atual(conn, par)
         trade_id = _abrir_trade(conn, par, tf, estrategia, direcao, config.LOTE, entrada, sl,
-                                ticket, simulado, risco, regime)
+                                ticket, simulado, risco, regime, fill=fill)
         if ticket is None:
             ticket = -trade_id  # id sintético para o modo simulação
             conn.execute("UPDATE trades SET ticket=? WHERE id=?", (ticket, trade_id))
@@ -428,11 +469,14 @@ class Executor:
             "trade_id": trade_id, "ticket": ticket, "par": par, "tf": tf, "simbolo": simbolo,
             "estrategia": estrategia, "direcao": direcao, "lote": config.LOTE,
             "preco_entrada": entrada, "sl": sl, "risco": risco, "abertura_utc": _agora(),
-            "r_max": 0.0, "be_movido": False, "mae_r": 0.0, "mfe_r": 0.0,
+            "r_max": 0.0, "be_movido": False, "mae_r": 0.0, "mfe_r": 0.0, "real": real,
         }
-        tag = "" if self.ativa else " [sim]"
+        tag = " [real]" if real else " [sim]"
+        extra = ""
+        if real and fill.get("derrapagem_pips") is not None:
+            extra = f" | derrap {fill['derrapagem_pips']:+.1f}p · spread {fill.get('spread_entrada')}p"
         msg = (f"🟢{tag} {par} {tf} {direcao} @ {entrada:.5f} | SL {sl:.5f} | "
-               f"{config.nome_estrategia(estrategia)}")
+               f"{config.nome_estrategia(estrategia)}{extra}")
         log.info(msg)
         telegram_notif.enviar(msg)
 
@@ -441,8 +485,9 @@ class Executor:
         self._tick_cache = {}            # tick fresco por ciclo (reusado entre posições/símbolo)
         self._checar_dia(conn)
         self.gerir(conn)                 # gestão sempre roda (fecha/protege o que está aberto)
-        if self._dd_ok(conn):            # real: respeita o DD diário; sombra: sempre cataloga
-            self.entrar(conn)
+        # DD diário trava só o livro REAL (dentro de entrar); a sombra sempre cataloga.
+        self._dd_real_ok = self._dd_ok(conn)
+        self.entrar(conn)
 
 
 def main() -> None:

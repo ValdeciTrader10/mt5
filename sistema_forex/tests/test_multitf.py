@@ -103,36 +103,47 @@ def test_snapshot_usa_atr_do_tf():
         os.remove(caminho)
 
 
-def _pos(par, tf, estrat):
-    return {"par": par, "tf": tf, "estrategia": estrat}
+def _pos(par, tf, estrat, real=False):
+    return {"par": par, "tf": tf, "estrategia": estrat, "real": real}
 
 
 def test_pode_abrir_sombra_cataloga_cada_estrategia():
     """Sombra: cada (par,tf,ESTRATÉGIA) roda sua própria operação; não duplica a mesma."""
     from ..executor import pode_abrir
-    caps = dict(max_pos_por_par=1, max_pos_total=2, max_pos_sombra=200)
     abertas = [_pos("EURUSD#", "M5", "confluencia_v1")]
     # outra estratégia no mesmo (par,tf) PODE abrir (catálogo independente, sem correlação)
-    assert pode_abrir(abertas, "EURUSD#", "M5", "sweep_choch_v1", ativa=False, **caps) is True
-    # a MESMA (par,tf,estrategia) já viva NÃO empilha
-    assert pode_abrir(abertas, "EURUSD#", "M5", "confluencia_v1", ativa=False, **caps) is False
+    assert pode_abrir(abertas, "EURUSD#", "M5", "sweep_choch_v1", livro="sombra", cap=200) is True
+    # a MESMA (par,tf,estrategia) já viva NÃO empilha no mesmo livro
+    assert pode_abrir(abertas, "EURUSD#", "M5", "confluencia_v1", livro="sombra", cap=200) is False
     # só o teto amplo de segurança limita
     cheia = [_pos("EURUSD#", "M5", f"e{i}") for i in range(3)]
-    caps_baixo = dict(max_pos_por_par=1, max_pos_total=2, max_pos_sombra=3)
-    assert pode_abrir(cheia, "EURUSD#", "M5", "novo", ativa=False, **caps_baixo) is False
+    assert pode_abrir(cheia, "EURUSD#", "M5", "novo", livro="sombra", cap=3) is False
 
 
-def test_pode_abrir_real_respeita_cap_por_livro():
-    """Real: travas por LIVRO de TF continuam valendo (proteção de conta)."""
+def test_pode_abrir_livros_sombra_e_real_sao_independentes():
+    """Sombra e real são livros SEPARADOS: um gêmeo real convive com o virtual da mesma
+    combinação, e cada livro tem o seu próprio teto."""
     from ..executor import pode_abrir
-    caps = dict(max_pos_por_par=1, max_pos_total=2, max_pos_sombra=200)
-    abertas = [_pos("EURUSD#", "M5", "a"), _pos("GBPUSD#", "M5", "b")]
-    # livro M5 cheio (2) → 3ª no M5 bloqueada, mesmo sendo de outra estratégia/par
-    assert pode_abrir(abertas, "USDCAD", "M5", "c", ativa=True, **caps) is False
-    # M15 é livro à parte → permite
-    assert pode_abrir(abertas, "USDCAD", "M15", "c", ativa=True, **caps) is True
-    # mesmo (par,tf) 2x no real → bloqueia por MAX_POS_POR_PAR
-    assert pode_abrir([_pos("EURUSD#", "M5", "a")], "EURUSD#", "M5", "b", ativa=True, **caps) is False
+    # uma posição VIRTUAL de (EURUSD#, M5, confluencia_v1) não bloqueia o gêmeo REAL
+    virtual = [_pos("EURUSD#", "M5", "confluencia_v1", real=False)]
+    assert pode_abrir(virtual, "EURUSD#", "M5", "confluencia_v1", livro="real", cap=12) is True
+    # mas dois reais da MESMA combinação, não
+    real = [_pos("EURUSD#", "M5", "confluencia_v1", real=True)]
+    assert pode_abrir(real, "EURUSD#", "M5", "confluencia_v1", livro="real", cap=12) is False
+    # o teto do livro real conta só posições reais (as virtuais não ocupam a vaga do demo)
+    mistas = [_pos("EURUSD#", "M5", f"e{i}", real=False) for i in range(20)] + \
+             [_pos("GBPUSD#", "M5", "r0", real=True)]
+    assert pode_abrir(mistas, "USDCAD", "M5", "r1", livro="real", cap=2) is True   # só 1 real ainda
+    reais_cheio = [_pos("EURUSD#", "M5", "r0", real=True), _pos("GBPUSD#", "M5", "r1", real=True)]
+    assert pode_abrir(reais_cheio, "USDCAD", "M5", "r2", livro="real", cap=2) is False
+
+
+def test_combo_real_so_curadas():
+    """O livro real curado só aceita as (estratégia, tf) configuradas (positivas, sem M1)."""
+    assert config.combo_real("confluencia_v1", "M5") is True
+    assert config.combo_real("fecha_gap_v1", "M15") is True
+    assert config.combo_real("confluencia_v1", "M1") is False   # M1 fora
+    assert config.combo_real("sweep_choch_v1", "M5") is False   # estratégia não-curada
 
 
 def main() -> int:

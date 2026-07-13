@@ -40,9 +40,18 @@ a sombra (regra: demo/sombra primeiro).
   `M1,M5,M15`) — cada TF é um LIVRO de sombra INDEPENDENTE (vela/ATR/janela do próprio TF;
   S/R/regime são contexto par-level). A decisão é marcada com `tf`. ⚠️ M1 é observação de
   sombra p/ comparar (no M1 o spread come o alvo — skill §0.1), nunca candidato a real.
-- **executor** (`executor.py`): Fase 5 — abre/gerencia posições (simulação ou real). SL usa o
+- **executor** (`executor.py`): Fase 5 — abre/gerencia posições. Comportamento é POR POSIÇÃO
+  (`p["real"]`), não global: gestão/SL-emulado/fechamento/reconciliação decidem por posição, então
+  livros virtual e real coexistem. **3 modos:** (a) SIMULAÇÃO pura (default) — só sombra; (b)
+  `EXECUCAO_ATIVA=true` — tudo real; (c) **PARALELO CURADO** (`EXECUCAO_REAL_CURADA=true`, só em
+  DEMO) — a sombra cataloga TUDO (virtual) E um livro REAL dispara um GÊMEO só das combinações
+  positivas (`EXEC_REAL_ESTRATEGIAS`=confluencia_v1,fecha_gap_v1 × `EXEC_REAL_TFS`=M5,M15; teto
+  `MAX_POS_REAL`). Cada ordem real grava a comparação com a sombra: `preco_sinal` (assumido),
+  `spread_entrada`, `derrapagem_pips` (fill real vs assumido) e `delay_s` (decisão→fill, via
+  `decisoes.criada_utc`). `mt5_bridge.preco_fill` lê o price_open real; DD diário trava só o livro
+  real; correlação só no real e se ligada. SL usa o
   ATR do TF que operou; trade marcado com `tf`. **Modo CATÁLOGO (sombra):** dedup por
-  `(par, tf, ESTRATÉGIA)` → cada estratégia roda a SUA posição virtual ao vivo em paralelo,
+  `(par, tf, ESTRATÉGIA, livro)` → cada estratégia roda a SUA posição virtual ao vivo em paralelo,
   gerida tick a tick; **sem trava de correlação** e **sem cap por livro** (só o teto amplo
   `MAX_POS_SOMBRA`), e o DD virtual **não trunca** o catálogo. As travas de risco por livro de
   TF (`MAX_POS_POR_PAR`/`MAX_POS_TOTAL`) e a correlação (`GUARDA_CORRELACAO`, **off** por
@@ -91,7 +100,8 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
 
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
-  `test_indicadores`, `test_multitf`). **93 testes, todos passando.** Rodar sempre antes de commitar.
+  `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`). **94 testes, todos
+  passando.** Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
 - Env sensíveis (senha do painel, VNC, MT5) só no Environment do Dokploy — nunca no git.
