@@ -70,9 +70,14 @@
       <table>
         <thead><tr><th>Estratégia</th><th class="num">Trades</th><th class="num">Acerto</th>
           <th class="num">Ganho×Perda</th><th class="num">PF</th><th class="num">Média G / P</th>
+          <th class="num" title="MAE médio dos vencedores: quanto de calor (R contra) os trades bons aguentaram → dimensiona o stop">Calor venc. (MAE)</th>
+          <th class="num" title="MFE médio dos perdedores: quanto o preço andou a favor (R) antes de virar perda → alvo/parcial deixado na mesa">Devolv. perd. (MFE)</th>
           <th class="num">Pips</th><th class="num">USD</th></tr></thead>
         <tbody id="tb-estrategia"></tbody>
       </table>
+      <p class="muted">MAE = pior R contra durante o trade; MFE = melhor R a favor. <b>Calor venc.</b>
+        próximo de 0 = stop pode ser mais justo; <b>Devolv. perd.</b> alto = os perdedores chegaram a
+        andar a favor e viraram (alvo/parcial ou saída por estrutura cedo demais).</p>
     </section>
 
     <section>
@@ -97,7 +102,10 @@
       <h2>Trades no período</h2>
       <table>
         <thead><tr><th>Quando (UTC)</th><th>Par</th><th>Direção</th><th>Estratégia</th>
-          <th class="num">Pips</th><th class="num">USD</th><th>Motivo de saída</th></tr></thead>
+          <th class="num">Pips</th><th class="num">USD</th>
+          <th class="num" title="Maximum Adverse Excursion (R)">MAE</th>
+          <th class="num" title="Maximum Favorable Excursion (R)">MFE</th>
+          <th>Motivo de saída</th></tr></thead>
         <tbody id="tb-trades"></tbody>
       </table>
     </section>
@@ -127,7 +135,9 @@
         ['Resultado (USD)', '<span class="' + sign(g.usd) + '">' + fmt(g.usd, 2) + '</span>'],
         ['Resultado (pips)', '<span class="' + sign(g.pips) + '">' + fmt(g.pips, 1) + '</span>'],
         ['Profit factor', pf(g)],
-        ['Expectativa/trade', '<span class="' + sign(g.expectativa) + '">' + fmt(g.expectativa, 2) + '</span>']
+        ['Expectativa/trade', '<span class="' + sign(g.expectativa) + '">' + fmt(g.expectativa, 2) + '</span>'],
+        ['MAE méd. (R)', fmt(g.mae_medio, 2)],
+        ['MFE méd. (R)', fmt(g.mfe_medio, 2)]
       ];
       document.getElementById('kpis').innerHTML = itens.map(function (i) {
         return '<div class="kpi"><h3>' + i[0] + '</h3><div class="v">' + i[1] + '</div></div>';
@@ -140,6 +150,8 @@
         '<td class="num"><span class="pos">' + r.ganhos + '</span>×<span class="neg">' + r.perdas + '</span></td>' +
         '<td class="num">' + pf(r) + '</td>' +
         '<td class="num"><span class="pos">' + fmt(r.media_ganho, 2) + '</span> / <span class="neg">' + fmt(r.media_perda, 2) + '</span></td>' +
+        '<td class="num neg">' + fmt(r.mae_ganhos, 2) + '</td>' +
+        '<td class="num pos">' + fmt(r.mfe_perdas, 2) + '</td>' +
         '<td class="num ' + sign(r.pips) + '">' + fmt(r.pips, 1) + '</td>' +
         '<td class="num ' + sign(r.usd) + '">' + fmt(r.usd, 2) + '</td></tr>';
     }
@@ -160,7 +172,7 @@
     function render(d) {
       kpis(d.geral);
       var e = document.getElementById('tb-estrategia');
-      e.innerHTML = d.por_estrategia.map(linhaEstrategia).join('') || '<tr><td colspan="8" class="muted">Sem trades no período.</td></tr>';
+      e.innerHTML = d.por_estrategia.map(linhaEstrategia).join('') || '<tr><td colspan="10" class="muted">Sem trades no período.</td></tr>';
       document.getElementById('tb-motivo').innerHTML = d.por_motivo.map(linhaMotivo).join('') || '<tr><td colspan="6" class="muted">—</td></tr>';
       document.getElementById('tb-par').innerHTML = d.por_par.map(linhaPar).join('') || '<tr><td colspan="6" class="muted">—</td></tr>';
       document.getElementById('tb-trades').innerHTML = (d.trades || []).map(function (t) {
@@ -168,8 +180,10 @@
           '</td><td>' + dirTag(t.direcao) + '</td><td>' + esc(t.estrategia) + '</td>' +
           '<td class="num ' + sign(t.pips) + '">' + fmt(t.pips, 1) + '</td>' +
           '<td class="num ' + sign(t.lucro) + '">' + fmt(t.lucro, 2) + '</td>' +
+          '<td class="num neg">' + fmt(t.mae_r, 2) + '</td>' +
+          '<td class="num pos">' + fmt(t.mfe_r, 2) + '</td>' +
           '<td class="muted">' + esc(t.motivo) + '</td></tr>';
-      }).join('') || '<tr><td colspan="7" class="muted">Sem trades no período.</td></tr>';
+      }).join('') || '<tr><td colspan="9" class="muted">Sem trades no período.</td></tr>';
       var p = (d.de || 'início') + ' → ' + (d.ate || 'agora');
       document.getElementById('periodo').textContent = 'Período: ' + p;
       document.getElementById('de').value = d.de || '';

@@ -174,8 +174,13 @@ def _epoch(data_iso: str, fim: bool = False):
     return int(dt.timestamp())
 
 
+def _media(valores: list):
+    vals = [v for v in valores if v is not None]
+    return round(sum(vals) / len(vals), 2) if vals else None
+
+
 def _agregar(trades: list) -> dict:
-    """KPIs de um conjunto de trades fechados."""
+    """KPIs de um conjunto de trades fechados (inclui excursão MAE/MFE em R)."""
     n = len(trades)
     ganhos = [t for t in trades if (t["lucro_usd"] or 0) > 0]
     perdas = [t for t in trades if (t["lucro_usd"] or 0) < 0]
@@ -193,6 +198,11 @@ def _agregar(trades: list) -> dict:
         "media_ganho": round(bruto_ganho / len(ganhos), 2) if ganhos else 0.0,
         "media_perda": round(bruto_perda / len(perdas), 2) if perdas else 0.0,
         "expectativa": round(usd / n, 2) if n else 0.0,
+        # Excursão (R) — a ferramenta para calibrar stop/alvo com dado:
+        "mae_medio": _media([t["mae_r"] for t in trades]),      # pior R contra, médio
+        "mfe_medio": _media([t["mfe_r"] for t in trades]),      # melhor R a favor, médio
+        "mae_ganhos": _media([t["mae_r"] for t in ganhos]),     # "calor" que os vencedores aguentaram
+        "mfe_perdas": _media([t["mfe_r"] for t in perdas]),     # lucro a favor que os perdedores devolveram
     }
 
 
@@ -218,7 +228,8 @@ def _analitico(de: str = "", ate: str = "") -> dict:
     with db.sessao() as conn:
         rows = conn.execute(
             f"SELECT par, estrategia, direcao, pips, lucro_usd, motivo_saida, simulado, "
-            f"abertura_utc, fechamento_utc FROM trades WHERE {where} ORDER BY fechamento_utc DESC",
+            f"mae_r, mfe_r, abertura_utc, fechamento_utc FROM trades WHERE {where} "
+            f"ORDER BY fechamento_utc DESC",
             args,
         ).fetchall()
     from datetime import datetime, timezone
@@ -232,6 +243,7 @@ def _analitico(de: str = "", ate: str = "") -> dict:
             "quando": _hora(t["fechamento_utc"]), "par": t["par"], "estrategia": t["estrategia"],
             "direcao": t["direcao"], "pips": t["pips"], "lucro": t["lucro_usd"],
             "motivo": t["motivo_saida"], "simulado": bool(t["simulado"]),
+            "mae_r": t["mae_r"], "mfe_r": t["mfe_r"],
         }
         for t in trades[:300]
     ]

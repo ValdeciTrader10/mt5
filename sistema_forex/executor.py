@@ -102,7 +102,7 @@ def _decisoes_novas(conn, desde_id: int):
 def _abertas_do_banco(conn):
     return conn.execute(
         "SELECT id, ticket, par, estrategia, direcao, lote, preco_entrada, sl_servidor, abertura_utc, "
-        "simulado, risco_inicial FROM trades WHERE fechamento_utc IS NULL"
+        "simulado, risco_inicial, mae_r, mfe_r FROM trades WHERE fechamento_utc IS NULL"
     ).fetchall()
 
 
@@ -119,11 +119,18 @@ def _abrir_trade(conn, par, estrategia, direcao, lote, entrada, sl, ticket, simu
     return cur.lastrowid
 
 
-def _fechar_trade(conn, trade_id, saida, pips, lucro, motivo) -> None:
+def _fechar_trade(conn, trade_id, saida, pips, lucro, motivo, mae_r=None, mfe_r=None) -> None:
     conn.execute(
-        "UPDATE trades SET preco_saida=?, pips=?, lucro_usd=?, motivo_saida=?, fechamento_utc=? WHERE id=?",
-        (saida, pips, lucro, motivo, _agora(), trade_id),
+        "UPDATE trades SET preco_saida=?, pips=?, lucro_usd=?, motivo_saida=?, fechamento_utc=?, "
+        "mae_r=?, mfe_r=? WHERE id=?",
+        (saida, pips, lucro, motivo, _agora(), mae_r, mfe_r, trade_id),
     )
+    conn.commit()
+
+
+def _persistir_excursao(conn, trade_id, mae_r, mfe_r) -> None:
+    """Grava MAE/MFE na linha aberta (só em novo extremo — barato e resiliente a restart)."""
+    conn.execute("UPDATE trades SET mae_r=?, mfe_r=? WHERE id=?", (mae_r, mfe_r, trade_id))
     conn.commit()
 
 
@@ -183,7 +190,8 @@ class Executor:
                 "simbolo": self._simbolo(r["par"]), "estrategia": r["estrategia"],
                 "direcao": r["direcao"], "lote": r["lote"], "preco_entrada": entrada,
                 "sl": sl, "risco": risco, "abertura_utc": r["abertura_utc"],
-                "r_max": 0.0, "be_movido": be,
+                "r_max": r["mfe_r"] or 0.0, "be_movido": be,
+                "mae_r": r["mae_r"] or 0.0, "mfe_r": r["mfe_r"] or 0.0,
             }
         mx = conn.execute("SELECT MAX(id) m FROM decisoes").fetchone()["m"]
         self.ultima_decisao_id = mx or 0
@@ -240,7 +248,8 @@ class Executor:
                 pip = self._pip(p["simbolo"])
                 pips = gestao.pips(p["direcao"], p["preco_entrada"], preco, pip)
                 lucro = mt5_bridge.calc_lucro(p["direcao"], p["simbolo"], p["lote"], p["preco_entrada"], preco)
-                _fechar_trade(conn, trade_id, preco, round(pips, 1), lucro, "fechada no servidor (SL/manual)")
+                _fechar_trade(conn, trade_id, preco, round(pips, 1), lucro, "fechada no servidor (SL/manual)",
+                              round(p["mae_r"], 3), round(p["mfe_r"], 3))
                 del self.abertas[trade_id]
                 log.info("↩ %s fechada no servidor (reconciliação)", p["par"])
 
@@ -265,6 +274,12 @@ class Executor:
 
             r = gestao.r_por_risco(p["direcao"], p["preco_entrada"], preco, p["risco"])
             p["r_max"] = max(p["r_max"], r)
+            # MAE/MFE: pior R contra e melhor R a favor durante a vida da posição.
+            novo_mfe = max(p["mfe_r"], r)
+            novo_mae = min(p["mae_r"], r)
+            if novo_mfe != p["mfe_r"] or novo_mae != p["mae_r"]:
+                p["mfe_r"], p["mae_r"] = novo_mfe, novo_mae
+                _persistir_excursao(conn, p["trade_id"], round(p["mae_r"], 3), round(p["mfe_r"], 3))
             idade_h = (_agora() - p["abertura_utc"]) / 3600
             espaco_r = _espaco_r(conn, p["par"], p["direcao"], preco, p["risco"])
             acao, motivo = gestao.avaliar_saida(
@@ -289,7 +304,8 @@ class Executor:
                 return
         pips = gestao.pips(p["direcao"], p["preco_entrada"], preco, pip)
         lucro = mt5_bridge.calc_lucro(p["direcao"], p["simbolo"], p["lote"], p["preco_entrada"], preco)
-        _fechar_trade(conn, p["trade_id"], preco, round(pips, 1), lucro, motivo)
+        _fechar_trade(conn, p["trade_id"], preco, round(pips, 1), lucro, motivo,
+                      round(p["mae_r"], 3), round(p["mfe_r"], 3))
         del self.abertas[p["trade_id"]]
         tag = "" if self.ativa else " [sim]"
         msg = f"🔚{tag} {p['par']} {p['direcao']} fechada: {pips:+.1f} pips | {motivo}"
@@ -351,7 +367,7 @@ class Executor:
             "trade_id": trade_id, "ticket": ticket, "par": par, "simbolo": simbolo,
             "estrategia": estrategia, "direcao": direcao, "lote": config.LOTE,
             "preco_entrada": entrada, "sl": sl, "risco": risco, "abertura_utc": _agora(),
-            "r_max": 0.0, "be_movido": False,
+            "r_max": 0.0, "be_movido": False, "mae_r": 0.0, "mfe_r": 0.0,
         }
         tag = "" if self.ativa else " [sim]"
         msg = f"🟢{tag} {par} {direcao} @ {entrada:.5f} | SL {sl:.5f} | {estrategia}"
