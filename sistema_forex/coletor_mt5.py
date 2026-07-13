@@ -68,7 +68,8 @@ def contar(conn, par: str, tf: str) -> int:
 # Backfill
 # --------------------------------------------------------------------------- #
 # Minutos por candle de cada TF — usado para estimar quantas barras pedir no backfill.
-_MIN_POR_TF = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}
+_MIN_POR_TF = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240,
+               "D1": 1440, "W1": 10080}
 
 
 def _alvo_barras(tf: str) -> int:
@@ -80,7 +81,9 @@ def _alvo_barras(tf: str) -> int:
     """
     minutos = _MIN_POR_TF.get(tf, 5)
     dias = config.BACKFILL_MESES * 31
-    return max(1, (dias * 24 * 60) // minutos)
+    # Piso p/ os TFs altos (D1/W1): 6 meses dão poucas velas semanais; pedimos mais
+    # histórico para haver ATR/S/R confiável no diário e no semanal.
+    return max(1, (dias * 24 * 60) // minutos, config.BACKFILL_MIN_BARRAS)
 
 
 def _backfill_tf(simbolo: str, tf: str, alvo: int) -> list:

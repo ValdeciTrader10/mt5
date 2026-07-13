@@ -38,7 +38,9 @@ def grafico_html(par: str, tf: str, limite: int = 500) -> str:
 
     with db.sessao() as conn:
         candles = _buscar_candles(conn, par, tf, limite)
-        niveis = analise.niveis_ativos(conn, par, tf)
+        # S/R agora vem só de TFs fortes (H1/D1/W1). Trazemos TODOS os níveis do par
+        # (não só os do TF do gráfico) para os S/R fortes aparecerem também no M5.
+        niveis = analise.niveis_ativos(conn, par)
 
     if not candles:
         return (
@@ -67,14 +69,18 @@ def grafico_html(par: str, tf: str, limite: int = 500) -> str:
     for nv in niveis:
         tipo = nv["tipo"]
         if tipo in cores:
+            m = nv.get("meta") or {}
+            # Linha mais grossa para S/R mais fortes (força maior = zona mais respeitada).
+            lw = 1 + min(2, int((nv.get("forca") or 1) / 4))
+            det = f"·{m.get('toques', 0)}t·{int((m.get('respeito') or 0) * 100)}%rej" if m else ""
             fig.add_hline(
-                y=nv["preco"], line_color=cores[tipo], line_width=1,
-                line_dash="dot", opacity=0.55,
-                annotation_text=f"{tipo[:3].upper()}·{int(nv['forca'])}",
+                y=nv["preco"], line_color=cores[tipo], line_width=lw,
+                line_dash="dot", opacity=0.6,
+                annotation_text=f"{tipo[:3].upper()} {m.get('tf', '')}·f{nv['forca']}{det}",
                 annotation_position="right",
                 annotation_font_size=9, annotation_font_color=cores[tipo],
             )
-        elif tipo.startswith("fvg") and nv.get("preco2") is not None:
+        elif tipo.startswith("fvg") and nv.get("preco2") is not None and nv.get("tf_origem") == tf:
             alta = tipo.endswith("bull")
             fig.add_shape(
                 type="rect", x0=x0, x1=x1, y0=nv["preco"], y1=nv["preco2"],

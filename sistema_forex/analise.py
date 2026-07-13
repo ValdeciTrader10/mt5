@@ -13,6 +13,7 @@ zero por par (snapshot idempotente): apaga o que era daquele par e regrava.
     python -m sistema_forex.analise --uma-vez # um ciclo e sai (debug)
 """
 
+import json
 import logging
 import signal
 import sys
@@ -71,13 +72,15 @@ def _limpar_par(conn, par: str) -> None:
     conn.execute("DELETE FROM estrutura WHERE par = ?", (par,))
 
 
-def _grava_nivel(conn, par, tipo, preco, tf, criado_em, forca, preco2=None) -> None:
+def _grava_nivel(conn, par, tipo, preco, tf, criado_em, forca, preco2=None,
+                 n_toques=0, ultimo_toque=None, meta_json=None) -> None:
     conn.execute(
         """
-        INSERT INTO niveis (par, tipo, preco, preco2, tf_origem, criado_em, forca, ativo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+        INSERT INTO niveis (par, tipo, preco, preco2, tf_origem, criado_em, forca,
+                            n_toques, ultimo_toque, meta_json, ativo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         """,
-        (par, tipo, preco, preco2, tf, criado_em, forca),
+        (par, tipo, preco, preco2, tf, criado_em, forca, n_toques, ultimo_toque, meta_json),
     )
 
 
@@ -108,14 +111,32 @@ def analisar_par(conn, par: str) -> dict:
         n_swing = config.SWING_N.get(tf, config.SWING_N_M5)
         sw = indicadores.rotular_swings(indicadores.swings(d["high"], d["low"], n_swing))
 
-        # Suporte / resistência
-        sr = indicadores.niveis_sr(sw, atr_val, config.SR_CLUSTER_ATR, config.SR_FORCA_MIN)
-        for preco, forca in sr["resistencia"]:
-            _grava_nivel(conn, par, "resistencia", preco, tf, agora, forca)
-            resumo["resistencia"] += 1
-        for preco, forca in sr["suporte"]:
-            _grava_nivel(conn, par, "suporte", preco, tf, agora, forca)
-            resumo["suporte"] += 1
+        # Suporte / resistência — SÓ dos TFs fortes (H1/D1/W1), com nota de QUALIDADE
+        # (toques + rejeições + recência + peso do TF). M5/M15 não geram S/R (ruído).
+        if tf in config.SR_TFS and atr_val:
+            sr = indicadores.niveis_sr(sw, atr_val, config.SR_CLUSTER_ATR, config.SR_FORCA_MIN)
+            tol = config.SR_TOQUE_ATR * atr_val
+            peso = config.SR_TF_PESO.get(tf, 1.0)
+            n = len(d["close"])
+            for tipo in ("resistencia", "suporte"):
+                candidatos = []
+                for preco, _f in sr[tipo]:
+                    q = indicadores.qualidade_sr(preco, tipo, d["high"], d["low"], d["close"], tol)
+                    recente = q["ult_idx"] >= 0 and (n - 1 - q["ult_idx"]) <= config.SR_RECENCIA_CANDLES
+                    recencia = 1.0 if recente else 0.5
+                    # Rejeição pesa 2×; toques contam pouco (evita inflar por consolidação).
+                    forca = round((q["rejeicoes"] * 2 + min(q["toques"], 20) * 0.25 + 1)
+                                  * peso * recencia, 1)
+                    if forca >= config.SR_QUALIDADE_MIN:
+                        candidatos.append((preco, forca, q))
+                candidatos.sort(key=lambda x: x[1], reverse=True)
+                for preco, forca, q in candidatos[:config.SR_MAX_POR_TIPO]:  # só os melhores
+                    ult_t = d["time"][q["ult_idx"]] if 0 <= q["ult_idx"] < len(d["time"]) else agora
+                    meta = json.dumps({"toques": q["toques"], "rejeicoes": q["rejeicoes"],
+                                       "respeito": q["respeito"], "peso_tf": peso, "tf": tf})
+                    _grava_nivel(conn, par, tipo, preco, tf, agora, forca,
+                                 n_toques=q["toques"], ultimo_toque=ult_t, meta_json=meta)
+                    resumo[tipo] += 1
 
         # FVGs não mitigados — zona guardada em (preco=base, preco2=topo).
         for f in indicadores.fvgs(d["high"], d["low"], atr_val, config.FVG_MIN_ATR):
@@ -159,13 +180,27 @@ def analisar_par(conn, par: str) -> dict:
 # Leitura do snapshot (para painel e gráfico)
 # --------------------------------------------------------------------------- #
 def niveis_ativos(conn, par: str, tf: str = None) -> list:
-    """Níveis ativos de um par (opcionalmente filtrando por TF de origem)."""
-    sql = "SELECT tipo, preco, preco2, tf_origem, forca FROM niveis WHERE par = ? AND ativo = 1"
+    """Níveis ativos de um par (opcionalmente filtrando por TF de origem).
+
+    Inclui `meta` (toques/rejeições/respeito/peso_tf) quando disponível, para o painel,
+    o gráfico e as estratégias avaliarem a qualidade do nível.
+    """
+    sql = ("SELECT tipo, preco, preco2, tf_origem, forca, n_toques, meta_json "
+           "FROM niveis WHERE par = ? AND ativo = 1")
     args = [par]
     if tf:
         sql += " AND tf_origem = ?"
         args.append(tf)
-    return [dict(r) for r in conn.execute(sql, args).fetchall()]
+    saida = []
+    for r in conn.execute(sql, args).fetchall():
+        d = dict(r)
+        if d.get("meta_json"):
+            try:
+                d["meta"] = json.loads(d["meta_json"])
+            except (ValueError, TypeError):
+                d["meta"] = None
+        saida.append(d)
+    return saida
 
 
 def resumo_par(conn, par: str) -> dict:

@@ -68,6 +68,19 @@ def test_gaps():
     assert fora == [], fora
 
 
+def test_qualidade_sr_mede_toques_e_rejeicoes():
+    # Resistência em 1.1000: candles que furam por cima e FECHAM abaixo = rejeição forte.
+    highs = [1.1002, 1.1005, 1.0990, 1.1003]
+    lows = [1.0980, 1.0985, 1.0970, 1.0985]
+    closes = [1.0985, 1.0988, 1.0975, 1.0987]   # sempre fecha abaixo do nível
+    q = ind.qualidade_sr(1.1000, "resistencia", highs, lows, closes, 0.0005)
+    assert q["toques"] >= 2 and q["rejeicoes"] >= 2 and q["respeito"] > 0, q
+    # Suporte em 1.0000: um toque que fecha acima = rejeição; um rompimento (fecha abaixo) não.
+    qs = ind.qualidade_sr(
+        1.0000, "suporte", [1.0010, 1.0005], [0.9998, 0.9990], [1.0008, 0.9985], 0.0005)
+    assert qs["rejeicoes"] == 1, qs
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

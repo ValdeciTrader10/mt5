@@ -288,14 +288,12 @@ class Executor:
                 p["mfe_r"], p["mae_r"] = novo_mfe, novo_mae
                 _persistir_excursao(conn, p["trade_id"], round(p["mae_r"], 3), round(p["mfe_r"], 3))
             idade_h = (_agora() - p["abertura_utc"]) / 3600
-            espaco_r = _espaco_r(conn, p["par"], p["direcao"], preco, p["risco"])
             acao, motivo = gestao.avaliar_saida(
                 direcao=p["direcao"], r=r, r_max=p["r_max"], idade_h=idade_h,
                 ultimo_evento=_evento_saida(conn, p["par"]), be_movido=p["be_movido"],
                 be_trigger_r=config.BE_TRIGGER_R, giveback_r=config.GIVEBACK_R,
                 tempo_max_h=config.TEMPO_MAX_POSICAO_H,
-                espaco_r=espaco_r, estrut_min_r=config.SAIDA_ESTRUTURA_MIN_R,
-                espaco_segurar_r=config.SAIDA_ESPACO_SEGURAR_R,
+                estrut_min_r=config.SAIDA_ESTRUTURA_MIN_R,
             )
             if acao == "fechar":
                 self._fechar(conn, p, preco, pip, motivo)

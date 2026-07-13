@@ -86,6 +86,7 @@ def timeframe(tf: str):
             "H1": mt5.TIMEFRAME_H1,
             "H4": mt5.TIMEFRAME_H4,
             "D1": mt5.TIMEFRAME_D1,
+            "W1": mt5.TIMEFRAME_W1,
         }
         if tf not in mapa:
             raise MT5Erro(f"Timeframe desconhecido: {tf}")

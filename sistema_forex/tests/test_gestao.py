@@ -36,9 +36,8 @@ def test_choch_contrario_sai_com_lucro_desenvolvido():
     # CHOCH (reversão) contra a posição, com r ≥ estrut_min_r → fecha, mesmo com espaço.
     acao, motivo = g.avaliar_saida(direcao="compra", r=1.2, r_max=1.3, idade_h=1,
                                    ultimo_evento={"evento": "CHOCH", "direcao": "baixa"},
-                                   be_movido=True, espaco_r=3.0, estrut_min_r=1.0,
-                                   espaco_segurar_r=1.0, **SAIDA)
-    assert acao == "fechar" and "força contrária" in motivo
+                                   be_movido=True, estrut_min_r=1.0, **SAIDA)
+    assert acao == "fechar" and "CHOCH" in motivo
 
 
 def test_nao_sai_no_ruido_com_lucro_de_centavos():
@@ -50,22 +49,13 @@ def test_nao_sai_no_ruido_com_lucro_de_centavos():
     assert acao == "manter"
 
 
-def test_bos_contrario_segura_quando_ha_espaco():
-    # BOS fraco, já no lucro (r≥min), MAS com espaço p/ o alvo → segura (deixa desenvolver).
+def test_bos_contrario_nunca_fecha():
+    # "Ativou, deixa o preço andar": um BOS de continuação contra NÃO fecha, mesmo no lucro
+    # e mesmo perto de um nível — só a reversão (CHOCH) fecha. Protege quem deixa correr.
     acao, _ = g.avaliar_saida(direcao="compra", r=1.2, r_max=1.3, idade_h=1,
                               ultimo_evento={"evento": "BOS", "direcao": "baixa"},
-                              be_movido=True, espaco_r=2.5, estrut_min_r=1.0,
-                              espaco_segurar_r=1.0, **SAIDA)
+                              be_movido=True, estrut_min_r=1.0, **SAIDA)
     assert acao == "manter"
-
-
-def test_bos_contrario_sai_quando_perto_do_alvo():
-    # BOS fraco, no lucro, mas SEM espaço (perto do nível contrário) → protege e sai.
-    acao, motivo = g.avaliar_saida(direcao="compra", r=1.2, r_max=1.3, idade_h=1,
-                                   ultimo_evento={"evento": "BOS", "direcao": "baixa"},
-                                   be_movido=True, espaco_r=0.3, estrut_min_r=1.0,
-                                   espaco_segurar_r=1.0, **SAIDA)
-    assert acao == "fechar" and "força contrária" in motivo
 
 
 def test_saida_por_reversao_giveback():

@@ -20,8 +20,12 @@ DB_PATH = Path(os.environ.get("DB_PATH", DADOS_DIR / "mercado.db"))
 # --------------------------------------------------------------------------- #
 PARES = ["EURUSD#", "GBPUSD#", "USDCAD"]
 TF_OPERACAO = "M5"
-TFS_COLETA = ["M5", "M15", "H1", "D1"]
+# W1 (semanal) incluído: é onde estão os S/R mais fortes (junto de D1/H1).
+TFS_COLETA = ["M5", "M15", "H1", "D1", "W1"]
 BACKFILL_MESES = 6
+# Piso de barras por TF no backfill: garante histórico suficiente para os TFs altos
+# (6 meses de W1 são só ~26 velas; precisamos de mais para ATR/S/R no semanal).
+BACKFILL_MIN_BARRAS = int(os.environ.get("BACKFILL_MIN_BARRAS", "300"))
 
 SWING_N_M5 = 3
 SWING_N_M15 = 5
@@ -30,6 +34,19 @@ SWING_N_H1 = 5
 SR_CLUSTER_ATR = 0.5
 SR_ROMPIMENTO_ATR = 0.3
 SR_FORCA_MIN = 3
+# S/R MAIS FORTES são de TFs MAIORES (pedido do dono): H1, Diário e Semanal.
+# M5/M15 = ruído; não geram S/R. O W1/D1/H1 são as zonas de maior chance de boa entrada.
+SR_TFS = [s.strip() for s in os.environ.get("SR_TFS", "H1,D1,W1").split(",") if s.strip()]
+# Peso por TF de origem: Semanal > Diário > H1 (força cresce com o TF).
+SR_TF_PESO = {"M15": 0.5, "H1": 1.0, "D1": 2.0, "W1": 3.0}
+# Banda de "toque" ao nível = fração do ATR (para medir toques/rejeições).
+SR_TOQUE_ATR = float(os.environ.get("SR_TOQUE_ATR", "0.25"))
+# Zona não tocada há mais que isto (candles) perde força (doc §4.2).
+SR_RECENCIA_CANDLES = int(os.environ.get("SR_RECENCIA_CANDLES", "500"))
+# Força mínima (qualidade) para o nível ser persistido/usado — corta S/R fraco.
+SR_QUALIDADE_MIN = float(os.environ.get("SR_QUALIDADE_MIN", "2.0"))
+# Máximo de níveis por tipo (suporte/resistência) por par — anti-proliferação (só os melhores).
+SR_MAX_POR_TIPO = int(os.environ.get("SR_MAX_POR_TIPO", "6"))
 
 FVG_MIN_ATR = 0.3
 
@@ -131,7 +148,8 @@ ANALISE_JANELA = int(os.environ.get("ANALISE_JANELA", "1500"))
 # TF de referência para o regime (ADX) e para gaps de sessão.
 TF_REGIME = os.environ.get("TF_REGIME", "H1")
 # Nº de swings por TF (fractal) — quantos candles de cada lado confirmam o pivô.
-SWING_N = {"M5": SWING_N_M5, "M15": SWING_N_M15, "H1": SWING_N_H1, "D1": SWING_N_H1}
+SWING_N = {"M5": SWING_N_M5, "M15": SWING_N_M15, "H1": SWING_N_H1,
+           "D1": SWING_N_H1, "W1": SWING_N_H1}
 
 # --------------------------------------------------------------------------- #
 # Estrategista / decisão (Fase 4 — modo sombra)

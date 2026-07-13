@@ -64,17 +64,14 @@ def avaliar_saida(*, direcao, r, r_max, idade_h, ultimo_evento, be_movido,
     if idade_h >= tempo_max_h:
         return ("fechar", f"tempo máximo ({idade_h:.1f}h ≥ {tempo_max_h}h)")
 
-    # Força contrária de ESTRUTURA — mas com direito a desenvolver:
+    # Força contrária de ESTRUTURA — só sai se o preço MOSTRAR reversão (CHOCH), com lucro
+    # já desenvolvido. Um BOS de continuação contra, ou mera proximidade a um nível, NÃO
+    # fecha: "ativou uma estratégia, deixa o preço andar" (o giveback/tempo/stop protegem).
+    # (`espaco_r`/`espaco_segurar_r` mantidos por compat; a decisão agora é só pela reversão.)
     if r >= estrut_min_r and ultimo_evento and _oposto(direcao, ultimo_evento.get("direcao", "")):
-        ev = (ultimo_evento.get("evento") or "").upper()
-        forte = ev == "CHOCH"                                   # reversão confirmada
-        tem_espaco = (espaco_r is None) or (espaco_r >= espaco_segurar_r)
-        # CHOCH sai já; BOS só sai se NÃO houver espaço (perto do nível contrário).
-        if forte or not tem_espaco:
-            esp = f"{espaco_r:.1f}R" if espaco_r is not None else "aberto"
+        if (ultimo_evento.get("evento") or "").upper() == "CHOCH":
             return ("fechar",
-                    f"força contrária: {ev} {ultimo_evento.get('direcao')} "
-                    f"(r={r:.1f}, espaço={esp})")
+                    f"reversão confirmada: CHOCH {ultimo_evento.get('direcao')} (r={r:.1f})")
 
     if r_max >= be_trigger_r and r <= r_max - giveback_r:
         return ("fechar", f"reversão: cedeu {giveback_r:.1f}R do pico ({r_max:.1f}R → {r:.1f}R)")
