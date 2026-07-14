@@ -206,6 +206,13 @@ só usam velas fechadas). Envs: `DIVERGENCIA_/PULLBACK_LEQUE_/SYNC_FLIP_/EXAUSTA
 `LEQUE_*`, `EXAUSTAO_*`. `MAX_POS_SOMBRA` 400→800 (mais livros). ⚠️ SL/saída ainda é o genérico (ATR);
 o "deixar correr + prejuízo pequeno" (stop estrutural apertado) é a PRÓXIMA calibração, guiada por
 MAE/MFE por estratégia — não chutar (skill §2). Nada vira demo sem a Etapa 9 (N≥50 + split-half).
+**DECISÃO (14/07):** deixar a sombra RODAR e coletar amostra antes de mexer em qualquer coisa. As 7
+(na verdade 10) estratégias da Variante A **NÃO foram reescritas** — seguem como CONTROLE intocado
+(princípio governante); a D_LINHAS é família NOVA/standalone, não uma versão das originais. **Parado
+p/ depois da amostra:** (1) stop estrutural por estratégia guiado por MAE/MFE; (2) possível `D_HIBRIDA`
+= gêmeo de cada original filtrado pela DINÂMICA das linhas (como a C faz com o fuzzy estático) — só se
+as 4 linhas-puras mostrarem edge isolado (evita armadilha de múltiplos testes espalhando dezenas de
+livros novos). Ordem de auditoria: 4 linhas-puras primeiro → depois cruzar com as originais.
 
 ## Pares monitorados (sombra) — 13/07
 `config.PARES` (env-configurável no Dokploy): `EURUSD#, GBPUSD#, USDCAD, USDJPY#, AUDUSD#, GBPJPY#, GOLD`.
