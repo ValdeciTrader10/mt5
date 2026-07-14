@@ -33,6 +33,11 @@
     th, td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #21262d; }
     th { color: #8b949e; font-weight: 600; }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pos { color: #3fb950; } .neg { color: #f85149; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .8rem; margin-top: .6rem; }
+    .kpi { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: .7rem .9rem; }
+    .kpi .v { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .kpi .k { color: #8b949e; font-size: .76rem; }
   </style>
 </head>
 <body>
@@ -50,27 +55,117 @@
     {% endif %}
 
     <section>
-      <h2>Como ler</h2>
-      <p class="muted">Este painel é <b>separado</b> do forex de propósito: a B3 é outro mercado, com
-        escala e P&amp;L (BRL) diferentes. Aqui você acompanha a <b>coleta</b> (candles chegando), a
-        <b>cotação</b> e a análise do <b>motor</b> (regime + níveis) de WIN/WDO.
-        Também em <a href="/api/b3" style="color:#d29922">JSON</a>.</p>
+      <h2>Conexão &amp; sombra</h2>
+      <div class="cards">
+        <div class="card">
+          <h3>Ponte MT5 (Genial) <span class="tag {{ 'ok' if dados.mt5_ok else 'no' }}">{{ 'conectada' if dados.mt5_ok else 'offline' }}</span></h3>
+          {% if dados.mt5 %}
+            <div class="linha"><span>Login</span><span>{{ dados.mt5.login }}</span></div>
+            <div class="linha"><span>Servidor</span><span>{{ dados.mt5.servidor }}</span></div>
+            <div class="linha"><span>Saldo (conta real, só cotação)</span><span>{{ dados.mt5.moeda }} {{ '%.2f'|format(dados.mt5.saldo) }}</span></div>
+            <div class="linha"><span>Terminal conectado</span><span>{{ 'sim' if dados.mt5.conectado else 'não' }}</span></div>
+          {% else %}
+            <p class="muted">Ponte da Genial indisponível agora (terminal reiniciando?). A coleta e o
+              histórico abaixo seguem valendo; a cotação ao vivo volta quando a ponte responder.</p>
+          {% endif %}
+          <p class="muted" style="margin:.5rem 0 0">A ponte da B3 é <b>data-only</b>: nenhuma ordem é
+            enviada — a conta serve só como fonte de cotações (a sombra é 100% virtual).</p>
+        </div>
+        <div class="card">
+          <h3>Livro de sombra (BRL)</h3>
+          <div class="kpis">
+            <div class="kpi"><div class="v">{{ dados.n_decisoes }}</div><div class="k">decisões</div></div>
+            <div class="kpi"><div class="v">{{ dados.n_trades }}</div><div class="k">trades</div></div>
+            <div class="kpi"><div class="v">{{ dados.n_abertas }}</div><div class="k">posições abertas</div></div>
+            <div class="kpi"><div class="v {{ 'pos' if dados.pnl_brl > 0 else ('neg' if dados.pnl_brl < 0 else '') }}">R$ {{ '%.2f'|format(dados.pnl_brl) }}</div><div class="k">P&amp;L acumulado</div></div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section>
-      <h2>Situação das estratégias</h2>
-      {% if dados.estrategias_ligadas %}
-        <div class="aviso">Estratégias <b>ligadas</b> na B3: {{ dados.n_decisoes }} decisões ·
-          {{ dados.n_trades }} trades de sombra registrados. Os resultados por estratégia aparecem abaixo
-          e no /relatorio (filtrando pelos pares WIN/WDO).</div>
+      <h2>Como ler</h2>
+      <p class="muted">Este painel é <b>separado</b> do forex de propósito: a B3 é outro mercado, com
+        escala e P&amp;L (BRL) diferentes. Aqui você acompanha a <b>conexão</b> da ponte, a <b>coleta</b>
+        (candles chegando), a <b>cotação</b>, a análise do <b>motor</b> (regime + níveis) e os
+        <b>resultados das estratégias</b> na sombra (P&amp;L em BRL). Também em
+        <a href="/api/b3" style="color:#d29922">JSON</a>.</p>
+    </section>
+
+    <section>
+      <h2>Resultados das estratégias (sombra)</h2>
+      {% if not dados.estrategias_ligadas %}
+        <div class="aviso">As estratégias da B3 estão <b>desligadas</b>
+          (<code>B3_SOMBRA_HABILITADA=false</code>). Ligue no Environment do Dokploy para catalogar.</div>
+      {% elif not dados.resumo %}
+        <div class="aviso">Estratégias <b>ligadas</b> ({{ dados.n_decisoes }} decisões registradas), mas
+          ainda <b>sem trade fechado</b> para agregar. Os resultados aparecem aqui assim que as primeiras
+          operações de sombra fecharem{% if dados.n_abertas %} ({{ dados.n_abertas }} aberta(s) agora){% endif %}.</div>
       {% else %}
-        <div class="aviso">📊 Fase atual: <b>coleta + análise do motor</b>. As <b>estratégias</b>
-          (decisões → trades → resultados) ainda <b>não estão ligadas</b> para a B3 — é o próximo passo
-          (Etapa 8b), que exige calibrar a escala de WIN/WDO (stop/spread) para não gerar trades
-          insta-estopados, como aconteceu no ouro. Enquanto isso, os cards abaixo mostram que os dados
-          já estão vivos e o motor já lê o mercado.</div>
+        <p class="muted">Livro de SOMBRA de WIN/WDO (100% virtual), P&amp;L em <b>BRL</b>. Também no
+          <a href="/relatorio" style="color:#d29922">/relatorio</a> (multi-variante).</p>
+        <div class="kpis">
+          <div class="kpi"><div class="v">{{ dados.resumo.n }}</div><div class="k">trades fechados</div></div>
+          <div class="kpi"><div class="v">{{ dados.resumo.winrate }}%</div><div class="k">acerto ({{ dados.resumo.ganhos }}G/{{ dados.resumo.perdas }}P)</div></div>
+          <div class="kpi"><div class="v {{ 'pos' if dados.resumo.usd > 0 else ('neg' if dados.resumo.usd < 0 else '') }}">R$ {{ '%.2f'|format(dados.resumo.usd) }}</div><div class="k">resultado</div></div>
+          <div class="kpi"><div class="v {{ 'pos' if dados.resumo.expectativa > 0 else ('neg' if dados.resumo.expectativa < 0 else '') }}">R$ {{ '%.2f'|format(dados.resumo.expectativa) }}</div><div class="k">expectância/trade</div></div>
+          <div class="kpi"><div class="v">{{ dados.resumo.profit_factor if dados.resumo.profit_factor is not none else '—' }}</div><div class="k">profit factor</div></div>
+        </div>
+        <table style="margin-top:1rem">
+          <tr><th>Estratégia · TF</th><th class="num">N</th><th class="num">acerto</th>
+            <th class="num">R$ total</th><th class="num">R$/trade</th><th class="num">PF</th>
+            <th class="num">MAE méd</th><th class="num">MFE méd</th></tr>
+          {% for l in dados.por_estrategia_tf %}
+          <tr>
+            <td>{{ l.chave }}</td>
+            <td class="num">{{ l.n }}</td>
+            <td class="num">{{ l.winrate }}%</td>
+            <td class="num {{ 'pos' if l.usd > 0 else ('neg' if l.usd < 0 else '') }}">{{ '%.2f'|format(l.usd) }}</td>
+            <td class="num {{ 'pos' if l.expectativa > 0 else ('neg' if l.expectativa < 0 else '') }}">{{ '%.2f'|format(l.expectativa) }}</td>
+            <td class="num">{{ l.profit_factor if l.profit_factor is not none else '—' }}</td>
+            <td class="num">{{ l.mae_medio if l.mae_medio is not none else '—' }}</td>
+            <td class="num">{{ l.mfe_medio if l.mfe_medio is not none else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </table>
       {% endif %}
     </section>
+
+    {% if dados.posicoes_abertas %}
+    <section>
+      <h2>Posições abertas na sombra ({{ dados.n_abertas }})</h2>
+      <table>
+        <tr><th>Par</th><th>TF</th><th>Estratégia</th><th>Variante</th><th>Direção</th>
+          <th class="num">Entrada</th><th class="num">SL</th><th>Aberta</th></tr>
+        {% for p in dados.posicoes_abertas %}
+        <tr>
+          <td>{{ p.par }}</td><td>{{ p.tf }}</td><td>{{ p.estrategia }}</td><td>{{ p.variante }}</td>
+          <td>{{ p.direcao }}</td>
+          <td class="num">{{ '%.1f'|format(p.entrada) if p.entrada is not none else '—' }}</td>
+          <td class="num">{{ '%.1f'|format(p.sl) if p.sl is not none else '—' }}</td>
+          <td>{{ p.hora }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </section>
+    {% endif %}
+
+    {% if dados.decisoes_recentes %}
+    <section>
+      <h2>Decisões recentes</h2>
+      <table>
+        <tr><th>Hora</th><th>Par</th><th>TF</th><th>Estratégia</th><th>Direção</th><th>Resultado</th><th>Motivo</th></tr>
+        {% for d in dados.decisoes_recentes %}
+        <tr>
+          <td>{{ d.hora }}</td><td>{{ d.par }}</td><td>{{ d.tf }}</td><td>{{ d.estrategia }}</td>
+          <td>{{ d.direcao }}</td>
+          <td><span class="tag {{ 'ok' if d.resultado == 'entrou' else 'no' }}">{{ d.resultado }}</span></td>
+          <td class="muted">{{ d.motivo }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </section>
+    {% endif %}
 
     <section>
       <h2>Calibração de escala (Etapa 8b)</h2>

@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import analise, calibracao_b3, config, config_b3, db, fuzzy_score, mt5_bridge
+from .. import analise, calibracao_b3, config, config_b3, db, fuzzy_score, mt5_bridge, mt5_bridge_b3
 from . import auth
 
 logging.basicConfig(
@@ -498,9 +498,10 @@ def api_auditoria(request: Request, de: str = "", ate: str = "", formato: str = 
 
 def _dados_b3() -> dict:
     """Dados do painel SEPARADO da B3 (WIN/WDO) — mercado distinto do forex (P&L em BRL, outra
-    escala), por isso página própria. Mostra a saúde da COLETA (candles por TF), a última cotação,
-    a análise do MOTOR (regime + níveis) e o estado das estratégias (a ligar na Etapa 8b). Enquanto
-    o executor de sombra da B3 não é fiado, `n_trades`=0 e o painel deixa isso explícito."""
+    escala), por isso página própria. Mostra a conexão da ponte da Genial, a saúde da COLETA
+    (candles por TF), a última cotação, a análise do MOTOR (regime + níveis), a calibração de
+    escala e os RESULTADOS da sombra (por estratégia × TF, em BRL) + as posições abertas."""
+    from datetime import datetime
     pares = list(config_b3.PARES_B3)
     with db.sessao() as conn:
         simbolos = []
@@ -519,14 +520,36 @@ def _dados_b3() -> dict:
                 "ultimo_preco": lc["close"] if lc else None,
                 "ultimo_utc": lc["time_utc"] if lc else None,
             })
-        # Livro de SOMBRA da B3 (mercado='b3'): decisões, trades fechados e P&L acumulado em BRL.
-        n_dec = n_trades = 0
-        pnl_brl = 0.0
+        # Livro de SOMBRA da B3 (mercado='b3'): decisões, trades fechados/abertos e P&L em BRL.
         n_dec = conn.execute("SELECT COUNT(*) n FROM decisoes WHERE mercado='b3'").fetchone()["n"]
         n_trades = conn.execute("SELECT COUNT(*) n FROM trades WHERE mercado='b3'").fetchone()["n"]
-        pnl_brl = conn.execute(
-            "SELECT COALESCE(SUM(lucro_usd),0) s FROM trades WHERE mercado='b3' "
-            "AND fechamento_utc IS NOT NULL").fetchone()["s"]
+        fechados = conn.execute(
+            "SELECT estrategia, tf, direcao, pips, lucro_usd, mae_r, mfe_r, variante "
+            "FROM trades WHERE mercado='b3' AND fechamento_utc IS NOT NULL").fetchall()
+        fechados = [dict(r) for r in fechados]
+        pnl_brl = round(sum(t["lucro_usd"] or 0 for t in fechados), 2)
+        resumo_geral = _agregar(fechados) if fechados else None
+        por_estrategia_tf = _por_estrategia_tf(fechados) if fechados else []
+        # Posições abertas da sombra (o "quantidades" ao vivo, como no forex).
+        abertas = [dict(r) for r in conn.execute(
+            "SELECT par, tf, estrategia, direcao, preco_entrada, sl_servidor, abertura_utc, variante "
+            "FROM trades WHERE mercado='b3' AND fechamento_utc IS NULL ORDER BY abertura_utc DESC").fetchall()]
+        posicoes_abertas = [{
+            "par": r["par"], "tf": r["tf"], "estrategia": config.nome_estrategia(r["estrategia"]),
+            "direcao": r["direcao"], "entrada": r["preco_entrada"], "sl": r["sl_servidor"],
+            "variante": config.nome_variante(r["variante"]),
+            "hora": datetime.utcfromtimestamp(r["abertura_utc"]).strftime("%m-%d %H:%M")
+            if r["abertura_utc"] else "—",
+        } for r in abertas]
+        # Últimas decisões da B3 (entrou/não), como o feed do painel do forex.
+        decisoes_recentes = [{
+            "par": r["par"],
+            "hora": datetime.utcfromtimestamp(r["time_utc"]).strftime("%m-%d %H:%M"),
+            "tf": r["tf"], "estrategia": config.nome_estrategia(r["estrategia"]),
+            "direcao": r["direcao"] or "—", "resultado": r["resultado"], "motivo": r["motivo"],
+        } for r in conn.execute(
+            "SELECT par, time_utc, tf, estrategia, direcao, resultado, motivo FROM decisoes "
+            "WHERE mercado='b3' ORDER BY time_utc DESC, id DESC LIMIT 15").fetchall()]
         # Calibração de escala (Etapa 8b): derivada dos candles já coletados. Guardada — se
         # faltar dado/erro, o painel segue mostrando o resto (não quebra por causa da calibração).
         calibracao = None
@@ -534,13 +557,30 @@ def _dados_b3() -> dict:
             calibracao = calibracao_b3.calibrar(conn, pares=pares)
         except Exception:  # noqa: BLE001 - painel tolerante; a calibração é informativa
             log.exception("Falha ao calibrar escala da B3 no painel")
+
+    # Conexão da ponte da Genial (data-only) — o "MT5 conectado" da B3.
+    mt5_info = None
+    mt5_ok = False
+    try:
+        mt5_info = mt5_bridge_b3.ping()
+        mt5_ok = True
+    except Exception as e:  # noqa: BLE001 - painel tolerante (terminal pode estar reiniciando)
+        log.debug("ping MT5 B3 falhou no painel: %s", e)
+
     return {
         "habilitado": config_b3.B3_HABILITADO,
         "pares": pares,
         "simbolos": simbolos,
+        "mt5_ok": mt5_ok,
+        "mt5": mt5_info,
         "n_decisoes": n_dec,
         "n_trades": n_trades,
+        "n_abertas": len(posicoes_abertas),
         "pnl_brl": pnl_brl,
+        "resumo": resumo_geral,
+        "por_estrategia_tf": por_estrategia_tf,
+        "posicoes_abertas": posicoes_abertas,
+        "decisoes_recentes": decisoes_recentes,
         # Sombra da B3 fiada (ETAPA 8b): estrategista + executor de sombra ligados. A flag
         # reflete a configuração (aguardando o pregão formar candles quando n_dec ainda é 0).
         "estrategias_ligadas": config_b3.B3_HABILITADO and config_b3.B3_SOMBRA_HABILITADA,
