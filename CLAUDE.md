@@ -162,11 +162,30 @@ Sem a carência a comparação A×C era inútil (C sempre raspava −1 pip). Env
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **202 testes, todos passando.**
+  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **209 testes, todos passando.**
   Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
 - Env sensíveis (senha do painel, VNC, MT5) só no Environment do Dokploy — nunca no git.
+
+## Fidelidade ao PDF Fuzzy Wyckoff + volume real na B3 (14/07)
+Rodada de correções de fidelidade ao PDF didático (escolhidas pelo dono), ADITIVAS/desligáveis:
+- **Item 1 — bandas de cor:** `fuzzy_score.estado_por_score` alinhado ao PDF (lima 76+ · **verde 56–75** ·
+  **branco 46–55** · **fúcsia 26–45** · vermelho ≤25). Só COR das velas + componente EV da sync (não
+  bloqueia) — entradas usam o score numérico.
+- **Item 4 — A/B da maré (Variante B):** `avaliar_fuzzy_puro` ganhou o parâmetro `estrategia`; a `decisao`
+  dispara DOIS livros paralelos no TF de timing — `fuzzy_puro_v1` (maré 60/verde, atual) e
+  **`fuzzy_puro_lima_v1`** (maré 76/Lima, fiel ao PDF). Comparáveis no /relatorio (Lima seca sinais →
+  os dados dizem se rende mais). Env `FUZZY_B2_HABILITADA`/`FUZZY_B2_MARE_MIN`.
+- **Item 5 — VWAP no pregão B3:** `analise._inicio_sessao_vwap` ancora a VWAP diária na ABERTURA DO
+  PREGÃO p/ B3 (`VWAP_B3_ANCORA_HORA`=9h no relógio do servidor Genial), meia-noite p/ forex.
+  ⚠️ assume que o relógio do servidor Genial mostra a hora local do pregão — validar com os candles.
+- **Item 6 — volume REAL na B3:** coluna `candles.real_volume` (contratos; migração idempotente guardada),
+  `mt5_bridge_b3` devolve real_volume, `gravar_candles` persiste (NULL no forex). `niveis_vwap` e
+  `fuzzy_score.atualizar_par` usam `COALESCE(NULLIF(real_volume,0), tick_volume)` → B3 lê o volume Wyckoff
+  verdadeiro (absorção/exaustão/VWAP), forex inalterado (cai no tick_volume).
+- **NÃO feito (dono adiou):** item 2 (gatilho de rompimento no checklist da Variante B — MUDA entradas).
+  Testes por item em `test_fuzzy`/`test_estrategias`/`test_b3`.
 
 ## Pares monitorados (sombra) — 13/07
 `config.PARES` (env-configurável no Dokploy): `EURUSD#, GBPUSD#, USDCAD, USDJPY#, AUDUSD#, GBPJPY#, GOLD`.
