@@ -199,6 +199,23 @@
         </button>
       </form>
     </section>
+
+    <section>
+      <h2>♻️ Restaurar {{ mkt_nome }} do último backup <span class="muted">— desfaz uma limpeza indevida</span></h2>
+      <p class="muted">Traz de volta os <b>trades e decisões do {{ mkt_nome }}</b> a partir do backup
+        mais recente (feito automaticamente antes de cada limpeza). Não duplica e <b>não toca no
+        {{ 'forex' if mkt == 'b3' else 'B3' }}</b>. Digite <b>RESTAURAR</b> para confirmar.</p>
+      <form method="post" action="/manutencao/restaurar" class="copiarow"
+            onsubmit="return confirm('Restaurar {{ mkt_nome }} do último backup? (o outro mercado fica intacto)')">
+        <input type="hidden" name="mercado" value="{{ mkt }}">
+        <input type="text" name="confirmacao" placeholder="digite RESTAURAR" autocomplete="off"
+               style="text-transform:uppercase">
+        <button class="btn" type="submit"
+                style="background:#238636;border-color:#238636;color:#fff;font-weight:600">
+          Restaurar {{ mkt_nome }}
+        </button>
+      </form>
+    </section>
   </main>
   <script>
     document.getElementById('copiar').addEventListener('click', async function () {

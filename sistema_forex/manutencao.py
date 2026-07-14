@@ -110,8 +110,51 @@ def resetar_b3(conn) -> dict:
     return apagados
 
 
+def ultimo_backup(db_path=None):
+    """Caminho do backup (.bak-*) mais recente do banco, ou None se não houver."""
+    import glob
+    src = str(db_path or config.DB_PATH)
+    baks = sorted(glob.glob(f"{src}.bak-*"))
+    return baks[-1] if baks else None
+
+
+def restaurar_de_backup(conn, caminho_backup, mercado="forex") -> dict:
+    """RESTAURA trades+decisões de UM mercado a partir de um backup (.bak) para o banco vivo — sem
+    tocar no outro mercado nem nos candles. Usado para desfazer uma limpeza indevida (ex.: o forex
+    apagado por engano pelo botão da B3). INSERT OR IGNORE preservando os ids (PK AUTOINCREMENT →
+    ids antigos ≤ máximo, novos > máximo, sem colisão) e só as colunas comuns (robusto a schema
+    novo). Retorna o nº restaurado por tabela."""
+    cond = "mercado='b3'" if mercado == "b3" else "(mercado='forex' OR mercado IS NULL)"
+    conn.execute("ATTACH DATABASE ? AS bak", (str(caminho_backup),))
+    restaurados = {}
+    try:
+        for t in TABELAS_OPERACAO:
+            live = [r["name"] for r in conn.execute(f"PRAGMA table_info({t})").fetchall()]
+            bakc = {r["name"] for r in conn.execute(f"PRAGMA bak.table_info({t})").fetchall()}
+            cols = ",".join(c for c in live if c in bakc)
+            cur = conn.execute(
+                f"INSERT OR IGNORE INTO {t} ({cols}) SELECT {cols} FROM bak.{t} WHERE {cond}")
+            restaurados[t] = cur.rowcount
+        conn.commit()
+    finally:
+        conn.execute("DETACH DATABASE bak")
+    return restaurados
+
+
 def main() -> int:
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
+
+    if cmd in ("restaurar-forex", "restaurar-b3"):
+        mercado = "b3" if cmd == "restaurar-b3" else "forex"
+        bak = sys.argv[2] if len(sys.argv) > 2 else ultimo_backup()
+        if not bak:
+            print("Nenhum backup .bak encontrado — nada a restaurar."); return 1
+        print(f"Restaurando {mercado} do backup: {bak}")
+        with db.sessao() as conn:
+            restaurados = restaurar_de_backup(conn, bak, mercado=mercado)
+        print("Restaurados:", {k: v for k, v in restaurados.items() if v})
+        print("\n⚠️ REDEPLOY no Dokploy depois (para o executor recarregar do banco).")
+        return 0
 
     if cmd == "status":
         with db.sessao() as conn:

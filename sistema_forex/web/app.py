@@ -771,6 +771,35 @@ def manutencao_reset(request: Request, confirmacao: str = Form(""), mercado: str
     return HTMLResponse(_html_reset(corpo, ok=True))
 
 
+@app.post("/manutencao/restaurar", response_class=HTMLResponse)
+def manutencao_restaurar(request: Request, confirmacao: str = Form(""), mercado: str = Form("forex")):
+    """Restaura trades/decisões de UM mercado do ÚLTIMO backup — desfaz uma limpeza indevida (ex.:
+    o forex apagado por engano). Guardado por login + confirmação 'RESTAURAR'. Não toca no outro
+    mercado nem duplica (INSERT OR IGNORE por id)."""
+    if not auth.esta_logado(request):
+        return auth.redirecionar_login()
+    from .. import manutencao as manut
+
+    if confirmacao.strip().upper() != "RESTAURAR":
+        return HTMLResponse(_html_reset(
+            'Confirmação incorreta — digite <b>RESTAURAR</b>. <b>Nada foi restaurado.</b>', ok=False),
+            status_code=400)
+    mercado = "b3" if mercado == "b3" else "forex"
+    bak = manut.ultimo_backup()
+    if not bak:
+        return HTMLResponse(_html_reset(
+            'Nenhum backup (.bak) encontrado no servidor — nada a restaurar.', ok=False),
+            status_code=400)
+    with db.sessao() as conn:
+        restaurados = manut.restaurar_de_backup(conn, bak, mercado=mercado)
+    nome = "B3" if mercado == "b3" else "Forex"
+    corpo = (f"✅ Restauração do <b>{nome}</b> concluída a partir do backup <code>{bak}</code>.<br>"
+             f"Restaurados: trades <b>{restaurados.get('trades', 0)}</b>, "
+             f"decisões <b>{restaurados.get('decisoes', 0)}</b> (o outro mercado não foi tocado).<br><br>"
+             f"⚠️ Faça um <b>REDEPLOY no Dokploy</b> para o executor recarregar do banco.")
+    return HTMLResponse(_html_reset(corpo, ok=True))
+
+
 # Cor de cada estado fuzzy (para pintar as velas do gráfico — ETAPA 4).
 _COR_ESTADO = {
     "lima": "#7ee787", "verde": "#3fb950", "branco": "#8b949e",

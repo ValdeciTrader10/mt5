@@ -92,6 +92,38 @@ def test_backup_gera_arquivo_com_os_dados():
             os.remove(bak)
 
 
+def test_restaurar_forex_do_backup():
+    """Recuperação do bug: restaurar o forex de um backup traz de volta só o forex, sem duplicar
+    (idempotente) nem tocar na b3."""
+    caminho = _tmp_db()
+    bak = None
+    try:
+        conn = db.conectar(caminho)
+        conn.execute("INSERT INTO trades (id,par,estrategia,mercado) VALUES (1,'EURUSD#','x','forex')")
+        conn.execute("INSERT INTO trades (id,par,estrategia,mercado) VALUES (2,'WIN$N','y','b3')")
+        conn.execute("INSERT INTO decisoes (id,par,time_utc,resultado,mercado) VALUES (1,'EURUSD#',1,'entrou','forex')")
+        conn.commit(); conn.close()
+
+        bak = manutencao._backup(caminho)          # backup com forex + b3
+        conn = db.conectar(caminho)
+        manutencao.resetar(conn)                   # simula o bug: apaga TUDO
+        assert manutencao.contar(conn)["trades"] == 0
+
+        r = manutencao.restaurar_de_backup(conn, bak, mercado="forex")
+        assert r["trades"] == 1 and r["decisoes"] == 1, r
+        assert conn.execute("SELECT COUNT(*) c FROM trades WHERE mercado='forex'").fetchone()["c"] == 1
+        assert conn.execute("SELECT COUNT(*) c FROM trades WHERE mercado='b3'").fetchone()["c"] == 0, "b3 não volta no restore forex"
+
+        r2 = manutencao.restaurar_de_backup(conn, bak, mercado="forex")   # idempotente
+        assert r2["trades"] == 0, r2
+        assert conn.execute("SELECT COUNT(*) c FROM trades").fetchone()["c"] == 1
+        conn.close()
+    finally:
+        os.remove(caminho)
+        if bak and os.path.exists(bak):
+            os.remove(bak)
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:
