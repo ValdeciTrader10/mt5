@@ -35,6 +35,12 @@ SECRET_KEY=8d44ed544112592315b8336272d230b2d0b31908b53bbc2c9d674caff49a6cf6
 MT5_LOGIN=336082748
 MT5_SERVER=XMGlobal-MT5 9
 LOG_LEVEL=DEBUG
+
+# B3 / Genial (ETAPA 8 — feed WIN/WDO). Conta REAL só para cotações (sombra, sem ordens).
+B3_HABILITADO=true
+PARES_B3=WIN$N,WDO$N
+MT5_B3_LOGIN=<seu-login-genial>
+MT5_B3_SERVER=<servidor-genial>
 ```
 
 > `SECRET_KEY` acima foi gerada aleatoriamente para você (assina o cookie de login).
@@ -63,6 +69,25 @@ backfill de 6 meses automaticamente.
 > Segurança: a porta 3100 fica protegida só pela senha do VNC. Para uma conta demo tudo
 > bem. Se quiser fechar depois, troque no compose `"3100:3000"` por `"127.0.0.1:3100:3000"`
 > e passe a acessar por túnel SSH (`ssh -L 3100:localhost:3100 usuario@IP_DA_VPS`).
+
+## 4b. Logar no MT5 da Genial (feed B3 — uma vez)
+
+O 2º terminal (WIN/WDO) abre numa porta separada:
+
+```
+http://IP_DA_VPS:3101
+```
+
+Mesma senha do VNC (`VNC_USER`/`VNC_PASSWORD`). No terminal, faça login na sua conta
+**Genial** (login/servidor que você pôs em `MT5_B3_LOGIN`/`MT5_B3_SERVER`). **Não precisa
+habilitar Algo Trading** — o B3 é só leitura (a ponte `mt5_bridge_b3` nem tem função de
+ordem). O volume `mt5_b3_config` guarda o login entre reinícios.
+
+> **Confira os nomes dos símbolos.** Abra a *Market Watch* (Ctrl+M) e veja como a Genial
+> chama o mini índice e o mini dólar. Se **não** forem `WIN$N`/`WDO$N` (ex.: contrato do
+> mês `WINV25`, ou `WIN$`), ajuste `PARES_B3` no Environment e faça redeploy. Assim que o
+> terminal estiver logado e os símbolos visíveis, o `coletor_b3` faz o backfill e passa a
+> logar os candles de WIN a cada minuto (veja os logs do container `coletor_b3`).
 
 ## 5. Acessar o painel
 
@@ -122,5 +147,8 @@ fixa `rpyc==5.2.3` e roda em Python 3.11, falando direto com o servidor via `rpy
 - Se o painel mostrar **MT5 Offline**: o terminal ainda não está logado (passo 4) ou o
   container `mt5` ainda está subindo (primeiro boot demora).
 - **Redeploy** após novos commits: botão **Deploy** de novo (ou ative auto-deploy por webhook).
-- Portas usadas por este stack no host: **8090** (painel) e **3100** (VNC, só localhost).
-  A API Python do MT5 (8001) nunca sai da rede interna.
+- Portas usadas por este stack no host: **8090** (painel), **3100** (VNC XM) e **3101**
+  (VNC Genial/B3). A API Python do MT5 (8001, em cada terminal) nunca sai da rede interna.
+- **Feed B3 parado?** Veja os logs do `coletor_b3`: "Símbolo B3 … não resolvido" = o nome
+  em `PARES_B3` não bate com a Market Watch da Genial (passo 4b). Fora do pregão (após ~18h
+  BRT e fins de semana) é normal não haver candle novo.

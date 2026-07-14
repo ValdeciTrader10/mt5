@@ -46,6 +46,48 @@ services:
     networks: [interna]
     restart: unless-stopped
 
+  # ------------------------------------------------------ MT5 B3 (Genial — feed WIN/WDO)
+  # 2º terminal MT5, logado na GENIAL via VNC. Conta REAL só para cotações da B3 —
+  # a ponte do B3 é data-only (sem ordens). ETAPA 8: aditivo, não toca no terminal XM.
+  mt5_b3:
+    build:
+      context: ./mt5
+    image: forex_mt5:latest
+    container_name: forex_mt5_b3
+    environment:
+      - CUSTOM_USER=${VNC_USER:-trader}
+      - PASSWORD=${VNC_PASSWORD:?defina VNC_PASSWORD no .env}
+    volumes:
+      - mt5_b3_config:/config
+    ports:
+      # Terminal Genial no navegador SÓ no localhost — acesse por túnel SSH (porta 3101).
+      - "127.0.0.1:3101:3000"
+    expose:
+      - "8001"
+    networks: [interna]
+    restart: unless-stopped
+
+  # ------------------------------------------------------ Coletor B3 (ETAPA 8 — WIN/WDO)
+  coletor_b3:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    container_name: forex_coletor_b3
+    command: python -m sistema_forex.coletor_b3
+    env_file: .env
+    environment:
+      - MT5_B3_HOST=mt5_b3
+      - MT5_B3_PORT=8001
+      - DADOS_DIR=/dados
+    volumes:
+      - dados:/dados          # mesmo banco: WIN/WDO viram novos `par` na tabela candles
+    depends_on:
+      mt5_b3:
+        condition: service_started
+    networks: [interna]
+    restart: unless-stopped
+
   # ------------------------------------------------------------------ Motor de análise (Fase 2)
   motor:
     build:
@@ -150,5 +192,6 @@ networks:
 volumes:
   dados: {}
   mt5_config: {}
+  mt5_b3_config: {}
   caddy_data: {}
   caddy_config: {}

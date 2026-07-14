@@ -412,16 +412,29 @@ eram perdedores = prejuízo EVITADO vs vencedores = lucro PERDIDO, e o benefíci
 sorte). `resumo_semanal` envia o resumo curto ao Telegram (anti-spam). Template `relatorio.html` + nav em
 todas as páginas. Testes em `test_relatorio.py` (8 casos). Aceite: 1º relatório auditável ✅.
 
-**⏸️ ETAPA 8 — Módulo B3/WIN — ADIADA DE PROPÓSITO (decisão do dono, 14/07).** É a ÚNICA etapa que
-falta (0–7 e 9 ✅). Fica PARADA por dois motivos: (1) o foco AGORA é **analisar os dados de forex que
-já temos na sombra** — o dono vai colar o relatório do sistema no chat p/ a IA revisar o que manter/
-calibrar/retirar (usar /relatorio + /auditoria + a aba "🎯 Aprovação para demo" da Etapa 9 como base);
-(2) o B3 depende de um **feed da B3 (WIN/WDO)** que o broker atual (XM DEMO) **não fornece** — construir
-agora seria às cegas, sem como testar de ponta a ponta. Só retomar quando houver conta/feed B3 e o dono
-pedir. **Escopo guardado p/ quando voltar:** `coletor_b3` (WIN + WDO/DIs), tabela `correlacao_b3`, painel
-MACRO TRADE, `config_b3`, WIN na matriz de sombra (demo BR), **veto de correlação SÓ no B3** (NUNCA no
-forex — no forex a correlação fica off, ver seção de pares), alerta de rollover do contrato. Aceite: WIN
-logando com correlações. ⚠️ Ao voltar, `gestao._moedas` não parseia metal/índice — tratar antes.
+**🔧 ETAPA 8 — Módulo B3/WIN — EM ANDAMENTO (retomada 14/07, com o MT5 da GENIAL).** O feed da B3 que
+faltava agora vem de um **2º terminal MT5 na Genial** (conta REAL usada SÓ como fonte de cotações — sombra).
+
+**✅ Sub-etapa 8a — FUNDAÇÃO DE DADOS (14/07):** WIN/WDO entrando no banco, ADITIVO (o forex XM não foi
+tocado). Peças: (1) **`config_b3.py`** — conexão do 2º terminal (`MT5_B3_HOST`/`PORT`=mt5_b3:8001),
+símbolos `PARES_B3` (default `WIN$N,WDO$N`) + `ALIASES_B3` (tenta WIN$, WINFUT…), `TFS_COLETA_B3`
+(M1–D1), backfill/poll próprios, flag `B3_HABILITADO`, e `candidatos_simbolo` (pura, testada). (2)
+**`mt5_bridge_b3.py`** — ponte para o terminal Genial com globais/lock PRÓPRIOS (não compartilha estado
+com a ponte do forex) e **DATA-ONLY de propósito**: não existe abrir/fechar/mover_sl → impossível, por
+construção, enviar ordem na conta real. Só connect/resolver/copy_rates/tick/ping. (3) **`coletor_b3.py`**
+— gêmeo do `coletor_mt5`, usa a ponte B3 e reusa as funções puras `gravar_candles`/`contar`; grava na
+MESMA tabela `candles` com `par`=símbolo B3 (não colide; o motor do forex itera `config.PARES` e não os
+toca). (4) **Deploy:** serviços `mt5_b3` (VNC :3101, volume `mt5_b3_config`) e `coletor_b3` nos dois
+composes; `.env.example` com a seção B3 (`MT5_B3_*`, `PARES_B3`). Testes em `test_b3.py` (6 casos:
+candidatos, alvo/gatilho, coexistência WIN×forex no banco). **177 testes, todos passando.**
+⚠️ **Ação do dono no deploy:** logar na Genial pela tela VNC do `mt5_b3` (`http://IP:3101`) e conferir o
+nome REAL de WIN/WDO na Market Watch — se diferente de `WIN$N/WDO$N`, ajustar `PARES_B3` no Dokploy.
+Aceite 8a: WIN logando (contagem de candles crescendo, sem buracos).
+
+**⬜ Sub-etapas 8b+ (pendentes):** tabela `correlacao_b3`, painel MACRO TRADE, WIN na matriz de sombra
+(9 estratégias × TF, demo BR), **veto de correlação SÓ no B3** (NUNCA no forex — lá fica off), alerta de
+rollover do contrato. Aceite final: WIN logando **com correlações**. ⚠️ `gestao._moedas` não parseia
+metal/índice — tratar antes de qualquer guarda de correlação que envolva WIN/WDO/GOLD.
 
 **✅ ETAPA 9 — FEITO (14/07).** Auditoria estatística — o GATE que decide, por dados, o que vai p/ demo.
 `auditoria_estatistica.py` (PURO/testável, rotas via /relatorio + CLI `python -m sistema_forex.auditoria_estatistica

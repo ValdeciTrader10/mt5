@@ -59,6 +59,53 @@ services:
     networks: [interna]
     restart: unless-stopped
 
+  # ------------------------------------------------------ MT5 B3 (Genial — feed WIN/WDO)
+  # 2º terminal MT5 (mesma imagem), logado na GENIAL via VNC (porta 3101 do host). Conta
+  # REAL usada SÓ como fonte de cotações da B3 — a ponte do B3 é data-only (sem ordens).
+  # ETAPA 8: aditivo, não toca no terminal XM (forex) acima.
+  mt5_b3:
+    build:
+      context: ./mt5
+    image: forex_mt5:latest
+    environment:
+      CUSTOM_USER: ${VNC_USER:-trader}
+      PASSWORD: ${VNC_PASSWORD:?defina VNC_PASSWORD no Environment}
+    volumes:
+      - mt5_b3_config:/config
+    ports:
+      # Terminal Genial no navegador: http://IP_DA_VPS:3101 (login VNC). Porta distinta
+      # da 3100 (XM) e da 3000 (Dokploy). Logue na Genial uma vez; o volume persiste.
+      - "3101:3000"
+    expose:
+      - "8001"                       # API Python (ponte B3): só na rede interna
+    networks: [interna]
+    restart: unless-stopped
+
+  # ------------------------------------------------------ Coletor B3 (ETAPA 8 — WIN/WDO)
+  coletor_b3:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    command: python -m sistema_forex.coletor_b3
+    environment:
+      MT5_B3_HOST: mt5_b3
+      MT5_B3_PORT: "8001"
+      DADOS_DIR: /dados
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      B3_HABILITADO: ${B3_HABILITADO:-true}
+      PARES_B3: ${PARES_B3:-WIN$$N,WDO$$N}
+      COLETOR_B3_POLL_S: ${COLETOR_B3_POLL_S:-5}
+      MT5_B3_LOGIN: ${MT5_B3_LOGIN:-}
+      MT5_B3_SERVER: ${MT5_B3_SERVER:-}
+      MT5_B3_PASSWORD: ${MT5_B3_PASSWORD:-}
+    volumes:
+      - dados:/dados                 # mesmo banco: WIN/WDO viram novos `par` na tabela candles
+    depends_on:
+      - mt5_b3
+    networks: [interna]
+    restart: unless-stopped
+
   # ------------------------------------------------------------------ Motor de análise (Fase 2)
   motor:
     build:
@@ -152,3 +199,4 @@ networks:
 volumes:
   dados: {}
   mt5_config: {}
+  mt5_b3_config: {}
