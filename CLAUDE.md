@@ -131,8 +131,8 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
 
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
-  `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`). **120
-  testes, todos passando.** Rodar sempre antes de commitar.
+  `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
+  `test_fuzzy`). **141 testes, todos passando.** Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
 - Env sensíveis (senha do painel, VNC, MT5) só no Environment do Dokploy — nunca no git.
@@ -347,10 +347,22 @@ as **séries de score** por TF (`_series_scores` → {tf:[{time,value}]}) e a **
 backend) e a **Sync Line no rodapé** (chips micro/macro/combinado verde/vermelho/amarelo). Botão
 **"Scores"** liga/desliga o sub-painel. Aceite (pendente): validação visual do dono em 3 dias distintos.
 
-**⬜ ETAPA 5 — Variante B (Fuzzy Puro).** Checklist de 6 itens (compra/venda espelhados), desvio-padrão
-manual sobre 20 closes, pirâmide MTF estrita (M15 maré / M5 correnteza / M1 timing), cenários nomeados
-(ESTOURO/ABSORÇÃO DE TOPO/EXAUSTÃO/PULLBACK VWAP → logar), saída técnica (SMA50/VWAP oposta), ordem-stop
-expira em 3 candles. Roda em sombra marcada `variante=B_FUZZY_PURO`. Aceite: reproduz o operacional fiel.
+**✅ ETAPA 5 — FEITO (14/07).** Variante B (Fuzzy Puro) — grupo PARALELO/aditivo (nada da Variante A
+foi tocado). `estrategias.avaliar_fuzzy_puro` (PURA) roda em SOMBRA marcada `variante=B_FUZZY_PURO`
+(estratégia `fuzzy_puro_v1`), UMA vez por par no TF de **timing** (`FUZZY_B_TIMING_TF`=M1), com a
+**pirâmide MTF estrita** lida do fuzzy: **M15=maré / M5=correnteza / M1=timing** (`_lado_fuzzy`). Usa
+**desvio-padrão MANUAL dos 20 closes** (`indicadores.desvio_padrao`) para medir a FORÇA do candle-gatilho
+(corpo ≥ `FUZZY_B_STD_K`×σ), a **VWAP+bandas** (localização de valor) e classifica o setup num **cenário
+nomeado** (`classificar_cenario_fuzzy`): entra em **ESTOURO**/**PULLBACK_VWAP**, bloqueia em **EXAUSTÃO**/
+**ABSORÇÃO DE TOPO** (todos logados). **Checklist de 6 itens** (maré/correnteza/timing/valor_vwap/força_std/
+fluxo_limpo — compra/venda espelhados); entra com ≥`FUZZY_B_CHECKLIST_MIN` (5/6) + cenário de entrada +
+gates (sessão/spread). Saída técnica **SMA50/VWAP oposta** = `saida_tecnica_fuzzy_puro` (PURA, pronta p/ o
+executor plugar — a sombra hoje cataloga a saída pelo gestor genérico). `decisao.montar_snapshot` ganhou
+`fuzzy` (pirâmide MTF) e `vwap`; `avaliar_par` chama a B só no timing TF. Params `FUZZY_B_*`. Testes em
+`test_estrategias` (9 casos) + `test_indicadores` (desvio_padrão). **141 testes, todos passando.** Pendências
+fiéis ao didático (encaixam na ETAPA 6/executor): a saída técnica e a "ordem-stop expira em 3 candles" são
+detalhes de EXECUÇÃO ao vivo — a sombra cataloga a QUALIDADE DA ENTRADA (objetivo do laboratório) com a
+saída genérica; a função de saída da B já está pronta e testada para plugar quando ligar a gestão por variante.
 
 **⬜ ETAPA 6 — Variante C (Híbrida).** As 9 estratégias + 7 integrações fuzzy como LEITURA de
 `fuzzy_scores` (sem alterar a lógica interna): veto de absorção; score M15 confluência/veto; virada de

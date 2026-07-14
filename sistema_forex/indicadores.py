@@ -115,6 +115,19 @@ def ema(valores: list, periodo: int):
     return e
 
 
+def desvio_padrao(valores: list, periodo: int = 20):
+    """Desvio-padrão populacional MANUAL (sem lib) do último bloco de `periodo` valores.
+
+    Base da leitura de "força/energia" da Variante B (Fuzzy Puro): mede a volatilidade recente
+    sobre 20 closes para decidir se o candle-gatilho tem lastro. None se faltam dados."""
+    if periodo <= 0 or len(valores) < periodo:
+        return None
+    bloco = valores[-periodo:]
+    media = sum(bloco) / periodo
+    var = sum((v - media) ** 2 for v in bloco) / periodo
+    return var ** 0.5
+
+
 def medias(closes: list) -> dict:
     """Conjunto de médias do doc (EMA 9/20/45 + SMA 50/200) a partir dos closes.
 

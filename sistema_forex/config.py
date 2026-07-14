@@ -272,6 +272,7 @@ NOMES_ESTRATEGIAS = {
     "rompimento_extremos_v1": "Rompimento máx/mín do dia",
     "pullback_medias_v1": "Pullback a médias (EMA)",
     "pivot_confluencia_v1": "Pivot + confluência S/R",
+    "fuzzy_puro_v1": "Fuzzy Puro (Variante B)",
 }
 
 
@@ -342,6 +343,26 @@ MEDIAS_JANELA = int(os.environ.get("MEDIAS_JANELA", "260"))
 PIVOT_HABILITADA = os.environ.get("PIVOT_HABILITADA", "true").lower() in ("1", "true", "sim")
 # Distância máxima (fração do ATR) entre o pivot e a zona de S/R/OB para contar como confluência.
 PIVOT_SR_ATR = float(os.environ.get("PIVOT_SR_ATR", "0.5"))
+
+# --------------------------------------------------------------------------- #
+# Variante B — Fuzzy Puro (ETAPA 5). Reprodução fiel do operacional Fuzzy Wyckoff.
+# --------------------------------------------------------------------------- #
+# Roda em SOMBRA marcada variante=B_FUZZY_PURO (estratégia própria fuzzy_puro_v1) — grupo
+# PARALELO às 9 estratégias da Variante A (nada é alterado; tudo é aditivo). Avalia UMA vez
+# por par, no TF de TIMING (M1), usando a pirâmide MTF: M15=maré, M5=correnteza, M1=timing.
+FUZZY_B_HABILITADA = os.environ.get("FUZZY_B_HABILITADA", "true").lower() in ("1", "true", "sim")
+# TF do gatilho (timing) — a Variante B só grava no livro deste TF (evita duplicar por TF).
+FUZZY_B_TIMING_TF = os.environ.get("FUZZY_B_TIMING_TF", "M1")
+# TFs da pirâmide MTF lidos do fuzzy (maré=M15, correnteza=M5, timing=M1).
+FUZZY_B_PIRAMIDE = [s.strip() for s in os.environ.get("FUZZY_B_PIRAMIDE", "M1,M5,M15").split(",") if s.strip()]
+# Limiares da pirâmide MTF (score fuzzy 0–100; o lado vendedor é o espelho: score <= 100-limiar).
+FUZZY_B_MARE_MIN = float(os.environ.get("FUZZY_B_MARE_MIN", "60"))       # M15 (maré/viés macro)
+FUZZY_B_CORRENTE_MIN = float(os.environ.get("FUZZY_B_CORRENTE_MIN", "55"))  # M5 (correnteza)
+FUZZY_B_TIMING_MIN = float(os.environ.get("FUZZY_B_TIMING_MIN", "58"))   # M1 (timing/gatilho)
+# Força do candle-gatilho: corpo >= K × desvio-padrão dos 20 closes (energia com lastro).
+FUZZY_B_STD_K = float(os.environ.get("FUZZY_B_STD_K", "1.0"))
+# Nº mínimo de itens do checklist de 6 para entrar (5 de 6 = alto padrão, fiel ao didático).
+FUZZY_B_CHECKLIST_MIN = int(os.environ.get("FUZZY_B_CHECKLIST_MIN", "5"))
 
 # --------------------------------------------------------------------------- #
 # Executor + gestor de saída (Fase 5)

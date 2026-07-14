@@ -136,6 +136,14 @@ def test_medias_conjunto():
     assert m["sma200"] is None, m["sma200"]
 
 
+def test_desvio_padrao_manual():
+    # Alternando ±0.5 em torno de 10 → desvio-padrão populacional = 0.5.
+    vals = [9.5, 10.5] * 10
+    assert abs(ind.desvio_padrao(vals, 20) - 0.5) < 1e-9, ind.desvio_padrao(vals, 20)
+    assert ind.desvio_padrao([1, 2, 3], 20) is None            # dados insuficientes
+    assert ind.desvio_padrao([5.0] * 20, 20) == 0.0            # série constante → 0
+
+
 def test_pivots_classicos():
     pv = ind.pivots_classicos(110.0, 90.0, 100.0)
     assert abs(pv["pp"] - 100.0) < 1e-9, pv        # (110+90+100)/3

@@ -488,3 +488,90 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# --------------------------------------------------------------------------- #
+# VARIANTE B — Fuzzy Puro (ETAPA 5)
+# --------------------------------------------------------------------------- #
+CFG_B = dict(sessao_utc=(7, 20), spread_max_pips=2.0, mare_min=60, corrente_min=55,
+             timing_min=58, std_k=1.0, checklist_min=5)
+
+# 20 closes com desvio-padrão ~0.0005 (alterna ±0.0005 em torno de 1.0990).
+_CLOSES20 = [1.0985, 1.0995] * 10
+
+
+def _snap_b(**kw):
+    base = dict(
+        close=1.0998, open=1.0990, high=1.0999, low=1.0989,
+        spread_pips=1.0, hora_utc=10, regime="tendencia_alta",
+        fuzzy={"M15": {"score": 70}, "M5": {"score": 62}, "M1": {"score": 65}},
+        vwap={"vwap": 1.1000, "sup1": 1.1010, "inf1": 1.0990, "sup2": 1.1020, "inf2": 1.0980},
+    )
+    base.update(kw)
+    base["m5_janela"] = {"close": kw.get("_closes", _CLOSES20)}
+    return base
+
+
+def test_fuzzy_puro_entra_pullback_vwap():
+    d = e.avaliar_fuzzy_puro(_snap_b(), **CFG_B)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["variante"] == "B_FUZZY_PURO" and d["estrategia"] == "fuzzy_puro_v1", d
+    assert any(c.startswith("cenario_") for c in d["confluencias"]), d
+    assert "cenario_PULLBACK_VWAP" in d["confluencias"], d
+
+
+def test_fuzzy_puro_estouro_venda():
+    # Maré vendedora (M15<=40), gatilho forte abaixo da VWAP → ESTOURO de venda.
+    d = e.avaliar_fuzzy_puro(_snap_b(
+        close=1.0980, open=1.0995, high=1.0996, low=1.0979,
+        fuzzy={"M15": {"score": 30}, "M5": {"score": 38}, "M1": {"score": 35}}), **CFG_B)
+    assert d["resultado"] == "entrou" and d["direcao"] == "venda", d
+    assert "cenario_ESTOURO" in d["confluencias"], d
+
+
+def test_fuzzy_puro_bloqueia_exaustao():
+    d = e.avaliar_fuzzy_puro(_snap_b(
+        fuzzy={"M15": {"score": 70}, "M5": {"score": 62}, "M1": {"score": 65, "exaustao": 1}}), **CFG_B)
+    assert d["resultado"] == "nao_entrou" and "EXAUSTAO" in d["motivo"], d
+
+
+def test_fuzzy_puro_bloqueia_absorcao_topo():
+    # Compra, absorção no M5 e preço acima da banda +1σ → ABSORÇÃO DE TOPO (bloqueio).
+    d = e.avaliar_fuzzy_puro(_snap_b(
+        close=1.1012, open=1.1005, high=1.1013, low=1.1004,
+        fuzzy={"M15": {"score": 70}, "M5": {"score": 62, "absorcao": 1}, "M1": {"score": 65}}), **CFG_B)
+    assert d["resultado"] == "nao_entrou" and "ABSORCAO_TOPO" in d["motivo"], d
+
+
+def test_fuzzy_puro_sem_mare():
+    d = e.avaliar_fuzzy_puro(_snap_b(
+        fuzzy={"M15": {"score": 50}, "M5": {"score": 62}, "M1": {"score": 65}}), **CFG_B)
+    assert d["resultado"] == "nao_entrou" and "maré" in d["motivo"], d
+
+
+def test_fuzzy_puro_sem_fuzzy_mtf():
+    d = e.avaliar_fuzzy_puro(_snap_b(fuzzy={}), **CFG_B)
+    assert d["resultado"] == "nao_entrou" and "MTF" in d["motivo"], d
+
+
+def test_fuzzy_puro_checklist_insuficiente():
+    # Sem força (corpo minúsculo < σ) e sem timing → cai abaixo de 5/6.
+    d = e.avaliar_fuzzy_puro(_snap_b(
+        close=1.09995, open=1.09990,   # corpo 0.00005 << σ (~0.0005) → sem força
+        fuzzy={"M15": {"score": 70}, "M5": {"score": 62}, "M1": {"score": 50}}), **CFG_B)
+    assert d["resultado"] == "nao_entrou", d
+    assert "checklist" in d["motivo"] or "cenário" in d["motivo"], d
+
+
+def test_fuzzy_puro_gate_sessao_e_spread():
+    d1 = e.avaliar_fuzzy_puro(_snap_b(hora_utc=3), **CFG_B)
+    assert d1["resultado"] == "nao_entrou" and "sessão" in d1["motivo"], d1
+    d2 = e.avaliar_fuzzy_puro(_snap_b(spread_pips=3.0), **CFG_B)
+    assert d2["resultado"] == "nao_entrou" and "spread" in d2["motivo"], d2
+
+
+def test_saida_tecnica_fuzzy_puro():
+    assert e.saida_tecnica_fuzzy_puro("compra", 1.0990, sma50=1.1000) is True   # perdeu a SMA50
+    assert e.saida_tecnica_fuzzy_puro("compra", 1.1010, sma50=1.1000, vwap=1.1005) is False
+    assert e.saida_tecnica_fuzzy_puro("venda", 1.1010, vwap=1.1000) is True     # rompeu a VWAP p/ cima
+    assert e.saida_tecnica_fuzzy_puro("venda", 1.0990, sma50=1.1000) is False

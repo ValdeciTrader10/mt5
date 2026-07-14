@@ -147,6 +147,24 @@ def _regime(conn, par: str):
     return r["regime"] if r else "indefinido"
 
 
+def _fuzzy_mtf(conn, par: str) -> dict:
+    """Últimos fuzzy_scores da pirâmide MTF (M15/M5/M1) da Variante B: {tf:{score,estado,flags}}."""
+    return fuzzy_score.scores_recentes(conn, par, config.FUZZY_B_PIRAMIDE)
+
+
+def _vwap_bandas(conn, par: str) -> dict:
+    """VWAP + bandas do par (níveis do motor) como dict — contexto da Variante B."""
+    mapa = {"vwap": "vwap", "vwap_sup1": "sup1", "vwap_inf1": "inf1",
+            "vwap_sup2": "sup2", "vwap_inf2": "inf2"}
+    out = {}
+    for r in conn.execute(
+        "SELECT tipo, preco FROM niveis WHERE par=? AND ativo=1 AND tipo LIKE 'vwap%'", (par,)):
+        chave = mapa.get(r["tipo"])
+        if chave:
+            out[chave] = r["preco"]
+    return out
+
+
 def montar_snapshot(conn, par: str, tf: str, candle) -> dict:
     """Snapshot do par para a decisão no TF DE OPERAÇÃO `tf`.
 
@@ -179,6 +197,9 @@ def montar_snapshot(conn, par: str, tf: str, candle) -> dict:
         "min_dia": min_dia,
         "pivots": _pivots(conn, par),
         "medias_acima": _medias_tf_acima(conn, par, tf),
+        # Contexto fuzzy da Variante B (ETAPA 5): pirâmide MTF + VWAP/bandas do motor.
+        "fuzzy": _fuzzy_mtf(conn, par),
+        "vwap": _vwap_bandas(conn, par),
         "ultimo_evento": _ultimo_evento(conn, par),
         # Janela do TF de operação p/ o sweep+CHoCH (chave histórica "m5_janela" mantida
         # para as estratégias/tests; aqui contém a janela do `tf` corrente).
@@ -349,6 +370,21 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
             pivot_sr_atr=config.PIVOT_SR_ATR,
             pavio_min=config.REJEICAO_PAVIO_MIN,
         ))
+    # VARIANTE B — Fuzzy Puro (ETAPA 5). Grupo PARALELO (aditivo) às 9 estratégias da Variante A;
+    # roda UMA vez por par, só no TF de TIMING (M1), com a pirâmide MTF estrita. Marca a decisão
+    # variante=B_FUZZY_PURO — a auditoria compara A vs B por (par, tf).
+    if config.FUZZY_B_HABILITADA and tf == config.FUZZY_B_TIMING_TF:
+        decs.append(estrategias.avaliar_fuzzy_puro(
+            snap,
+            sessao_utc=config.SESSAO_UTC,
+            spread_max_pips=spread_max,
+            mare_min=config.FUZZY_B_MARE_MIN,
+            corrente_min=config.FUZZY_B_CORRENTE_MIN,
+            timing_min=config.FUZZY_B_TIMING_MIN,
+            std_k=config.FUZZY_B_STD_K,
+            checklist_min=config.FUZZY_B_CHECKLIST_MIN,
+        ))
+
     for dec in decs:
         dec["_close"] = candle["close"]     # p/ o componente de localização (VWAP) do EV
         _gravar_decisao(conn, par, tf, candle["time_utc"], dec)

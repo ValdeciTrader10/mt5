@@ -31,10 +31,16 @@ ESTRATEGIA_ROMPIMENTO = "pullback_rompimento_v1"
 ESTRATEGIA_EXTREMOS = "rompimento_extremos_v1"
 ESTRATEGIA_MEDIAS = "pullback_medias_v1"
 ESTRATEGIA_PIVOT = "pivot_confluencia_v1"
+ESTRATEGIA_FUZZY_PURO = "fuzzy_puro_v1"      # Variante B (ETAPA 5)
 
 # Variante do laboratório multi-variante. As estratégias deste módulo são o GRUPO DE CONTROLE
 # (Variante A). B_FUZZY_PURO / C_HIBRIDA marcam a decisão via este campo (ETAPAS 5-6).
 VARIANTE_A = "A_ORIGINAL"
+VARIANTE_B = "B_FUZZY_PURO"
+
+# Cenários nomeados do operacional Fuzzy Wyckoff (Variante B) — sempre logados na decisão.
+CENARIOS_ENTRADA = ("ESTOURO", "PULLBACK_VWAP")     # habilitam entrada
+CENARIOS_BLOQUEIO = ("EXAUSTAO", "ABSORCAO_TOPO")   # bloqueiam entrada
 
 
 def _mais_forte_perto(preco: float, niveis: list, tol: float):
@@ -717,3 +723,154 @@ def avaliar_pivot_confluencia(snap: dict, *, sessao_utc, spread_max_pips, nivel_
                         estrategia=ESTRATEGIA_PIVOT)
     return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
                     estrategia=ESTRATEGIA_PIVOT)
+
+
+# --------------------------------------------------------------------------- #
+# VARIANTE B — Fuzzy Puro (ETAPA 5). Reprodução fiel do operacional Fuzzy Wyckoff.
+#
+# NÃO altera nenhuma estratégia da Variante A (princípio governante: tudo é aditivo). Roda em
+# SOMBRA marcada variante=B_FUZZY_PURO, no TF de TIMING (M1), com a PIRÂMIDE MTF ESTRITA:
+#   M15 = maré (viés macro)  ·  M5 = correnteza (setup)  ·  M1 = timing (gatilho).
+# Lê os fuzzy_scores (motor, ETAPA 3), a VWAP+bandas e os 20 closes (desvio-padrão manual) e
+# classifica o setup num CENÁRIO NOMEADO. Entra só em ESTOURO/PULLBACK_VWAP e com o checklist de
+# 6 itens satisfeito; bloqueia em EXAUSTÃO/ABSORÇÃO DE TOPO. Saída técnica (SMA50/VWAP oposta) é
+# função pura pronta para o executor plugar.
+# --------------------------------------------------------------------------- #
+def _lado_fuzzy(score, minimo: float) -> int:
+    """Lado do TF pelo score fuzzy: +1 comprador (>=minimo), -1 vendedor (<=100-minimo), 0 neutro."""
+    if score is None:
+        return 0
+    if score >= minimo:
+        return 1
+    if score <= 100 - minimo:
+        return -1
+    return 0
+
+
+def classificar_cenario_fuzzy(snap: dict, direcao: str, forca_ok: bool):
+    """Classifica o setup num cenário nomeado do Fuzzy Wyckoff (ou None). Ordem de prioridade:
+    EXAUSTÃO e ABSORÇÃO DE TOPO (bloqueio) vêm antes de ESTOURO/PULLBACK_VWAP (entrada)."""
+    fz = snap.get("fuzzy") or {}
+    vw = snap.get("vwap") or {}
+    close = snap["close"]
+    m1 = fz.get("M1") or {}
+    m5 = fz.get("M5") or {}
+    vwap, sup1, inf1 = vw.get("vwap"), vw.get("sup1"), vw.get("inf1")
+    # EXAUSTÃO: clímax detectado (M1/M5) → reversão provável, não entra a favor do impulso.
+    if m1.get("exaustao") or m5.get("exaustao"):
+        return "EXAUSTAO"
+    # ABSORÇÃO DE TOPO/FUNDO contra o trade (esforço sem resultado no extremo da VWAP).
+    if (m1.get("absorcao") or m5.get("absorcao")) and vwap is not None:
+        if direcao == "compra" and sup1 is not None and close >= sup1:
+            return "ABSORCAO_TOPO"
+        if direcao == "venda" and inf1 is not None and close <= inf1:
+            return "ABSORCAO_TOPO"
+    # ESTOURO: gatilho com FORÇA (corpo >= K·σ) rompendo a VWAP na direção (momentum com lastro).
+    if forca_ok and vwap is not None:
+        if direcao == "compra" and close > vwap:
+            return "ESTOURO"
+        if direcao == "venda" and close < vwap:
+            return "ESTOURO"
+    # PULLBACK VWAP: preço voltou à zona de valor (aquém da VWAP) a favor da maré.
+    if vwap is not None:
+        if direcao == "compra" and close <= vwap:
+            return "PULLBACK_VWAP"
+        if direcao == "venda" and close >= vwap:
+            return "PULLBACK_VWAP"
+    return None
+
+
+def saida_tecnica_fuzzy_puro(direcao: str, close: float, sma50=None, vwap=None) -> bool:
+    """Saída técnica da Variante B: fecha quando o preço passa para o lado OPOSTO da SMA50 ou da
+    VWAP (perdeu a referência de tendência/valor). PURA e testável — pronta p/ o executor plugar
+    (a sombra hoje cataloga a saída pelo gestor genérico; esta função reproduz a regra didática)."""
+    for ref in (sma50, vwap):
+        if ref is None:
+            continue
+        if direcao == "compra" and close < ref:
+            return True
+        if direcao == "venda" and close > ref:
+            return True
+    return False
+
+
+def avaliar_fuzzy_puro(snap: dict, *, sessao_utc, spread_max_pips, mare_min, corrente_min,
+                       timing_min, std_k, checklist_min) -> dict:
+    """Variante B (Fuzzy Puro). Pirâmide MTF estrita + checklist de 6 itens (compra/venda
+    espelhados) + cenário nomeado. Decisão marcada variante=B_FUZZY_PURO / estrategia=fuzzy_puro_v1.
+
+    Checklist (compra; venda é o espelho):
+      1) maré       — M15 comprador (score >= mare_min)
+      2) correnteza — M5 comprador  (score >= corrente_min)
+      3) timing     — M1 comprador  (score >= timing_min) OU transição de causa
+      4) valor      — preço na/aquém da VWAP (localização de desconto)
+      5) força      — corpo do gatilho >= std_k × desvio-padrão dos 20 closes (energia)
+      6) fluxo      — sem exaustão/absorção de topo contra o trade
+    """
+    regime = snap.get("regime", "indefinido")
+    fz = snap.get("fuzzy") or {}
+    vw = snap.get("vwap") or {}
+    close = snap["close"]
+    o = snap.get("open")
+    m15, m5, m1 = fz.get("M15"), fz.get("M5"), fz.get("M1")
+    if not m15 or not m5 or not m1:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem fuzzy MTF (M15/M5/M1)",
+                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+
+    mare = _lado_fuzzy(m15.get("score"), mare_min)
+    if mare == 0:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem maré (M15 neutro)",
+                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+    direcao = "compra" if mare > 0 else "venda"
+    lado = 1 if direcao == "compra" else -1
+
+    # Força pelo desvio-padrão MANUAL dos 20 closes do TF de timing (janela do snapshot).
+    closes = (snap.get("m5_janela") or {}).get("close") or []
+    sigma = indicadores.desvio_padrao(closes, 20)
+    corpo = abs(close - o) if o is not None else 0.0
+    forca_ok = bool(sigma and sigma > 0 and corpo >= std_k * sigma)
+
+    cenario = classificar_cenario_fuzzy(snap, direcao, forca_ok)
+
+    corrente = _lado_fuzzy(m5.get("score"), corrente_min)
+    timing = _lado_fuzzy(m1.get("score"), timing_min)
+    vwap = vw.get("vwap")
+    c1 = mare == lado
+    c2 = corrente == lado
+    c3 = (timing == lado) or bool(m1.get("transicao"))
+    c4 = (vwap is not None) and ((close <= vwap) if direcao == "compra" else (close >= vwap))
+    c5 = forca_ok
+    c6 = not (m1.get("exaustao") or m5.get("exaustao") or cenario == "ABSORCAO_TOPO")
+    itens = [("mare", c1), ("correnteza", c2), ("timing", c3), ("valor_vwap", c4),
+             ("forca_std", c5), ("fluxo_limpo", c6)]
+    conf = [k for k, v in itens if v]
+    if cenario:
+        conf.append(f"cenario_{cenario}")
+    score = sum(1 for _, v in itens if v)   # itens satisfeitos (0–6)
+
+    # Cenários de BLOQUEIO (logados) — não entra.
+    if cenario in CENARIOS_BLOQUEIO:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"cenário de bloqueio ({cenario})",
+                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+    if cenario not in CENARIOS_ENTRADA:
+        return _decisao("nao_entrou", direcao, regime, score, conf, "sem cenário fuzzy claro",
+                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+
+    # Gates duros (sessão + spread) — iguais às demais.
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _decisao("nao_entrou", direcao, regime, score, conf, f"fora da sessão ({hora}h UTC)",
+                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+    spread = snap.get("spread_pips", 0.0)
+    if spread > spread_max_pips:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
+                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+    if score < checklist_min:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"checklist {score}/6 < {checklist_min}",
+                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+
+    return _decisao("entrou", direcao, regime, score, conf, f"{cenario}|" + "+".join(conf),
+                    estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
