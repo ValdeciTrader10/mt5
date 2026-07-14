@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Auditoria IA — Operações perdedoras</title>
+  <title>{{ titulo|default('Auditoria IA') }} — Operações perdedoras</title>
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -52,13 +52,17 @@
 </head>
 <body>
   <header>
-    <h1>🤖 Auditoria IA <span class="muted">· operações perdedoras (sombra)</span></h1>
+    <h1>🤖 {{ titulo|default('Auditoria IA') }} <span class="muted">· operações perdedoras (sombra)</span></h1>
     <nav>
+      {% if b3|default(false) %}
+      <a href="/b3">Painel B3</a><a href="/b3/analitico">Análise B3</a><a href="/b3/auditoria" class="on">Auditoria B3</a><a href="/auditoria">Forex</a><a href="/logout">Sair</a>
+      {% else %}
       <a href="/">Painel</a><a href="/analitico">Análise</a><a href="/auditoria" class="on">Auditoria IA</a><a href="/relatorio">Relatório</a><a href="/b3">B3</a><a href="/logout">Sair</a>
+      {% endif %}
     </nav>
   </header>
   <main>
-    <form class="filtros" method="get" action="/auditoria">
+    <form class="filtros" method="get" action="{{ base|default('/auditoria') }}">
       <label class="f">De <input type="date" name="de" value="{{ de }}"></label>
       <label class="f">Até <input type="date" name="ate" value="{{ ate }}"></label>
       <button class="btn p" type="submit">Filtrar</button>
@@ -75,8 +79,8 @@
         (estratégia × TF), o que manter, o que calibrar (stop/entrada/saída) e o que retirar"</i>.
         O dossiê já traz o raio-x das perdedoras mais recentes; para qualquer outra, o link 📄 na
         tabela abre o raio-x textual dela. Também há
-        <a href="/api/auditoria?formato=texto{% if de %}&de={{ de }}{% endif %}{% if ate %}&ate={{ ate }}{% endif %}" style="color:#2f81f7">texto puro</a>
-        e <a href="/api/auditoria{% if de %}?de={{ de }}{% endif %}" style="color:#2f81f7">JSON</a>.</p>
+        <a href="{{ api_base|default('/api/auditoria') }}?formato=texto{% if de %}&de={{ de }}{% endif %}{% if ate %}&ate={{ ate }}{% endif %}" style="color:#2f81f7">texto puro</a>
+        e <a href="{{ api_base|default('/api/auditoria') }}{% if de %}?de={{ de }}{% endif %}" style="color:#2f81f7">JSON</a>.</p>
     </section>
 
     <section>
@@ -96,7 +100,7 @@
         <div class="kpi"><h3>Perdedoras</h3><div class="v neg">{{ dados.resumo.n_perdedoras }}</div></div>
         <div class="kpi"><h3>Winrate</h3><div class="v">{{ dados.resumo.winrate }}%</div></div>
         <div class="kpi"><h3>Expectativa</h3><div class="v {{ 'pos' if dados.resumo.expectativa >= 0 else 'neg' }}">{{ dados.resumo.expectativa }}</div></div>
-        <div class="kpi"><h3>USD total</h3><div class="v {{ 'pos' if dados.resumo.usd >= 0 else 'neg' }}">{{ dados.resumo.usd }}</div></div>
+        <div class="kpi"><h3>{{ moeda|default('USD') }} total</h3><div class="v {{ 'pos' if dados.resumo.usd >= 0 else 'neg' }}">{{ dados.resumo.usd }}</div></div>
         <div class="kpi"><h3>MFE médio das perdas</h3><div class="v">{{ dados.resumo.mfe_perdas }}R</div></div>
       </div>
     </section>

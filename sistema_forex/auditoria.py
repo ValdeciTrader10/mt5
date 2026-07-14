@@ -189,9 +189,15 @@ def _veredito(kpi: dict, flags: dict) -> str:
 # --------------------------------------------------------------------------- #
 # Montagem do dossiê
 # --------------------------------------------------------------------------- #
-def _buscar_perdedores(conn, de_e, ate_e, limite_detalhe):
-    """Lê trades fechados no intervalo e devolve (todos_dict, perdedores_enriquecidos)."""
+def _buscar_perdedores(conn, de_e, ate_e, limite_detalhe, mercado="forex"):
+    """Lê trades fechados no intervalo e devolve (todos_dict, perdedores_enriquecidos).
+
+    `mercado` isola os livros: 'forex' (default) exclui a B3 (legado NULL = forex); 'b3' só WIN/WDO."""
     cond, args = ["fechamento_utc IS NOT NULL"], []
+    if mercado == "b3":
+        cond.append("mercado='b3'")
+    else:
+        cond.append("(mercado IS NULL OR mercado='forex')")
     if de_e:
         cond.append("fechamento_utc >= ?"); args.append(de_e)
     if ate_e:
@@ -387,13 +393,14 @@ def _por_estrategia_tf(trades: list, perdedores: list) -> list:
 
 
 def dossie_perdedores(conn, de: str = "", ate: str = "", limite_detalhe: int = 60,
-                      raiox_trades: int = None) -> dict:
+                      raiox_trades: int = None, mercado: str = "forex") -> dict:
     """Monta o dossiê completo de auditoria das perdedoras no intervalo [de, ate].
 
     `raiox_trades` = quantas das perdedoras mais recentes recebem o RAIO-X TEXTUAL embutido
-    (candles em pips) para a IA ler o price action; o resto sai sob demanda em /api/raiox/{id}."""
+    (candles em pips) para a IA ler o price action; o resto sai sob demanda em /api/raiox/{id}.
+    `mercado` isola o livro ('forex' default / 'b3' = WIN/WDO)."""
     de_e, ate_e = _epoch(de), _epoch(ate, fim=True)
-    trades, perdedores = _buscar_perdedores(conn, de_e, ate_e, limite_detalhe)
+    trades, perdedores = _buscar_perdedores(conn, de_e, ate_e, limite_detalhe, mercado)
     raiox_trades = raiox_trades if raiox_trades is not None else config.AUDITORIA_RAIOX_TRADES
 
     flags_totais = _classificacao_grupo(perdedores)

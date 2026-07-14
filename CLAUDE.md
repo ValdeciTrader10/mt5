@@ -154,7 +154,7 @@ Env `GESTAO_POR_VARIANTE` (default on), reusa `HIBRIDA_SAIDA_M5_MIN`/`HIBRIDA_ST
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **201 testes, todos passando.**
+  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **202 testes, todos passando.**
   Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
@@ -482,6 +482,22 @@ conferir que a escala calibrada não insta-estopa e reconciliar a régua de spre
 se aplica à B3 (ponte data-only). **Demais pendentes 8b+:** tabela `correlacao_b3`, painel MACRO, **veto de
 correlação SÓ no B3** (NUNCA no forex), alerta de rollover. ⚠️ `gestao._moedas` não parseia metal/índice —
 tratar antes de qualquer correlação WIN/WDO/GOLD.
+
+**✅ Sub-etapa 8b.3 — ANÁLISE + AUDITORIA DA B3 (mesma riqueza do forex) + FIX do gráfico (14/07, pedido do
+dono "não tem todas as análises e auditoria nessa página").** (1) **Bug do gráfico corrigido:** clicar "Ver
+gráfico" em WIN/WDO devolvia `{"detail":"par/tf inválido"}` porque `/grafico` e `/api/candles` validavam só
+`config.PARES` (forex). Agora aceitam também `config_b3.pares_ativos()` (`_pares_validos`/`_tfs_validos`) e um par
+da B3 troca só entre símbolos/TFs da B3. (2) **Isolamento por mercado (correção):** `_analitico` (web) e
+`auditoria._buscar_perdedores`/`dossie_perdedores` ganharam `mercado='forex'|'b3'` — antes liam TODOS os trades,
+então a B3 vazava no /analitico e /auditoria do forex; agora `forex` (default, legado NULL=forex) exclui a B3 e
+vice-versa. (3) **Páginas próprias da B3, reusando os templates ricos:** `/b3/analitico` + `/api/b3/analitico`
+(curva de capital, por estratégia/TF/regime/sessão/par/motivo, Estratégia×TF, MAE/MFE — em **BRL**) e
+`/b3/auditoria` + `/api/b3/auditoria` (dossiê das perdedoras classificadas por falha + raio-x em pips, pronto p/
+colar na IA). `analitico.html`/`auditoria.html` parametrizados por `|default` (título/sub/moeda/api_url/base/nav
+`b3`) — o forex fica intocado. Nav da `/b3` aponta p/ Análise B3 / Auditoria B3. Raio-x (`/trade/{id}`,
+`/api/raiox/{id}`) já é agnóstico de mercado (funciona p/ WIN/WDO; preço em `.5f` fica feio no índice, cosmético).
+Teste novo: isolamento forex×b3 no dossiê (`test_auditoria`). **202 testes, todos passando.** ⚠️ Cosmético a
+calibrar depois: casas decimais do preço no raio-x visual da B3.
 
 **✅ ETAPA 9 — FEITO (14/07).** Auditoria estatística — o GATE que decide, por dados, o que vai p/ demo.
 `auditoria_estatistica.py` (PURO/testável, rotas via /relatorio + CLI `python -m sistema_forex.auditoria_estatistica

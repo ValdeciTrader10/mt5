@@ -44,8 +44,8 @@
   <header>
     <h1>🇧🇷 Painel B3 <span class="muted">· WIN / WDO (isolado do forex)</span></h1>
     <nav>
-      <a href="/">Painel</a><a href="/analitico">Análise</a><a href="/auditoria">Auditoria IA</a>
-      <a href="/relatorio">Relatório</a><a href="/b3" class="on">B3</a><a href="/logout">Sair</a>
+      <a href="/b3" class="on">Painel B3</a><a href="/b3/analitico">Análise B3</a><a href="/b3/auditoria">Auditoria B3</a>
+      <a href="/relatorio">Relatório</a><a href="/">Forex</a><a href="/logout">Sair</a>
     </nav>
   </header>
   <main>
@@ -102,8 +102,11 @@
           ainda <b>sem trade fechado</b> para agregar. Os resultados aparecem aqui assim que as primeiras
           operações de sombra fecharem{% if dados.n_abertas %} ({{ dados.n_abertas }} aberta(s) agora){% endif %}.</div>
       {% else %}
-        <p class="muted">Livro de SOMBRA de WIN/WDO (100% virtual), P&amp;L em <b>BRL</b>. Também no
-          <a href="/relatorio" style="color:#d29922">/relatorio</a> (multi-variante).</p>
+        <p class="muted">Livro de SOMBRA de WIN/WDO (100% virtual), P&amp;L em <b>BRL</b>. Análise completa
+          (curva, por estratégia/TF/regime/sessão/par, MAE/MFE) em
+          <a href="/b3/analitico" style="color:#d29922">Análise B3</a>, a leitura das perdedoras em
+          <a href="/b3/auditoria" style="color:#d29922">Auditoria B3</a> e o multi-variante no
+          <a href="/relatorio" style="color:#d29922">/relatorio</a>.</p>
         <div class="kpis">
           <div class="kpi"><div class="v">{{ dados.resumo.n }}</div><div class="k">trades fechados</div></div>
           <div class="kpi"><div class="v">{{ dados.resumo.winrate }}%</div><div class="k">acerto ({{ dados.resumo.ganhos }}G/{{ dados.resumo.perdas }}P)</div></div>

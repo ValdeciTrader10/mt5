@@ -330,10 +330,17 @@ def _curva_capital(trades: list, base: float) -> dict:
     }
 
 
-def _analitico(de: str = "", ate: str = "") -> dict:
-    """Estatísticas dos trades fechados no intervalo [de, ate] (datas ISO, opcionais)."""
+def _analitico(de: str = "", ate: str = "", mercado: str = "forex") -> dict:
+    """Estatísticas dos trades fechados no intervalo [de, ate] (datas ISO, opcionais).
+
+    `mercado` ISOLA os livros: 'forex' (default) exclui a B3 (legado NULL conta como forex);
+    'b3' traz só WIN/WDO. Assim o /analitico do forex não mistura o mercado brasileiro."""
     de_e, ate_e = _epoch(de), _epoch(ate, fim=True)
     cond, args = ["fechamento_utc IS NOT NULL"], []
+    if mercado == "b3":
+        cond.append("mercado='b3'")
+    else:
+        cond.append("(mercado IS NULL OR mercado='forex')")
     if de_e:
         cond.append("fechamento_utc >= ?"); args.append(de_e)
     if ate_e:
@@ -603,6 +610,61 @@ def api_b3(request: Request):
     return JSONResponse(_dados_b3())
 
 
+# --- Análise e Auditoria da B3 (mesma riqueza do forex, isolada e em BRL) --------------- #
+@app.get("/b3/analitico", response_class=HTMLResponse)
+def b3_analitico(request: Request, de: str = "", ate: str = ""):
+    """Analítico completo da SOMBRA da B3 (WIN/WDO) — mesma página do forex, escopada a
+    mercado='b3' e rotulada em BRL. Curva, por estratégia/TF/regime/sessão/par/motivo, MAE/MFE."""
+    if not auth.esta_logado(request):
+        return auth.redirecionar_login()
+    dados = _analitico(de, ate, mercado="b3")
+    return templates.TemplateResponse(
+        request, "analitico.html",
+        {"dados": dados, "execucao_ativa": False, "b3": True, "moeda": "BRL",
+         "titulo": "Análise B3", "sub": "· WIN / WDO (sombra)", "api_url": "/api/b3/analitico"},
+    )
+
+
+@app.get("/api/b3/analitico")
+def api_b3_analitico(request: Request, de: str = "", ate: str = ""):
+    if not auth.esta_logado(request):
+        raise HTTPException(status_code=401, detail="login necessário")
+    return JSONResponse(_analitico(de, ate, mercado="b3"))
+
+
+@app.get("/b3/auditoria", response_class=HTMLResponse)
+def b3_auditoria(request: Request, de: str = "", ate: str = ""):
+    """Auditoria IA das perdedoras da B3 — mesmo dossiê (classificação por falha + raio-x em
+    pips), escopado a mercado='b3'. É a 'riqueza de detalhes das operações' pedida, para WIN/WDO."""
+    if not auth.esta_logado(request):
+        return auth.redirecionar_login()
+    from .. import auditoria as aud
+
+    with db.sessao() as conn:
+        d = aud.dossie_perdedores(conn, de, ate, mercado="b3")
+    texto = aud.dossie_texto(d)
+    return templates.TemplateResponse(
+        request, "auditoria.html",
+        {"dados": d, "texto": texto, "de": de, "ate": ate, "b3": True, "moeda": "BRL",
+         "titulo": "Auditoria IA · B3", "base": "/b3/auditoria", "api_base": "/api/b3/auditoria"},
+    )
+
+
+@app.get("/api/b3/auditoria")
+def api_b3_auditoria(request: Request, de: str = "", ate: str = "", formato: str = "json"):
+    if not auth.esta_logado(request):
+        raise HTTPException(status_code=401, detail="login necessário")
+    from .. import auditoria as aud
+
+    with db.sessao() as conn:
+        d = aud.dossie_perdedores(conn, de, ate, mercado="b3")
+    if formato == "texto":
+        from fastapi.responses import PlainTextResponse
+
+        return PlainTextResponse(aud.dossie_texto(d))
+    return JSONResponse(d)
+
+
 @app.get("/relatorio", response_class=HTMLResponse)
 def relatorio_page(request: Request, de: str = "", ate: str = ""):
     """Relatório sombra multi-variante (ETAPA 7): ranking por expectância R por célula
@@ -736,13 +798,24 @@ def _sync_atual(conn, par: str) -> dict:
             "macro_score": r["macro_score"], "cor": _COR_SYNC.get(r["estado"], "#8b949e")}
 
 
+def _pares_validos() -> set:
+    """Pares aceitos pelo gráfico: forex (config.PARES) + B3 (WIN/WDO) quando o módulo B3
+    está ligado. Sem isto os símbolos da B3 (WIN$N/WDO$N) caíam no 'par/tf inválido'."""
+    return set(config.PARES) | set(config_b3.pares_ativos())
+
+
+def _tfs_validos() -> set:
+    """Timeframes aceitos pelo gráfico: os do forex + os da B3 (mesmo conjunto base)."""
+    return set(config.TFS_COLETA) | set(config_b3.TFS_COLETA_B3)
+
+
 @app.get("/api/candles/{par}/{tf}")
 def api_candles(request: Request, par: str, tf: str, n: int = 500):
     """OHLC + níveis S/R de (par, tf) em JSON, para o gráfico interativo (lightweight-charts).
     `time` é o time_utc do candle (hora do servidor/MetaTrader), em segundos."""
     if not auth.esta_logado(request):
         raise HTTPException(status_code=401, detail="login necessário")
-    if par not in config.PARES or tf not in config.TFS_COLETA:
+    if par not in _pares_validos() or tf not in _tfs_validos():
         raise HTTPException(status_code=404, detail="par/tf inválido")
     from ..grafico import _buscar_candles
 
@@ -780,11 +853,15 @@ def api_candles(request: Request, par: str, tf: str, n: int = 500):
 def grafico(request: Request, par: str, tf: str):
     if not auth.esta_logado(request):
         return auth.redirecionar_login()
-    if par not in config.PARES or tf not in config.TFS_COLETA:
+    if par not in _pares_validos() or tf not in _tfs_validos():
         raise HTTPException(status_code=404, detail="par/tf inválido")
+    # Um par da B3 troca só entre símbolos/TFs da B3 (mercado separado); o forex, entre os seus.
+    ehb3 = par in set(config_b3.pares_ativos())
+    pares = list(config_b3.PARES_B3) if ehb3 else list(config.PARES)
+    tfs = list(config_b3.TFS_COLETA_B3) if ehb3 else list(config.TFS_COLETA)
     return templates.TemplateResponse(
         request, "grafico.html",
-        {"par": par, "tf": tf, "pares": config.PARES, "tfs": config.TFS_COLETA},
+        {"par": par, "tf": tf, "pares": pares, "tfs": tfs},
     )
 
 

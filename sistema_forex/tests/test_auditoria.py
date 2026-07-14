@@ -21,7 +21,8 @@ def _conn():
         "tf TEXT, estrategia TEXT, direcao TEXT, lote REAL, pips REAL, lucro_usd REAL, "
         "motivo_saida TEXT, sl_servidor REAL, preco_entrada REAL, preco_saida REAL, "
         "risco_inicial REAL, mae_r REAL, mfe_r REAL, regime_entrada TEXT, "
-        "abertura_utc INTEGER, fechamento_utc INTEGER, simulado INTEGER, decisao_id INTEGER)"
+        "abertura_utc INTEGER, fechamento_utc INTEGER, simulado INTEGER, decisao_id INTEGER, "
+        "mercado TEXT)"
     )
     c.execute(
         "CREATE TABLE decisoes (id INTEGER PRIMARY KEY AUTOINCREMENT, par TEXT, time_utc INTEGER, "
@@ -349,6 +350,23 @@ def test_dossie_embute_raiox():
     assert len(d["raiox"]) == 1
     assert d["raiox"][0]["furou_sl_pips"] == 2.0
     assert "Raio-X das perdedoras" in aud.dossie_texto(d)
+
+
+def test_dossie_isola_mercado_forex_e_b3():
+    """O dossiê escopa por mercado: 'forex' (default, inclui legado NULL) ignora a B3 e vice-versa."""
+    c = _conn()
+    _trade(c, par="EURUSD#", lucro_usd=-10.0, mae_r=-1.0, mfe_r=0.2)          # forex (NULL = legado)
+    _trade(c, par="GBPUSD#", lucro_usd=-7.0, mae_r=-1.0, mfe_r=0.1, mercado="forex")
+    _trade(c, par="WIN$N", lucro_usd=-69.0, mae_r=-1.0, mfe_r=0.3, mercado="b3")
+    _trade(c, par="WDO$N", lucro_usd=-43.0, mae_r=-1.0, mfe_r=0.1, mercado="b3")
+
+    forex = aud.dossie_perdedores(c)                       # default forex
+    assert forex["resumo"]["n"] == 2
+    assert {t["par"] for t in forex["perdedores"]} == {"EURUSD#", "GBPUSD#"}
+
+    b3 = aud.dossie_perdedores(c, mercado="b3")
+    assert b3["resumo"]["n"] == 2
+    assert {t["par"] for t in b3["perdedores"]} == {"WIN$N", "WDO$N"}
 
 
 def run():

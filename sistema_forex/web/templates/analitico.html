@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Análise de Trades — Forex M5</title>
+  <title>{{ titulo|default('Análise de Trades') }} — Forex M5</title>
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -44,11 +44,15 @@
 </head>
 <body>
   <header>
-    <h1>📈 Análise de Trades <span class="muted">· Empenho</span>
+    <h1>📈 {{ titulo|default('Análise de Trades') }} <span class="muted">{{ sub|default('· Empenho') }}</span>
       {% if execucao_ativa %}<span class="badge badge-live">EXECUÇÃO ATIVA</span>{% else %}<span class="badge badge-sim">SIMULAÇÃO</span>{% endif %}
     </h1>
     <nav>
+      {% if b3|default(false) %}
+      <a href="/b3">Painel B3</a><a href="/b3/analitico" class="on">Análise B3</a><a href="/b3/auditoria">Auditoria B3</a><a href="/analitico">Forex</a><a href="/logout">Sair</a>
+      {% else %}
       <a href="/">Painel</a><a href="/analitico" class="on">Análise</a><a href="/auditoria">Auditoria IA</a><a href="/relatorio">Relatório</a><a href="/b3">B3</a><a href="/logout">Sair</a>
+      {% endif %}
     </nav>
   </header>
   <main>
@@ -78,7 +82,7 @@
           <th class="num">Ganho×Perda</th><th class="num">PF</th><th class="num">Média G / P</th>
           <th class="num" title="MAE médio dos vencedores: quanto de calor (R contra) os trades bons aguentaram → dimensiona o stop">Calor venc. (MAE)</th>
           <th class="num" title="MFE médio dos perdedores: quanto o preço andou a favor (R) antes de virar perda → alvo/parcial deixado na mesa">Devolv. perd. (MFE)</th>
-          <th class="num">Pips</th><th class="num">USD</th></tr></thead>
+          <th class="num">Pips</th><th class="num">{{ moeda|default('USD') }}</th></tr></thead>
         <tbody id="tb-estrategia"></tbody>
       </table>
       <p class="muted">MAE = pior R contra durante o trade; MFE = melhor R a favor. <b>Calor venc.</b>
@@ -90,7 +94,7 @@
       <h2>Por timeframe <span class="muted">— compara os livros de operação (M1 · M5 · M15)</span></h2>
       <table>
         <thead><tr><th>Timeframe</th><th class="num">Trades</th><th class="num">Acerto</th>
-          <th class="num">PF</th><th class="num">Expect.</th><th class="num">Pips</th><th class="num">USD</th></tr></thead>
+          <th class="num">PF</th><th class="num">Expect.</th><th class="num">Pips</th><th class="num">{{ moeda|default('USD') }}</th></tr></thead>
         <tbody id="tb-timeframe"></tbody>
       </table>
       <p class="muted">Cada TF opera como um livro independente (sombra). Atenção: no M1 o spread
@@ -101,7 +105,7 @@
       <h2>Estratégia × timeframe <span class="muted">— qual estratégia funciona melhor em qual TF (objetivo da sombra)</span></h2>
       <table>
         <thead><tr><th>Estratégia</th><th>TF</th><th class="num">Trades</th><th class="num">Acerto</th>
-          <th class="num">PF</th><th class="num">Expect.</th><th class="num">Pips</th><th class="num">USD</th></tr></thead>
+          <th class="num">PF</th><th class="num">Expect.</th><th class="num">Pips</th><th class="num">{{ moeda|default('USD') }}</th></tr></thead>
         <tbody id="tb-estrategia-tf"></tbody>
       </table>
       <p class="muted">Cada linha é um par (estratégia, timeframe) rodando na sombra. Compare a mesma
@@ -120,7 +124,7 @@
           <th class="num" title="Derrapagem média: fill real vs preço que a sombra assumiu (pips)">Derrap.</th>
           <th class="num" title="Spread médio no instante do fill real (pips)">Spread</th>
           <th class="num" title="Atraso médio decisão→fill (s)">Delay</th>
-          <th class="num">USD sombra</th><th class="num">USD real</th></tr></thead>
+          <th class="num">{{ moeda|default('USD') }} sombra</th><th class="num">{{ moeda|default('USD') }} real</th></tr></thead>
         <tbody id="tb-sombra-real"></tbody>
       </table>
       <p class="muted">Cada linha é um gêmeo: a MESMA (estratégia, TF) rodou virtual (sombra) e real
@@ -133,7 +137,7 @@
       <h2>Por regime na entrada <span class="muted">— responde: cada estratégia ganha em qual contexto?</span></h2>
       <table>
         <thead><tr><th>Regime</th><th class="num">Trades</th><th class="num">Acerto</th>
-          <th class="num">PF</th><th class="num">Expect.</th><th class="num">Pips</th><th class="num">USD</th></tr></thead>
+          <th class="num">PF</th><th class="num">Expect.</th><th class="num">Pips</th><th class="num">{{ moeda|default('USD') }}</th></tr></thead>
         <tbody id="tb-regime"></tbody>
       </table>
     </section>
@@ -142,7 +146,7 @@
       <h2>Por sessão <span class="muted">— Londres/NY vs. resto</span></h2>
       <table>
         <thead><tr><th>Sessão (UTC)</th><th class="num">Trades</th><th class="num">Acerto</th>
-          <th class="num">PF</th><th class="num">Expect.</th><th class="num">Pips</th><th class="num">USD</th></tr></thead>
+          <th class="num">PF</th><th class="num">Expect.</th><th class="num">Pips</th><th class="num">{{ moeda|default('USD') }}</th></tr></thead>
         <tbody id="tb-sessao"></tbody>
       </table>
     </section>
@@ -151,7 +155,7 @@
       <h2>Por motivo de saída <span class="muted">— revela saídas prematuras (centavos)</span></h2>
       <table>
         <thead><tr><th>Motivo</th><th class="num">Trades</th><th class="num">Acerto</th>
-          <th class="num">Média</th><th class="num">Pips</th><th class="num">USD</th></tr></thead>
+          <th class="num">Média</th><th class="num">Pips</th><th class="num">{{ moeda|default('USD') }}</th></tr></thead>
         <tbody id="tb-motivo"></tbody>
       </table>
     </section>
@@ -160,7 +164,7 @@
       <h2>Por par</h2>
       <table>
         <thead><tr><th>Par</th><th class="num">Trades</th><th class="num">Acerto</th>
-          <th class="num">PF</th><th class="num">Pips</th><th class="num">USD</th></tr></thead>
+          <th class="num">PF</th><th class="num">Pips</th><th class="num">{{ moeda|default('USD') }}</th></tr></thead>
         <tbody id="tb-par"></tbody>
       </table>
     </section>
@@ -169,7 +173,7 @@
       <h2>Trades no período</h2>
       <table>
         <thead><tr><th>Quando (UTC)</th><th>Par</th><th>TF</th><th>Direção</th><th>Estratégia</th>
-          <th class="num">Pips</th><th class="num">USD</th>
+          <th class="num">Pips</th><th class="num">{{ moeda|default('USD') }}</th>
           <th class="num" title="Maximum Adverse Excursion (R)">MAE</th>
           <th class="num" title="Maximum Favorable Excursion (R)">MFE</th>
           <th>Motivo de saída</th>
@@ -182,6 +186,8 @@
 
   <script>
     var DADOS = {{ dados|tojson }};
+    var API_URL = {{ (api_url|default('/api/analitico'))|tojson }};
+    var MOEDA = {{ (moeda|default('USD'))|tojson }};
 
     function fmt(n, d) {
       if (n === null || n === undefined) return '—';
@@ -200,7 +206,7 @@
         ['Ganhadoras', '<span class="pos">' + g.ganhos + '</span>'],
         ['Perdedoras', '<span class="neg">' + g.perdas + '</span>'],
         ['Acerto', fmt(g.winrate, 1) + '%'],
-        ['Resultado (USD)', '<span class="' + sign(g.usd) + '">' + fmt(g.usd, 2) + '</span>'],
+        ['Resultado (' + MOEDA + ')', '<span class="' + sign(g.usd) + '">' + fmt(g.usd, 2) + '</span>'],
         ['Resultado (pips)', '<span class="' + sign(g.pips) + '">' + fmt(g.pips, 1) + '</span>'],
         ['Profit factor', pf(g)],
         ['Expectativa/trade', '<span class="' + sign(g.expectativa) + '">' + fmt(g.expectativa, 2) + '</span>'],
@@ -328,7 +334,7 @@
     async function carregar(de, ate) {
       try {
         var q = new URLSearchParams(); if (de) q.set('de', de); if (ate) q.set('ate', ate);
-        var r = await fetch('/api/analitico?' + q.toString(), { headers: { 'Accept': 'application/json' } });
+        var r = await fetch(API_URL + '?' + q.toString(), { headers: { 'Accept': 'application/json' } });
         if (r.ok) render(await r.json());
       } catch (e) { /* mantém o último estado */ }
     }
