@@ -85,7 +85,9 @@ CREATE TABLE IF NOT EXISTS decisoes (
     motivo     TEXT,
     dados_json TEXT,
     criada_utc INTEGER,                -- wall-clock da gravação da decisão (p/ medir delay decisão→fill)
-    variante   TEXT DEFAULT 'A_ORIGINAL'  -- laboratório multi-variante (A_ORIGINAL / B_FUZZY_PURO / C_HIBRIDA)
+    variante   TEXT DEFAULT 'A_ORIGINAL',  -- laboratório multi-variante (A_ORIGINAL / B_FUZZY_PURO / C_HIBRIDA)
+    mercado    TEXT DEFAULT 'forex'    -- forex (XM) ou b3 (WIN/WDO) — ISOLA os livros: cada executor
+                                       -- só age nas decisões do seu mercado (a ponte é diferente)
 );
 CREATE INDEX IF NOT EXISTS idx_decisoes_par_time ON decisoes (par, time_utc);
 
@@ -117,7 +119,8 @@ CREATE TABLE IF NOT EXISTS trades (
     spread_entrada REAL,               -- spread (pips) no instante do fill real
     derrapagem_pips REAL,              -- fill real vs preço-sinal, em pips (adverso = positivo)
     delay_s        REAL,               -- segundos entre a gravação da decisão e o fill real
-    variante       TEXT DEFAULT 'A_ORIGINAL'  -- variante do laboratório (herda da decisão de origem)
+    variante       TEXT DEFAULT 'A_ORIGINAL',  -- variante do laboratório (herda da decisão de origem)
+    mercado        TEXT DEFAULT 'forex'  -- forex (XM) ou b3 (WIN/WDO): P&L em BRL, ponte data-only, livro isolado
 );
 CREATE INDEX IF NOT EXISTS idx_trades_par ON trades (par);
 CREATE INDEX IF NOT EXISTS idx_trades_abertos ON trades (fechamento_utc);
@@ -180,6 +183,8 @@ def _migrar(conn) -> None:
         conn.execute("ALTER TABLE trades ADD COLUMN decisao_id INTEGER")
     if "variante" not in cols:    # laboratório multi-variante (herda da decisão de origem)
         conn.execute("ALTER TABLE trades ADD COLUMN variante TEXT DEFAULT 'A_ORIGINAL'")
+    if "mercado" not in cols:     # forex (XM) vs b3 (WIN/WDO) — livros isolados (ETAPA 8b)
+        conn.execute("ALTER TABLE trades ADD COLUMN mercado TEXT DEFAULT 'forex'")
     dcols = {r["name"] for r in conn.execute("PRAGMA table_info(decisoes)").fetchall()}
     if "tf" not in dcols:
         conn.execute("ALTER TABLE decisoes ADD COLUMN tf TEXT DEFAULT 'M5'")
@@ -187,6 +192,8 @@ def _migrar(conn) -> None:
         conn.execute("ALTER TABLE decisoes ADD COLUMN criada_utc INTEGER")
     if "variante" not in dcols:
         conn.execute("ALTER TABLE decisoes ADD COLUMN variante TEXT DEFAULT 'A_ORIGINAL'")
+    if "mercado" not in dcols:    # o executor de cada mercado só lê as decisões do seu mercado
+        conn.execute("ALTER TABLE decisoes ADD COLUMN mercado TEXT DEFAULT 'forex'")
 
 
 def conectar(db_path=None) -> sqlite3.Connection:

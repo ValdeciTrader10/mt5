@@ -92,6 +92,77 @@ def valor_ponto(par: str, default: float = None) -> float:
     return VALOR_PONTO_B3.get(par, default)
 
 
+# --------------------------------------------------------------------------- #
+# SOMBRA da B3 (ETAPA 8b, bloqueio (b)) — estrategista + executor de sombra
+# --------------------------------------------------------------------------- #
+# Liga o laboratório de sombra da B3: o `decisao_b3` roda as MESMAS estratégias (funções puras,
+# agnósticas de mercado) sobre WIN/WDO e grava as decisões `mercado='b3'`; o `executor_b3`
+# simula as operações ao vivo com o tick da ponte data-only da Genial e P&L em BRL. NADA é
+# real (a ponte da B3 não tem função de ordem — impossível por construção). ADITIVO e ISOLADO:
+# o forex não é tocado; o executor do forex ignora as decisões/trades `mercado='b3'`.
+B3_SOMBRA_HABILITADA = os.environ.get(
+    "B3_SOMBRA_HABILITADA", "true").lower() in ("1", "true", "sim")
+
+# TFs de OPERAÇÃO da sombra da B3 (cada TF é um livro independente, como no forex). Default
+# igual ao forex (M1/M5/M15) — M1 é observação (o custo come o alvo), M5/M15 são os candidatos.
+TFS_OPERACAO_B3 = [s.strip() for s in os.environ.get(
+    "TFS_OPERACAO_B3", "M1,M5,M15").split(",") if s.strip()]
+
+# Janela de negociação da B3 — HORA DO SERVIDOR da Genial (o filtro usa a hora do candle). A B3
+# só forma candles durante o pregão, então o default é PERMISSIVO (00–24 = sem corte de sessão):
+# deixamos o próprio pregão ser o filtro e evitamos descartar tudo por um descasamento de fuso do
+# feed. Estreitar depois (ex.: 9–18) quando o fuso do servidor da Genial estiver confirmado.
+SESSAO_B3 = (int(os.environ.get("SESSAO_B3_INICIO", "0")), int(os.environ.get("SESSAO_B3_FIM", "24")))
+
+# Filtro de spread da sombra da B3 (na régua interna pontos/10 do snapshot). Permissivo por ora
+# (catalogar o máximo; a régua de spread da B3 ainda será reconciliada — nota da calibração).
+SPREAD_MAX_B3 = float(os.environ.get("SPREAD_MAX_B3", "5.0"))
+
+# Nº de contratos da posição de sombra (P&L = pontos_a_favor × valor_ponto × contratos).
+CONTRATOS_B3 = int(os.environ.get("CONTRATOS_B3", "1"))
+
+# Teto amplo de posições virtuais simultâneas da B3 (segurança — não trunca o catálogo).
+MAX_POS_SOMBRA_B3 = int(os.environ.get("MAX_POS_SOMBRA_B3", "200"))
+
+# Polls (segundos) do estrategista e do executor de sombra da B3.
+DECISAO_B3_POLL_S = int(os.environ.get("DECISAO_B3_POLL_S", "5"))
+GESTOR_B3_POLL_S = int(os.environ.get("GESTOR_B3_POLL_S", "1"))
+
+# A cada quantos segundos a escala (tick/piso/teto de SL) é RE-DERIVADA dos candles por par
+# (lição GOLD: nunca chutar a escala; deriva de `calibracao_b3` sobre os candles já coletados).
+CALIB_REFRESH_S = int(os.environ.get("CALIB_REFRESH_S", "3600"))
+
+# Overrides POR SÍMBOLO de escala da B3 (mesmo papel do config.PARAMS_SIMBOLO no forex). VAZIO
+# por padrão de propósito: a escala é DERIVADA ao vivo da calibração (candles) — só fixar aqui
+# quando o dono confirmar os números do dossiê `/b3`. Chaves: tamanho_pip, sl_min_pips,
+# sl_max_pips, spread_max_pips.
+PARAMS_SIMBOLO_B3 = {}
+
+
+def param_simbolo_b3(par: str, chave: str, default=None):
+    """Override de escala do símbolo B3 (PARAMS_SIMBOLO_B3) ou o `default` (calibração ao vivo)."""
+    return PARAMS_SIMBOLO_B3.get(par, {}).get(chave, default)
+
+
+def lucro_brl(direcao: str, entrada: float, saida: float, par: str,
+              contratos: int = 1, valor_ponto_pt: float = None) -> float:
+    """P&L em BRL da sombra da B3 (função PURA): pontos_a_favor × valor-por-ponto × contratos.
+
+    A ponte da B3 é data-only (sem order_calc_profit), então o P&L é calculado do FATO de
+    contrato (`VALOR_PONTO_B3`: WIN R$0,20/pt, WDO R$10/pt). None se não houver valor-por-ponto.
+    """
+    vp = valor_ponto_pt if valor_ponto_pt is not None else valor_ponto(par)
+    if vp is None:
+        return None
+    pontos = (saida - entrada) if direcao == "compra" else (entrada - saida)
+    return pontos * vp * contratos
+
+
+def sombra_pares() -> list:
+    """Pares B3 a operar na sombra — vazio se o módulo B3 ou a sombra estiverem desligados."""
+    return list(PARES_B3) if (B3_HABILITADO and B3_SOMBRA_HABILITADA) else []
+
+
 def pares_ativos() -> list:
     """Pares B3 a processar (motor/painel) — vazio se o módulo B3 estiver desligado.
     Isola o forex: quem chama itera `config.PARES + config_b3.pares_ativos()`."""

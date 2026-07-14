@@ -519,11 +519,14 @@ def _dados_b3() -> dict:
                 "ultimo_preco": lc["close"] if lc else None,
                 "ultimo_utc": lc["time_utc"] if lc else None,
             })
+        # Livro de SOMBRA da B3 (mercado='b3'): decisões, trades fechados e P&L acumulado em BRL.
         n_dec = n_trades = 0
-        if pares:
-            ph = ",".join("?" * len(pares))
-            n_dec = conn.execute(f"SELECT COUNT(*) n FROM decisoes WHERE par IN ({ph})", pares).fetchone()["n"]
-            n_trades = conn.execute(f"SELECT COUNT(*) n FROM trades WHERE par IN ({ph})", pares).fetchone()["n"]
+        pnl_brl = 0.0
+        n_dec = conn.execute("SELECT COUNT(*) n FROM decisoes WHERE mercado='b3'").fetchone()["n"]
+        n_trades = conn.execute("SELECT COUNT(*) n FROM trades WHERE mercado='b3'").fetchone()["n"]
+        pnl_brl = conn.execute(
+            "SELECT COALESCE(SUM(lucro_usd),0) s FROM trades WHERE mercado='b3' "
+            "AND fechamento_utc IS NOT NULL").fetchone()["s"]
         # Calibração de escala (Etapa 8b): derivada dos candles já coletados. Guardada — se
         # faltar dado/erro, o painel segue mostrando o resto (não quebra por causa da calibração).
         calibracao = None
@@ -537,7 +540,10 @@ def _dados_b3() -> dict:
         "simbolos": simbolos,
         "n_decisoes": n_dec,
         "n_trades": n_trades,
-        "estrategias_ligadas": n_dec > 0,   # motor já roda; estratégias/executor = Etapa 8b
+        "pnl_brl": pnl_brl,
+        # Sombra da B3 fiada (ETAPA 8b): estrategista + executor de sombra ligados. A flag
+        # reflete a configuração (aguardando o pregão formar candles quando n_dec ainda é 0).
+        "estrategias_ligadas": config_b3.B3_HABILITADO and config_b3.B3_SOMBRA_HABILITADA,
         "calibracao": calibracao,
     }
 

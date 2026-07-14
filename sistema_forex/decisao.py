@@ -253,7 +253,7 @@ def _scores_ev(conn, par: str, tf: str, time_utc: int, dec: dict) -> dict:
     return ev
 
 
-def _gravar_decisao(conn, par: str, tf: str, time_utc: int, dec: dict) -> None:
+def _gravar_decisao(conn, par: str, tf: str, time_utc: int, dec: dict, mercado: str = "forex") -> None:
     dados = {"score": dec["score"], "confluencias": dec["confluencias"], "regime": dec["regime"]}
     if config.EV_HABILITADO:
         try:
@@ -263,33 +263,42 @@ def _gravar_decisao(conn, par: str, tf: str, time_utc: int, dec: dict) -> None:
     conn.execute(
         """
         INSERT INTO decisoes (par, time_utc, tf, estrategia, direcao, resultado, motivo, dados_json,
-                              criada_utc, variante)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              criada_utc, variante, mercado)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             par, time_utc, tf, dec["estrategia"], dec["direcao"], dec["resultado"], dec["motivo"],
             json.dumps(dados),
             int(time.time()),
             dec.get("variante", "A_ORIGINAL"),
+            mercado,
         ),
     )
 
 
-def avaliar_par(conn, par: str, tf: str, candle) -> list:
+def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
+                sessao_utc=None, spread_max=None) -> list:
     """Avalia TODAS as estratégias ativas sobre o candle do TF `tf` e grava cada decisão.
 
     Cada estratégia grava a sua própria linha em `decisoes` (entrou/não + motivo, marcada
     com o `tf`), o que mantém a auditoria por estratégia E por timeframe no /analitico. O
     executor deduplica no nível de posição por (par, tf), então duas entradas simultâneas
     do mesmo livro de TF não abrem duas posições.
+
+    Reuso pelo mercado B3 (ETAPA 8b): as estratégias são funções PURAS e agnósticas de
+    mercado — o `decisao_b3` chama esta mesma função com `mercado="b3"` e a janela de
+    sessão/spread da B3, marcando a decisão para o executor de sombra da B3 (a ponte da
+    B3 é data-only; o executor do forex ignora as decisões `mercado='b3'`).
     """
     snap = montar_snapshot(conn, par, tf, candle)
-    # Filtro de spread POR SÍMBOLO (o ouro tem spread bem maior que o forex).
-    spread_max = config.param_simbolo(par, "spread_max_pips", config.SPREAD_MAX_PIPS)
+    sessao_utc = config.SESSAO_UTC if sessao_utc is None else sessao_utc
+    # Filtro de spread POR SÍMBOLO (o ouro tem spread bem maior que o forex; a B3 usa o seu).
+    if spread_max is None:
+        spread_max = config.param_simbolo(par, "spread_max_pips", config.SPREAD_MAX_PIPS)
     decs = [
         estrategias.avaliar(
             snap,
-            sessao_utc=config.SESSAO_UTC,
+            sessao_utc=sessao_utc,
             spread_max_pips=spread_max,
             score_min=config.SCORE_MIN_CONFLUENCIAS,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
@@ -301,7 +310,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
     if config.SWEEP_HABILITADA:
         decs.append(estrategias.avaliar_sweep_choch(
             snap,
-            sessao_utc=config.SESSAO_UTC,
+            sessao_utc=sessao_utc,
             spread_max_pips=spread_max,
             n_swing=config.SWEEP_N_SWING,
             sweep_min_atr=config.SWEEP_MIN_ATR,
@@ -312,7 +321,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
     if config.SWEEP_ABS_HABILITADA:
         decs.append(estrategias.avaliar_sweep_choch_abs(
             snap,
-            sessao_utc=config.SESSAO_UTC,
+            sessao_utc=sessao_utc,
             spread_max_pips=spread_max,
             n_swing=config.SWEEP_N_SWING,
             sweep_min_atr=config.SWEEP_MIN_ATR,
@@ -324,7 +333,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
     if config.OB_HABILITADA:
         decs.append(estrategias.avaliar_order_block(
             snap,
-            sessao_utc=config.SESSAO_UTC,
+            sessao_utc=sessao_utc,
             spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             forca_min=config.SR_FORCA_MIN,
@@ -334,7 +343,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
     if config.PULLBACK_HABILITADA:
         decs.append(estrategias.avaliar_pullback_tendencia(
             snap,
-            sessao_utc=config.SESSAO_UTC,
+            sessao_utc=sessao_utc,
             spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             forca_min=config.SR_FORCA_MIN,
@@ -343,7 +352,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
     if config.GAP_HABILITADA:
         decs.append(estrategias.avaliar_fecha_gap(
             snap,
-            sessao_utc=config.SESSAO_UTC,
+            sessao_utc=sessao_utc,
             spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             forca_min=config.SR_FORCA_MIN,
@@ -352,7 +361,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
     if config.ROMPIMENTO_HABILITADA:
         decs.append(estrategias.avaliar_pullback_rompimento(
             snap,
-            sessao_utc=config.SESSAO_UTC,
+            sessao_utc=sessao_utc,
             spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             forca_min=config.SR_FORCA_MIN,
@@ -361,7 +370,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
     if config.EXTREMOS_HABILITADA:
         decs.append(estrategias.avaliar_rompimento_extremos(
             snap,
-            sessao_utc=config.SESSAO_UTC,
+            sessao_utc=sessao_utc,
             spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             pavio_min=config.REJEICAO_PAVIO_MIN,
@@ -369,7 +378,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
     if config.MEDIAS_HABILITADA:
         decs.append(estrategias.avaliar_pullback_medias(
             snap,
-            sessao_utc=config.SESSAO_UTC,
+            sessao_utc=sessao_utc,
             spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             pavio_min=config.REJEICAO_PAVIO_MIN,
@@ -377,7 +386,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
     if config.PIVOT_HABILITADA:
         decs.append(estrategias.avaliar_pivot_confluencia(
             snap,
-            sessao_utc=config.SESSAO_UTC,
+            sessao_utc=sessao_utc,
             spread_max_pips=spread_max,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             pivot_sr_atr=config.PIVOT_SR_ATR,
@@ -389,7 +398,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
     if config.FUZZY_B_HABILITADA and tf == config.FUZZY_B_TIMING_TF:
         decs.append(estrategias.avaliar_fuzzy_puro(
             snap,
-            sessao_utc=config.SESSAO_UTC,
+            sessao_utc=sessao_utc,
             spread_max_pips=spread_max,
             mare_min=config.FUZZY_B_MARE_MIN,
             corrente_min=config.FUZZY_B_CORRENTE_MIN,
@@ -416,7 +425,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
 
     for dec in decs:
         dec["_close"] = candle["close"]     # p/ o componente de localização (VWAP) do EV
-        _gravar_decisao(conn, par, tf, candle["time_utc"], dec)
+        _gravar_decisao(conn, par, tf, candle["time_utc"], dec, mercado=mercado)
     conn.commit()
     return decs
 

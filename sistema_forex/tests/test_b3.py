@@ -13,7 +13,7 @@ Cobre o que a fundação adiciona de forma PURA/determinística:
 import os
 import tempfile
 
-from .. import calibracao_b3, config_b3, coletor_b3, db
+from .. import calibracao_b3, config_b3, coletor_b3, db, executor, executor_b3
 from ..coletor_mt5 import contar, gravar_candles
 
 
@@ -169,6 +169,165 @@ def test_calibrar_par_do_banco():
         assert res["por_tf"]["M5"]["tick"] == 5.0
         assert res["sugestao"]["suficiente"]
         assert res["valor_ponto_contrato"] == 0.20   # default de contrato do WIN
+    finally:
+        os.remove(caminho)
+
+
+# --------------------------------------------------------------------------- #
+# Sombra da B3 (ETAPA 8b, bloqueio (b)) — P&L em BRL, isolamento por mercado, escala
+# --------------------------------------------------------------------------- #
+def test_lucro_brl_win_compra():
+    """WIN comprado que sobe 100 pontos = +R$ 20 (0,20/pt) por contrato."""
+    v = config_b3.lucro_brl("compra", 130000, 130100, "WIN$N", contratos=1)
+    assert v == 20.0, v
+    assert config_b3.lucro_brl("compra", 130000, 130100, "WIN$N", contratos=3) == 60.0
+
+
+def test_lucro_brl_venda_e_wdo():
+    """Venda ganha quando o preço cai; WDO vale R$ 10/ponto."""
+    assert config_b3.lucro_brl("venda", 130100, 130000, "WIN$N") == 20.0     # caiu 100 → +R$20
+    assert config_b3.lucro_brl("venda", 130000, 130100, "WIN$N") == -20.0    # subiu contra a venda
+    assert config_b3.lucro_brl("compra", 5400.0, 5405.0, "WDO$N") == 50.0    # +5 pts × R$10
+
+
+def test_lucro_brl_sem_valor_ponto_none():
+    assert config_b3.lucro_brl("compra", 1, 2, "XPTO") is None   # símbolo sem fato de contrato
+
+
+def test_param_simbolo_b3_override_e_default():
+    orig = config_b3.PARAMS_SIMBOLO_B3
+    try:
+        config_b3.PARAMS_SIMBOLO_B3 = {"WIN$N": {"tamanho_pip": 5.0}}
+        assert config_b3.param_simbolo_b3("WIN$N", "tamanho_pip") == 5.0
+        assert config_b3.param_simbolo_b3("WIN$N", "sl_min_pips") is None       # não sobrescrito
+        assert config_b3.param_simbolo_b3("WDO$N", "tamanho_pip", 0.5) == 0.5   # cai no default
+    finally:
+        config_b3.PARAMS_SIMBOLO_B3 = orig
+
+
+def test_sombra_pares_respeita_flags():
+    orig_h, orig_s = config_b3.B3_HABILITADO, config_b3.B3_SOMBRA_HABILITADA
+    try:
+        config_b3.B3_HABILITADO = True
+        config_b3.B3_SOMBRA_HABILITADA = True
+        assert config_b3.sombra_pares() == list(config_b3.PARES_B3)
+        config_b3.B3_SOMBRA_HABILITADA = False
+        assert config_b3.sombra_pares() == []   # sombra desligada → nada opera
+        config_b3.B3_SOMBRA_HABILITADA = True
+        config_b3.B3_HABILITADO = False
+        assert config_b3.sombra_pares() == []   # módulo B3 desligado → nada opera
+    finally:
+        config_b3.B3_HABILITADO, config_b3.B3_SOMBRA_HABILITADA = orig_h, orig_s
+
+
+def _inserir_decisao(conn, par, mercado, resultado="entrou"):
+    conn.execute(
+        "INSERT INTO decisoes (par, time_utc, tf, estrategia, direcao, resultado, criada_utc, mercado) "
+        "VALUES (?, ?, 'M5', 'confluencia_v1', 'compra', ?, 0, ?)",
+        (par, 1_000_000, resultado, mercado))
+    conn.commit()
+
+
+def test_decisoes_isoladas_por_mercado():
+    """O executor do forex NÃO enxerga decisões b3 e vice-versa (isolamento por WHERE mercado)."""
+    caminho = _tmp_db()
+    try:
+        with db.sessao(caminho) as conn:
+            _inserir_decisao(conn, "EURUSD#", "forex")
+            _inserir_decisao(conn, "WIN$N", "b3")
+            forex = executor._decisoes_novas(conn, 0)
+            b3 = executor_b3._decisoes_novas(conn, 0)
+            assert [r["par"] for r in forex] == ["EURUSD#"], [r["par"] for r in forex]
+            assert [r["par"] for r in b3] == ["WIN$N"], [r["par"] for r in b3]
+    finally:
+        os.remove(caminho)
+
+
+def test_decisao_legada_sem_mercado_fica_no_forex():
+    """Decisão antiga (mercado NULL, pré-migração) é tratada como forex — a B3 não a pega."""
+    caminho = _tmp_db()
+    try:
+        with db.sessao(caminho) as conn:
+            conn.execute(
+                "INSERT INTO decisoes (par, time_utc, tf, estrategia, direcao, resultado, criada_utc, mercado) "
+                "VALUES ('GBPUSD#', 1000, 'M5', 'confluencia_v1', 'compra', 'entrou', 0, NULL)")
+            conn.commit()
+            assert [r["par"] for r in executor._decisoes_novas(conn, 0)] == ["GBPUSD#"]
+            assert executor_b3._decisoes_novas(conn, 0) == []
+    finally:
+        os.remove(caminho)
+
+
+def _inserir_trade_aberto(conn, par, mercado):
+    conn.execute(
+        "INSERT INTO trades (par, tf, estrategia, direcao, lote, preco_entrada, sl_servidor, "
+        "abertura_utc, simulado, risco_inicial, variante, mercado) "
+        "VALUES (?, 'M5', 'confluencia_v1', 'compra', 1, 100, 90, 0, 1, 10, 'A_ORIGINAL', ?)",
+        (par, mercado))
+    conn.commit()
+
+
+def test_trades_abertos_isolados_por_mercado():
+    """Carga inicial: cada executor só retoma as posições do SEU mercado (a B3 usa outra ponte)."""
+    caminho = _tmp_db()
+    try:
+        with db.sessao(caminho) as conn:
+            _inserir_trade_aberto(conn, "EURUSD#", "forex")
+            _inserir_trade_aberto(conn, "WIN$N", "b3")
+            forex = executor._abertas_do_banco(conn)
+            b3 = executor_b3._abertas_do_banco(conn)
+            assert [r["par"] for r in forex] == ["EURUSD#"], [r["par"] for r in forex]
+            assert [r["par"] for r in b3] == ["WIN$N"], [r["par"] for r in b3]
+    finally:
+        os.remove(caminho)
+
+
+def test_escala_deriva_da_calibracao():
+    """ExecutorB3._escala deriva tick/piso/teto do SL dos candles (regra do ouro, sem chute)."""
+    caminho = _tmp_db()
+    try:
+        with db.sessao(caminho) as conn:
+            velas = []
+            base = 130000
+            for i in range(60):
+                o = base + (i % 5) * 5          # grade de 5 em 5 → tick 5 (WIN)
+                velas.append({"time": 1_000_000 + i * 300, "open": o, "high": o + 150,
+                              "low": o - 150, "close": o + 25, "tick_volume": 100, "spread": 5})
+            for tf in config_b3.TFS_COLETA_B3:
+                gravar_candles(conn, "WIN$N", tf, velas)
+            conn.commit()
+            ex = executor_b3.ExecutorB3()
+            escala = ex._escala(conn, "WIN$N")
+        assert escala is not None
+        assert escala["tick"] == 5.0
+        assert escala["sl_min_pips"] >= 1 and escala["sl_max_pips"] > escala["sl_min_pips"]
+    finally:
+        os.remove(caminho)
+
+
+def test_escala_override_dispensa_calibracao():
+    """Com PARAMS_SIMBOLO_B3 completo, a escala vem do override (sem tocar candles/calibração)."""
+    caminho = _tmp_db()
+    orig = config_b3.PARAMS_SIMBOLO_B3
+    try:
+        config_b3.PARAMS_SIMBOLO_B3 = {"WIN$N": {"tamanho_pip": 5.0, "sl_min_pips": 60,
+                                                  "sl_max_pips": 300}}
+        with db.sessao(caminho) as conn:           # banco vazio: se lesse candles, falharia
+            ex = executor_b3.ExecutorB3()
+            escala = ex._escala(conn, "WIN$N")
+        assert escala == {"tick": 5.0, "sl_min_pips": 60, "sl_max_pips": 300}, escala
+    finally:
+        config_b3.PARAMS_SIMBOLO_B3 = orig
+        os.remove(caminho)
+
+
+def test_escala_sem_dados_none():
+    """Sem candles nem override, a escala é None → o executor apenas NÃO abre (não insta-estopa)."""
+    caminho = _tmp_db()
+    try:
+        with db.sessao(caminho) as conn:
+            ex = executor_b3.ExecutorB3()
+            assert ex._escala(conn, "WIN$N") is None
     finally:
         os.remove(caminho)
 

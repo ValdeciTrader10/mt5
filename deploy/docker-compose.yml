@@ -146,6 +146,45 @@ services:
     networks: [interna]
     restart: unless-stopped
 
+  # ------------------------------------------------------ Estrategista B3 (ETAPA 8b — sombra WIN/WDO)
+  estrategista_b3:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    container_name: forex_estrategista_b3
+    command: python -m sistema_forex.decisao_b3
+    env_file: .env
+    environment:
+      - DADOS_DIR=/dados
+    volumes:
+      - dados:/dados          # roda as estratégias sobre WIN/WDO e grava decisões mercado='b3'
+    depends_on:
+      - motor
+    networks: [interna]
+    restart: unless-stopped
+
+  # ------------------------------------------------------ Executor B3 (ETAPA 8b — sombra WIN/WDO)
+  executor_b3:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    container_name: forex_executor_b3
+    command: python -m sistema_forex.executor_b3
+    env_file: .env
+    environment:
+      - MT5_B3_HOST=mt5_b3
+      - MT5_B3_PORT=8001
+      - DADOS_DIR=/dados
+    volumes:
+      - dados:/dados          # simula WIN/WDO ao vivo (tick data-only da Genial, P&L em BRL)
+    depends_on:
+      - estrategista_b3
+      - mt5_b3
+    networks: [interna]
+    restart: unless-stopped
+
   # ------------------------------------------------------------------ Painel web
   web:
     build:

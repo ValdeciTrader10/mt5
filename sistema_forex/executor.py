@@ -133,17 +133,22 @@ def pode_abrir(abertas_vals, par: str, tf: str, estrategia: str, *, livro: str, 
 
 
 def _decisoes_novas(conn, desde_id: int):
+    # SÓ o mercado forex: as decisões `mercado='b3'` são do executor de sombra da B3 (ponte
+    # data-only, P&L em BRL) — o executor do forex nunca as toca (símbolo WIN/WDO não existe no XM).
     return conn.execute(
         "SELECT id, par, tf, direcao, estrategia, criada_utc, variante FROM decisoes "
-        "WHERE id > ? AND resultado='entrou' ORDER BY id",
+        "WHERE id > ? AND resultado='entrou' AND (mercado='forex' OR mercado IS NULL) ORDER BY id",
         (desde_id,),
     ).fetchall()
 
 
 def _abertas_do_banco(conn):
+    # Só posições do livro forex (mercado='b3' pertence ao executor_b3, que resolve o símbolo
+    # na ponte da Genial — resolver WIN/WDO na ponte do XM levantaria erro no arranque).
     return conn.execute(
         "SELECT id, ticket, par, tf, estrategia, direcao, lote, preco_entrada, sl_servidor, abertura_utc, "
-        "simulado, risco_inicial, mae_r, mfe_r, variante FROM trades WHERE fechamento_utc IS NULL"
+        "simulado, risco_inicial, mae_r, mfe_r, variante FROM trades "
+        "WHERE fechamento_utc IS NULL AND (mercado='forex' OR mercado IS NULL)"
     ).fetchall()
 
 
@@ -158,26 +163,32 @@ def _regime_atual(conn, par: str):
 
 
 def _abrir_trade(conn, par, tf, estrategia, direcao, lote, entrada, sl, ticket, simulado, risco,
-                 regime, fill=None, decisao_id=None, variante="A_ORIGINAL") -> int:
+                 regime, fill=None, decisao_id=None, variante="A_ORIGINAL", mercado="forex",
+                 abertura_utc=None) -> int:
     fill = fill or {}
     cur = conn.execute(
         "INSERT INTO trades (ticket, par, tf, estrategia, direcao, lote, preco_entrada, sl_servidor, "
         "abertura_utc, simulado, risco_inicial, regime_entrada, decisao_id, "
-        "preco_sinal, spread_entrada, derrapagem_pips, delay_s, variante) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (ticket, par, tf, estrategia, direcao, lote, entrada, sl, _agora(), simulado, risco, regime,
+        "preco_sinal, spread_entrada, derrapagem_pips, delay_s, variante, mercado) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (ticket, par, tf, estrategia, direcao, lote, entrada, sl,
+         abertura_utc if abertura_utc is not None else _agora(), simulado, risco, regime,
          decisao_id, fill.get("preco_sinal"), fill.get("spread_entrada"),
-         fill.get("derrapagem_pips"), fill.get("delay_s"), variante),
+         fill.get("derrapagem_pips"), fill.get("delay_s"), variante, mercado),
     )
     conn.commit()
     return cur.lastrowid
 
 
-def _fechar_trade(conn, trade_id, saida, pips, lucro, motivo, mae_r=None, mfe_r=None) -> None:
+def _fechar_trade(conn, trade_id, saida, pips, lucro, motivo, mae_r=None, mfe_r=None,
+                  fechamento_utc=None) -> None:
+    # `fechamento_utc` explícito permite ao executor_b3 carimbar na hora do servidor da Genial
+    # (o offset do forex fica 0 no container da B3) — mantém abertura/fechamento no mesmo relógio.
     conn.execute(
         "UPDATE trades SET preco_saida=?, pips=?, lucro_usd=?, motivo_saida=?, fechamento_utc=?, "
         "mae_r=?, mfe_r=? WHERE id=?",
-        (saida, pips, lucro, motivo, _agora(), mae_r, mfe_r, trade_id),
+        (saida, pips, lucro, motivo, _agora() if fechamento_utc is None else fechamento_utc,
+         mae_r, mfe_r, trade_id),
     )
     conn.commit()
 

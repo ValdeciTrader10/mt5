@@ -154,7 +154,7 @@ Env `GESTAO_POR_VARIANTE` (default on), reusa `HIBRIDA_SAIDA_M5_MIN`/`HIBRIDA_ST
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **190 testes, todos passando.**
+  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **201 testes, todos passando.**
   Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
@@ -457,14 +457,31 @@ Testes em `test_b3.py` (9 casos: tick WIN/WDO, percentil, estatísticas, regra d
 **190 testes, todos passando.** ⚠️ **Falta rodar contra o banco REAL da VPS** (poucos candles de WIN/WDO ainda)
 → conferir o dossiê no `/b3` conforme a coleta cresce e então fixar os valores em `PARAMS_SIMBOLO_B3`.
 
-⚠️ **AINDA NÃO LIGADO (próximo passo do 8b, bloqueio (b)):** estrategista + executor de SOMBRA da B3 (= os
-"resultados das estratégias" que o dono quer). O executor usa a ponte do **forex** p/ tick/pip/lucro — a ponte
-B3 é **data-only**, então o shadow da B3 precisa de P&L PURO (valor-por-ponto em BRL, já calibrado acima) e tick
-via `mt5_bridge_b3` — fazer ISOLADO (novo caminho/serviço) p/ não tocar no executor do forex ao vivo. NÃO ligar
-`decisao` na B3 antes disso (o executor pegaria as decisões e choraria na ponte errada). Painel já preparado:
-`_dados_b3` mostra `estrategias_ligadas`/`n_trades` e troca o aviso automaticamente quando começarem a existir.
-**Demais pendentes 8b+:** tabela `correlacao_b3`, painel MACRO, **veto de correlação SÓ no B3** (NUNCA no forex),
-alerta de rollover. ⚠️ `gestao._moedas` não parseia metal/índice — tratar antes de qualquer correlação WIN/WDO/GOLD.
+**✅ Sub-etapa 8b.2 — SOMBRA DA B3 LIGADA (14/07, bloqueio (b) resolvido — "ative as estratégias p/ a B3").**
+Estrategista + executor de SOMBRA da B3 no ar (= os "resultados das estratégias" que o dono quer), ADITIVO e
+ISOLADO do forex. Peças: (1) coluna **`mercado`** (`forex`/`b3`, default `forex`, migração idempotente) em
+`decisoes`/`trades` → ISOLA os livros: o executor do forex filtra `mercado='forex' OR NULL` (WIN/WDO nunca caem
+na ponte errada), o da B3 só lê `mercado='b3'`. (2) **`decisao_b3.py`** — reusa a MESMA `decisao.avaliar_par`
+(estratégias são funções puras/agnósticas; `avaliar_par` ganhou `mercado`/`sessao_utc`/`spread_max` opcionais,
+forex intocado) sobre `config_b3.sombra_pares()` × `TFS_OPERACAO_B3` (M1/M5/M15), grava decisões `mercado='b3'`.
+(3) **`executor_b3.py`** — simula ao vivo com o tick da ponte **data-only** da Genial (`mt5_bridge_b3`; impossível
+enviar ordem por construção) e **P&L em BRL** (`config_b3.lucro_brl` = pontos × valor-por-ponto × contratos).
+**Escala (tick/piso/teto de SL) DERIVADA dos candles** via `calibracao_b3` com TTL (`CALIB_REFRESH_S`) — regra do
+ouro: sem candles suficientes, o par NÃO abre (log + skip), nunca insta-estopa. Reusa `gestao` pura + as leituras
+agnósticas do `executor` do forex (`_atr`/`_evento_saida`/`_regime_atual`/`pode_abrir`/`_abrir_trade`/`_fechar_trade`);
+carimba abertura/fechamento na hora do servidor da **Genial** (offset próprio; `_fechar_trade` ganhou
+`fechamento_utc` p/ não usar o offset 0 do container B3). Gestão de saída por variante (B/C) igual ao forex.
+(4) **Deploy:** serviços `estrategista_b3` + `executor_b3` nos dois composes; `.env.example` com a seção da sombra
+(`B3_SOMBRA_HABILITADA`, `TFS_OPERACAO_B3`, `CONTRATOS_B3`, polls). (5) **Painel `/b3`:** `estrategias_ligadas`
+reflete a config, conta decisões/trades por `mercado='b3'` e soma o **P&L em BRL** (`pnl_brl`). Env: `B3_SOMBRA_HABILITADA`
+(default on), `TFS_OPERACAO_B3`, `SESSAO_B3` (permissivo 0–24 até confirmar o fuso da Genial), `SPREAD_MAX_B3`,
+`CONTRATOS_B3`, `MAX_POS_SOMBRA_B3`, `PARAMS_SIMBOLO_B3` (override de escala, vazio = calibração manda). Testes em
+`test_b3.py` (+11: P&L BRL compra/venda WIN/WDO, isolamento decisões/trades por mercado, legado NULL=forex, escala
+da calibração/override/sem-dados). **201 testes, todos passando.** ⚠️ Auditar no `/b3` conforme o pregão roda:
+conferir que a escala calibrada não insta-estopa e reconciliar a régua de spread (pontos/10). `EXEC_REAL` NUNCA
+se aplica à B3 (ponte data-only). **Demais pendentes 8b+:** tabela `correlacao_b3`, painel MACRO, **veto de
+correlação SÓ no B3** (NUNCA no forex), alerta de rollover. ⚠️ `gestao._moedas` não parseia metal/índice —
+tratar antes de qualquer correlação WIN/WDO/GOLD.
 
 **✅ ETAPA 9 — FEITO (14/07).** Auditoria estatística — o GATE que decide, por dados, o que vai p/ demo.
 `auditoria_estatistica.py` (PURO/testável, rotas via /relatorio + CLI `python -m sistema_forex.auditoria_estatistica

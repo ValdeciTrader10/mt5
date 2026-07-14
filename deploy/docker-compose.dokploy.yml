@@ -169,6 +169,58 @@ services:
     networks: [interna]
     restart: unless-stopped
 
+  # ------------------------------------------------------ Estrategista B3 (ETAPA 8b — sombra WIN/WDO)
+  # Roda as MESMAS estratégias sobre WIN/WDO e grava as decisões mercado='b3' (aditivo/isolado:
+  # o executor do forex ignora essas decisões). Ponte data-only — nenhuma ordem real é possível.
+  estrategista_b3:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    command: python -m sistema_forex.decisao_b3
+    environment:
+      DADOS_DIR: /dados
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      B3_HABILITADO: ${B3_HABILITADO:-true}
+      B3_SOMBRA_HABILITADA: ${B3_SOMBRA_HABILITADA:-true}
+      PARES_B3: ${PARES_B3:-WIN$$N,WDO$$N}
+      TFS_OPERACAO_B3: ${TFS_OPERACAO_B3:-M1,M5,M15}
+      DECISAO_B3_POLL_S: ${DECISAO_B3_POLL_S:-5}
+    volumes:
+      - dados:/dados          # lê análise/candles da B3 e grava decisões (sombra, sem ordens)
+    depends_on:
+      - motor
+    networks: [interna]
+    restart: unless-stopped
+
+  # ------------------------------------------------------ Executor B3 (ETAPA 8b — sombra WIN/WDO)
+  # Simula as operações de WIN/WDO ao vivo com o tick da ponte data-only da Genial e P&L em BRL.
+  # Escala (stop/spread) DERIVADA dos candles (calibração) — nunca chutada (lição do ouro).
+  executor_b3:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: forex_sistema:latest
+    command: python -m sistema_forex.executor_b3
+    environment:
+      MT5_B3_HOST: mt5_b3
+      MT5_B3_PORT: "8001"
+      DADOS_DIR: /dados
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      B3_HABILITADO: ${B3_HABILITADO:-true}
+      B3_SOMBRA_HABILITADA: ${B3_SOMBRA_HABILITADA:-true}
+      PARES_B3: ${PARES_B3:-WIN$$N,WDO$$N}
+      TFS_OPERACAO_B3: ${TFS_OPERACAO_B3:-M1,M5,M15}
+      CONTRATOS_B3: ${CONTRATOS_B3:-1}
+      GESTOR_B3_POLL_S: ${GESTOR_B3_POLL_S:-1}
+    volumes:
+      - dados:/dados
+    depends_on:
+      - estrategista_b3
+      - mt5_b3
+    networks: [interna]
+    restart: unless-stopped
+
   # ------------------------------------------------------------------ Painel web
   web:
     build:
