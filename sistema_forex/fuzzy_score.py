@@ -34,14 +34,16 @@ ESTADOS = ("vermelho", "fucsia", "branco", "verde", "lima")
 
 
 def estado_por_score(score: float) -> str:
-    """Rótulo de estado (cor) a partir do score fuzzy 0–100."""
+    """Rótulo de estado (cor) a partir do score fuzzy 0–100. Bandas FIÉIS ao PDF Fuzzy Wyckoff
+    (item 1): lima 76–100 · verde 56–75 · branco 46–55 · fúcsia 26–45 · vermelho 0–25. Só afeta a
+    COR (painel) e o componente EV da sync (não-bloqueante) — as entradas usam o score numérico."""
     if score >= 76:
         return "lima"
-    if score >= 60:
+    if score >= 56:
         return "verde"
-    if score >= 40:
+    if score >= 46:
         return "branco"
-    if score >= 24:
+    if score >= 26:
         return "fucsia"
     return "vermelho"
 

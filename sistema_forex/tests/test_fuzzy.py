@@ -85,10 +85,16 @@ def test_exaustao_puxa_para_neutro():
 
 
 def test_estado_por_score():
+    # Bandas FIÉIS ao PDF (item 1): lima 76+ · verde 56–75 · branco 46–55 · fúcsia 26–45 · vermelho ≤25
     assert fz.estado_por_score(90) == "lima"
-    assert fz.estado_por_score(65) == "verde"
-    assert fz.estado_por_score(50) == "branco"
-    assert fz.estado_por_score(30) == "fucsia"
+    assert fz.estado_por_score(76) == "lima"
+    assert fz.estado_por_score(75) == "verde"      # topo da banda verde
+    assert fz.estado_por_score(56) == "verde"      # piso da banda verde (era branco antes)
+    assert fz.estado_por_score(55) == "branco"     # topo do branco
+    assert fz.estado_por_score(46) == "branco"     # piso do branco (era fúcsia? não; era branco 40+)
+    assert fz.estado_por_score(45) == "fucsia"     # topo da fúcsia (era branco antes)
+    assert fz.estado_por_score(26) == "fucsia"     # piso da fúcsia
+    assert fz.estado_por_score(25) == "vermelho"   # topo do vermelho
     assert fz.estado_por_score(10) == "vermelho"
 
 
