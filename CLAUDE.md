@@ -396,9 +396,16 @@ eram perdedores = prejuízo EVITADO vs vencedores = lucro PERDIDO, e o benefíci
 sorte). `resumo_semanal` envia o resumo curto ao Telegram (anti-spam). Template `relatorio.html` + nav em
 todas as páginas. Testes em `test_relatorio.py` (8 casos). Aceite: 1º relatório auditável ✅.
 
-**⬜ ETAPA 8 — Módulo B3/WIN (fase posterior).** `coletor_b3` (WIN + WDO/DIs), tabela `correlacao_b3`,
-painel MACRO TRADE, `config_b3`, WIN na matriz (demo BR), **veto de correlação só no B3** (NUNCA no forex),
-alerta de rollover. Aceite: WIN logando com correlações.
+**⏸️ ETAPA 8 — Módulo B3/WIN — ADIADA DE PROPÓSITO (decisão do dono, 14/07).** É a ÚNICA etapa que
+falta (0–7 e 9 ✅). Fica PARADA por dois motivos: (1) o foco AGORA é **analisar os dados de forex que
+já temos na sombra** — o dono vai colar o relatório do sistema no chat p/ a IA revisar o que manter/
+calibrar/retirar (usar /relatorio + /auditoria + a aba "🎯 Aprovação para demo" da Etapa 9 como base);
+(2) o B3 depende de um **feed da B3 (WIN/WDO)** que o broker atual (XM DEMO) **não fornece** — construir
+agora seria às cegas, sem como testar de ponta a ponta. Só retomar quando houver conta/feed B3 e o dono
+pedir. **Escopo guardado p/ quando voltar:** `coletor_b3` (WIN + WDO/DIs), tabela `correlacao_b3`, painel
+MACRO TRADE, `config_b3`, WIN na matriz de sombra (demo BR), **veto de correlação SÓ no B3** (NUNCA no
+forex — no forex a correlação fica off, ver seção de pares), alerta de rollover do contrato. Aceite: WIN
+logando com correlações. ⚠️ Ao voltar, `gestao._moedas` não parseia metal/índice — tratar antes.
 
 **✅ ETAPA 9 — FEITO (14/07).** Auditoria estatística — o GATE que decide, por dados, o que vai p/ demo.
 `auditoria_estatistica.py` (PURO/testável, rotas via /relatorio + CLI `python -m sistema_forex.auditoria_estatistica
