@@ -387,6 +387,15 @@ HIBRIDA_HABILITADA = os.environ.get("HIBRIDA_HABILITADA", "true").lower() in ("1
 #  - sob exaustão, aperta o stop por esta fração da distância ao preço (integração 6).
 HIBRIDA_SAIDA_M5_MIN = float(os.environ.get("HIBRIDA_SAIDA_M5_MIN", "60"))
 HIBRIDA_STOP_APERTO = float(os.environ.get("HIBRIDA_STOP_APERTO", "0.5"))
+# CARÊNCIA (grace) antes de a saída antecipada/técnica por variante (B/C) poder fechar: a posição
+# tem de viver ao menos ESTE número de velas do SEU TF. Sem isso, o fuzzy M5 no PRIMEIRO ciclo após
+# a abertura fechava a ordem no mesmo minuto (−1 pip, "não deixou andar") — o M5 no instante da
+# entrada é a foto da entrada, não uma MUDANÇA de contexto. Corrige o bug visto na sombra da B3
+# (14/07): 100% das C fechavam com ~0 de movimento. O aperto de stop na exaustão (só APROXIMA) não
+# é afetado. Alinhado à metodologia do dono ("ativou, deixa o preço andar").
+HIBRIDA_SAIDA_MIN_CANDLES = float(os.environ.get("HIBRIDA_SAIDA_MIN_CANDLES", "2"))
+# Minutos por TF (para converter idade da posição em nº de velas do próprio TF).
+MINUTOS_TF = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440, "W1": 10080}
 
 # GESTÃO DE SAÍDA POR VARIANTE (liga as saídas próprias de B/C na sombra) — ADITIVO, a Variante A
 # (controle) NUNCA passa por aqui, segue no gestor genérico. Motivado pela auditoria (14/07): 100%

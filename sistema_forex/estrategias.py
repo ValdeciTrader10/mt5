@@ -1065,20 +1065,28 @@ def ajuste_stop_exaustao(sl_atual: float, direcao: str, close: float, exaustao: 
 
 def gestao_saida_variante(variante: str, direcao: str, preco: float, sl: float, *,
                           fuzzy_m5=None, exausto: bool = False, vwap=None, sma50=None,
-                          m5_min: float, aperto: float) -> dict:
+                          m5_min: float, aperto: float,
+                          idade_candles=None, min_candles: float = 0) -> dict:
     """Gestão de saída ESPECÍFICA por variante do laboratório — compõe as funções puras já testadas
     de B e C. A Variante A (controle) NUNCA passa por aqui (segue no gestor genérico). PURA/testável.
     Devolve {novo_sl, fechar, motivo}:
       - C_HIBRIDA: integração 5 (fecha se o M5 fuzzy vira CLARAMENTE contra) + integração 6 (aperta
         o stop sob EXAUSTÃO no TF do trade — só aproxima, nunca afrouxa);
       - B_FUZZY_PURO: saída técnica (preço cruzou a VWAP/SMA50 p/ o lado oposto = perdeu a referência).
+
+    CARÊNCIA: a saída ANTECIPADA (C) / técnica (B) só pode FECHAR depois que a posição viveu ao menos
+    `min_candles` velas do seu TF (`idade_candles`). Sem isso o M5 fuzzy fechava a ordem no MESMO ciclo
+    da abertura ("não deixou andar") — o fuzzy no instante da entrada é a foto da entrada, não uma
+    mudança de contexto. `idade_candles=None` (uso legado/teste puro) desliga a trava de tempo. O aperto
+    de stop na exaustão (só aproxima) NÃO é travado — vale desde o início por ser conservador.
     """
+    cedo = idade_candles is not None and idade_candles < min_candles
     if variante == "C_HIBRIDA":
-        if saida_antecipada_hibrida(direcao, fuzzy_m5, minimo=m5_min):
+        if not cedo and saida_antecipada_hibrida(direcao, fuzzy_m5, minimo=m5_min):
             return {"novo_sl": sl, "fechar": True, "motivo": "saída antecipada C (M5 fuzzy contra)"}
         return {"novo_sl": ajuste_stop_exaustao(sl, direcao, preco, exausto, aperto=aperto),
                 "fechar": False, "motivo": ""}
     if variante == "B_FUZZY_PURO":
-        if saida_tecnica_fuzzy_puro(direcao, preco, sma50=sma50, vwap=vwap):
+        if not cedo and saida_tecnica_fuzzy_puro(direcao, preco, sma50=sma50, vwap=vwap):
             return {"novo_sl": sl, "fechar": True, "motivo": "saída técnica B (VWAP/SMA50 oposta)"}
     return {"novo_sl": sl, "fechar": False, "motivo": ""}

@@ -394,11 +394,14 @@ class Executor:
             if (not p.get("real") and config.GESTAO_POR_VARIANTE
                     and p.get("variante") in ("B_FUZZY_PURO", "C_HIBRIDA")):
                 scores, vwap = self._ctx_variante(conn, p["par"])
+                idade_candles = ((_agora() - p["abertura_utc"])
+                                 / (config.MINUTOS_TF.get(p["tf"], 5) * 60))
                 dec = estrategias.gestao_saida_variante(
                     p["variante"], p["direcao"], preco, p["sl"],
                     fuzzy_m5=(scores.get("M5") or {}).get("score"),
                     exausto=bool((scores.get(p["tf"]) or {}).get("exaustao")),
-                    vwap=vwap, m5_min=config.HIBRIDA_SAIDA_M5_MIN, aperto=config.HIBRIDA_STOP_APERTO)
+                    vwap=vwap, m5_min=config.HIBRIDA_SAIDA_M5_MIN, aperto=config.HIBRIDA_STOP_APERTO,
+                    idade_candles=idade_candles, min_candles=config.HIBRIDA_SAIDA_MIN_CANDLES)
                 if dec["novo_sl"] != p["sl"]:
                     p["sl"] = dec["novo_sl"]       # exaustão apertou o stop virtual (só aproxima)
                 if dec["fechar"]:

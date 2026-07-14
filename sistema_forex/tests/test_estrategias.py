@@ -720,6 +720,35 @@ def test_gestao_saida_variante_b_tecnica_vwap():
     assert d2["fechar"] is False
 
 
+def test_gestao_saida_variante_c_carencia_nao_fecha_no_1o_ciclo():
+    # BUG (sombra B3 14/07): C fechava no MESMO ciclo da abertura com ~0 de movimento porque o M5
+    # fuzzy no instante da entrada estava contra. Com a carência, a posição jovem NÃO fecha antecipado.
+    d = e.gestao_saida_variante("C_HIBRIDA", "compra", 1.1000, 1.0990, fuzzy_m5=30,
+                                exausto=False, m5_min=60, aperto=0.5,
+                                idade_candles=0.5, min_candles=2)
+    assert d["fechar"] is False, d          # jovem demais → segura, deixa andar
+    # passada a carência, o mesmo M5 contra fecha normalmente.
+    d2 = e.gestao_saida_variante("C_HIBRIDA", "compra", 1.1000, 1.0990, fuzzy_m5=30,
+                                 exausto=False, m5_min=60, aperto=0.5,
+                                 idade_candles=3, min_candles=2)
+    assert d2["fechar"] is True and "antecipada C" in d2["motivo"], d2
+    # exaustão dentro da carência AINDA aperta o stop (integração 6 é conservadora, não é fechamento).
+    d3 = e.gestao_saida_variante("C_HIBRIDA", "compra", 1.1000, 1.0990, fuzzy_m5=70,
+                                 exausto=True, m5_min=60, aperto=0.5,
+                                 idade_candles=0.0, min_candles=2)
+    assert d3["fechar"] is False and abs(d3["novo_sl"] - 1.0995) < 1e-9, d3
+
+
+def test_gestao_saida_variante_b_carencia_nao_fecha_no_1o_ciclo():
+    # B jovem: mesmo com o preço já cruzado a VWAP, a carência segura a saída técnica.
+    d = e.gestao_saida_variante("B_FUZZY_PURO", "compra", 1.0990, 1.0980, vwap=1.1000,
+                                m5_min=60, aperto=0.5, idade_candles=0.5, min_candles=2)
+    assert d["fechar"] is False, d
+    d2 = e.gestao_saida_variante("B_FUZZY_PURO", "compra", 1.0990, 1.0980, vwap=1.1000,
+                                 m5_min=60, aperto=0.5, idade_candles=3, min_candles=2)
+    assert d2["fechar"] is True and "técnica B" in d2["motivo"], d2
+
+
 def test_gestao_saida_variante_a_controle_nunca_mexe():
     # A_ORIGINAL (controle) nunca passa pela gestão por variante: no-op mesmo com fuzzy contra.
     d = e.gestao_saida_variante("A_ORIGINAL", "compra", 1.1000, 1.0990, fuzzy_m5=10,

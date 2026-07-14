@@ -148,6 +148,14 @@ antecipada quando o M5 fuzzy vira contra (integração 5) + aperto de stop na ex
 inteligente melhora a expectância (antes A e C só diferiam na ENTRADA; agora C tem a saída desenhada).
 Env `GESTAO_POR_VARIANTE` (default on), reusa `HIBRIDA_SAIDA_M5_MIN`/`HIBRIDA_STOP_APERTO`. Funções puras
 + wiring testados (`test_estrategias`: `gestao_saida_variante` C antecipada/exaustão, B técnica, A no-op).
+**FIX de carência (14/07, sombra B3 "fechou com um tick, não deixou andar"):** a saída antecipada C /
+técnica B disparava no PRIMEIRO ciclo de `gerir` após a abertura — o M5 fuzzy no instante da entrada
+está contra e fechava a ordem no mesmo minuto (−1 pip, MAE ~−0.02R, stop NUNCA tocado). Não era escala
+(a calibração 8b.1 está boa): era o exit reagindo à FOTO da entrada, não a uma mudança de contexto.
+Agora `gestao_saida_variante` só FECHA depois que a posição viveu ≥ `HIBRIDA_SAIDA_MIN_CANDLES` (default 2)
+velas do SEU TF (`idade_candles` calculado nos dois executores via `config.MINUTOS_TF`); o aperto de stop
+na exaustão (só aproxima) continua valendo desde o início. Aditivo, Variante A intocada, forex + B3.
+Sem a carência a comparação A×C era inútil (C sempre raspava −1 pip). Env `HIBRIDA_SAIDA_MIN_CANDLES`.
 ⚠️ Aperto de stop da exaustão é in-memory (não persiste em `sl_servidor`); some num restart do executor
 (aceitável na sombra). Próximo passo de auditoria: comparar exp. de C (com saída nova) vs A no /relatorio.
 
