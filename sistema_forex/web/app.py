@@ -483,7 +483,8 @@ def auditoria_page(request: Request, de: str = "", ate: str = ""):
         d = aud.dossie_perdedores(conn, de, ate)
     texto = aud.dossie_texto(d)
     return templates.TemplateResponse(
-        request, "auditoria.html", {"dados": d, "texto": texto, "de": de, "ate": ate}
+        request, "auditoria.html",
+        {"dados": d, "texto": texto, "de": de, "ate": ate, "mercado": "forex"}
     )
 
 
@@ -646,7 +647,8 @@ def b3_auditoria(request: Request, de: str = "", ate: str = ""):
     return templates.TemplateResponse(
         request, "auditoria.html",
         {"dados": d, "texto": texto, "de": de, "ate": ate, "b3": True, "moeda": "BRL",
-         "titulo": "Auditoria IA · B3", "base": "/b3/auditoria", "api_base": "/api/b3/auditoria"},
+         "titulo": "Auditoria IA · B3", "base": "/b3/auditoria", "api_base": "/api/b3/auditoria",
+         "mercado": "b3"},
     )
 
 
@@ -733,9 +735,10 @@ code{{background:#161b22;padding:.1rem .3rem;border-radius:4px;font-size:.85em}}
 
 
 @app.post("/manutencao/reset", response_class=HTMLResponse)
-def manutencao_reset(request: Request, confirmacao: str = Form("")):
-    """Zera trades/decisões (fecha posições do robô + BACKUP automático; preserva candles).
-    Destrutivo: guardado por login + confirmação digitada 'LIMPAR'."""
+def manutencao_reset(request: Request, confirmacao: str = Form(""), mercado: str = Form("forex")):
+    """Zera trades/decisões SÓ do mercado da página que pediu (forex OU b3) — NUNCA os dois. O
+    botão do /auditoria manda mercado=forex; o do /b3/auditoria manda mercado=b3. BACKUP automático
+    antes. Destrutivo: guardado por login + confirmação digitada 'LIMPAR'."""
     if not auth.esta_logado(request):
         return auth.redirecionar_login()
     from .. import manutencao as manut
@@ -744,16 +747,27 @@ def manutencao_reset(request: Request, confirmacao: str = Form("")):
         return HTMLResponse(_html_reset(
             'Confirmação incorreta — digite <b>LIMPAR</b>. <b>Nada foi apagado.</b>', ok=False),
             status_code=400)
-    fechadas = manut.fechar_posicoes_robo()
-    bak = manut._backup(config.DB_PATH)
-    with db.sessao() as conn:
-        apagados = manut.resetar(conn)
-    corpo = (f"✅ Limpeza concluída.<br>Posições do robô fechadas: <b>{fechadas}</b>.<br>"
-             f"Backup: <code>{bak}</code><br>"
-             f"Apagados: trades <b>{apagados.get('trades', 0)}</b>, "
-             f"decisões <b>{apagados.get('decisoes', 0)}</b> (níveis/estrutura/regime também). "
-             f"<b>Candles preservados.</b><br><br>"
-             f"⚠️ Agora faça um <b>REDEPLOY no Dokploy</b> para o executor reiniciar limpo.")
+    mercado = "b3" if mercado == "b3" else "forex"      # default seguro; só b3 quando explícito
+    bak = manut._backup(config.DB_PATH)                 # backup do banco INTEIRO antes de qualquer delete
+    if mercado == "b3":
+        # B3 é data-only (nenhuma posição real) → NÃO fecha posição no broker do forex.
+        with db.sessao() as conn:
+            apagados = manut.resetar_b3(conn)
+        corpo = (f"✅ Limpeza da <b>B3</b> concluída — o <b>forex NÃO foi tocado</b>.<br>"
+                 f"Backup: <code>{bak}</code><br>"
+                 f"Apagados (só mercado='b3'): trades <b>{apagados.get('trades', 0)}</b>, "
+                 f"decisões <b>{apagados.get('decisoes', 0)}</b>. <b>Candles preservados.</b><br><br>"
+                 f"⚠️ Faça um <b>REDEPLOY no Dokploy</b> para o executor da B3 reiniciar limpo.")
+    else:
+        fechadas = manut.fechar_posicoes_robo()         # só o forex tem posições no broker
+        with db.sessao() as conn:
+            apagados = manut.resetar_forex(conn)
+        corpo = (f"✅ Limpeza do <b>FOREX</b> concluída — a <b>B3 NÃO foi tocada</b>.<br>"
+                 f"Posições do robô fechadas: <b>{fechadas}</b>.<br>"
+                 f"Backup: <code>{bak}</code><br>"
+                 f"Apagados (só forex): trades <b>{apagados.get('trades', 0)}</b>, "
+                 f"decisões <b>{apagados.get('decisoes', 0)}</b>. <b>Candles preservados.</b><br><br>"
+                 f"⚠️ Agora faça um <b>REDEPLOY no Dokploy</b> para o executor reiniciar limpo.")
     return HTMLResponse(_html_reset(corpo, ok=True))
 
 

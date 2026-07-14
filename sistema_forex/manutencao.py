@@ -86,6 +86,18 @@ def resetar(conn) -> dict:
     return apagados
 
 
+def resetar_forex(conn) -> dict:
+    """Apaga SÓ o livro do FOREX (`trades`/`decisoes` com mercado='forex' ou legado NULL);
+    PRESERVA a B3 (mercado='b3'), os `candles` e as derivadas (o motor regenera). Simétrico ao
+    `resetar_b3` — usado pelo botão da página do FOREX para não encostar na B3."""
+    apagados = {}
+    for t in TABELAS_OPERACAO:
+        apagados[t] = conn.execute(
+            f"DELETE FROM {t} WHERE mercado='forex' OR mercado IS NULL").rowcount
+    conn.commit()
+    return apagados
+
+
 def resetar_b3(conn) -> dict:
     """Apaga SÓ o livro de sombra da B3 (`trades`/`decisoes` com mercado='b3'); PRESERVA o
     forex e os `candles`. Serve para recomeçar a sombra WIN/WDO limpa após um fix — ex.: a

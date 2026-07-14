@@ -41,6 +41,35 @@ def test_reset_apaga_operacao_e_preserva_candles():
         os.remove(caminho)
 
 
+def test_reset_por_mercado_nao_encosta_no_outro():
+    """CRÍTICO (bug 14/07): limpar a B3 NÃO pode apagar o forex, e vice-versa. `resetar_forex` e
+    `resetar_b3` são estritamente escopados por mercado (legado NULL = forex)."""
+    caminho = _tmp_db()
+    try:
+        conn = db.conectar(caminho)
+        conn.execute("INSERT INTO trades (par,estrategia,mercado) VALUES ('EURUSD#','confluencia_v1','forex')")
+        conn.execute("INSERT INTO trades (par,estrategia,mercado) VALUES ('LEGADO','x',NULL)")  # legado = forex
+        conn.execute("INSERT INTO trades (par,estrategia,mercado) VALUES ('WIN$N','sweep_choch_v1','b3')")
+        conn.execute("INSERT INTO decisoes (par,time_utc,resultado,mercado) VALUES ('EURUSD#',1,'entrou','forex')")
+        conn.execute("INSERT INTO decisoes (par,time_utc,resultado,mercado) VALUES ('WIN$N',1,'entrou','b3')")
+        conn.commit()
+
+        # Limpar a B3: some só o WIN$N; o forex (EURUSD# + legado NULL) fica intacto.
+        ap_b3 = manutencao.resetar_b3(conn)
+        assert ap_b3["trades"] == 1 and ap_b3["decisoes"] == 1, ap_b3
+        assert conn.execute("SELECT COUNT(*) c FROM trades WHERE mercado='b3'").fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) c FROM trades").fetchone()["c"] == 2, "forex intacto"
+        assert conn.execute("SELECT COUNT(*) c FROM decisoes").fetchone()["c"] == 1, "decisão forex intacta"
+
+        # Agora limpar o forex: some EURUSD# + legado NULL; nada de b3 sobrou mesmo.
+        ap_fx = manutencao.resetar_forex(conn)
+        assert ap_fx["trades"] == 2, ap_fx   # EURUSD# + legado NULL
+        assert conn.execute("SELECT COUNT(*) c FROM trades").fetchone()["c"] == 0
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
 def test_backup_gera_arquivo_com_os_dados():
     caminho = _tmp_db()
     bak = None

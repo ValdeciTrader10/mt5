@@ -179,19 +179,23 @@
       {% if not dados.perdedores %}<p class="muted">Sem operações perdedoras no período.</p>{% endif %}
     </section>
 
+    {% set mkt = mercado|default('forex') %}
+    {% set mkt_nome = 'B3 (WIN/WDO)' if mkt == 'b3' else 'Forex' %}
     <section>
-      <h2>🧹 Zerar dados <span class="muted">— recomeçar do zero (backup automático)</span></h2>
-      <p class="muted">Fecha as posições do robô no MT5, faz <b>backup</b> do banco e apaga
-        <b>trades e decisões</b> (níveis/estrutura/regime regeneram sozinhos). Os <b>candles são
-        preservados</b>. Depois, faça um <b>redeploy no Dokploy</b>. Ação destrutiva — digite
-        <b>LIMPAR</b> para confirmar.</p>
+      <h2>🧹 Zerar dados do <b>{{ mkt_nome }}</b> <span class="muted">— recomeçar do zero (backup automático)</span></h2>
+      <p class="muted">Apaga <b>somente os trades e decisões do {{ mkt_nome }}</b> — o
+        {{ 'forex' if mkt == 'b3' else 'B3' }} <b>NÃO é tocado</b>. Faz <b>backup</b> do banco antes,
+        {{ 'fecha as posições do robô no MT5, ' if mkt != 'b3' else '' }}e preserva os <b>candles</b>
+        (níveis/estrutura/regime regeneram sozinhos). Depois, faça um <b>redeploy no Dokploy</b>.
+        Ação destrutiva — digite <b>LIMPAR</b> para confirmar.</p>
       <form method="post" action="/manutencao/reset" class="copiarow"
-            onsubmit="return confirm('Confirma apagar trades e decisões? (será feito backup antes)')">
+            onsubmit="return confirm('Confirma apagar trades e decisões SÓ do {{ mkt_nome }}? (backup antes; o outro mercado fica intacto)')">
+        <input type="hidden" name="mercado" value="{{ mkt }}">
         <input type="text" name="confirmacao" placeholder="digite LIMPAR" autocomplete="off"
                style="text-transform:uppercase">
         <button class="btn" type="submit"
                 style="background:#f85149;border-color:#f85149;color:#fff;font-weight:600">
-          Zerar dados
+          Zerar dados do {{ mkt_nome }}
         </button>
       </form>
     </section>
