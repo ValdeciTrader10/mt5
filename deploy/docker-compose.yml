@@ -58,7 +58,8 @@ services:
       - CUSTOM_USER=${VNC_USER:-trader}
       - PASSWORD=${VNC_PASSWORD:?defina VNC_PASSWORD no .env}
     volumes:
-      - mt5_b3_config:/config
+      # v2: volume novo p/ re-inicializar o /config com a senha VNC atual (ver dokploy yml).
+      - mt5_b3_config_v2:/config
     ports:
       # Terminal Genial no navegador SÓ no localhost — acesse por túnel SSH (porta 3101).
       - "127.0.0.1:3101:3000"
@@ -192,6 +193,6 @@ networks:
 volumes:
   dados: {}
   mt5_config: {}
-  mt5_b3_config: {}
+  mt5_b3_config_v2: {}
   caddy_data: {}
   caddy_config: {}

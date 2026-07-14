@@ -71,7 +71,10 @@ services:
       CUSTOM_USER: ${VNC_USER:-trader}
       PASSWORD: ${VNC_PASSWORD:?defina VNC_PASSWORD no Environment}
     volumes:
-      - mt5_b3_config:/config
+      # v2: disco recriado do ZERO no deploy (14/07) — o /config antigo tinha a senha VNC
+      # velha gravada e recusava o login no :3101. Trocar o nome força um volume novo e vazio,
+      # que re-inicializa com o VNC_PASSWORD atual. (Depois é só relogar na Genial pela tela.)
+      - mt5_b3_config_v2:/config
     ports:
       # Terminal Genial no navegador: http://IP_DA_VPS:3101 (login VNC). Porta distinta
       # da 3100 (XM) e da 3000 (Dokploy). Logue na Genial uma vez; o volume persiste.
@@ -199,4 +202,4 @@ networks:
 volumes:
   dados: {}
   mt5_config: {}
-  mt5_b3_config: {}
+  mt5_b3_config_v2: {}
