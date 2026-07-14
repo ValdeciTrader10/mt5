@@ -34,12 +34,18 @@ ESTRATEGIA_MEDIAS = "pullback_medias_v1"
 ESTRATEGIA_PIVOT = "pivot_confluencia_v1"
 ESTRATEGIA_FUZZY_PURO = "fuzzy_puro_v1"      # Variante B (ETAPA 5)
 ESTRATEGIA_FUZZY_PURO_LIMA = "fuzzy_puro_lima_v1"  # Variante B2 (item 4): mesma lógica, maré = Lima (76)
+# Família D_LINHAS — estratégias pela DINÂMICA das curvas de score por TF (não o nível estático).
+ESTRATEGIA_DIVERGENCIA = "fuzzy_divergencia_v1"        # A — esforço×resultado (score vs preço)
+ESTRATEGIA_PULLBACK_LEQUE = "fuzzy_pullback_leque_v1"  # B — leque: rápida recua e reengata na maré
+ESTRATEGIA_SYNC_FLIP = "fuzzy_sync_flip_v1"            # C — convergência: sync alinha rompendo a VWAP
+ESTRATEGIA_EXAUSTAO = "fuzzy_exaustao_v1"              # D — clímax: score saturado rola na banda ±2σ
 
 # Variante do laboratório multi-variante. As estratégias deste módulo são o GRUPO DE CONTROLE
 # (Variante A). B_FUZZY_PURO / C_HIBRIDA marcam a decisão via este campo (ETAPAS 5-6).
 VARIANTE_A = "A_ORIGINAL"
 VARIANTE_B = "B_FUZZY_PURO"
 VARIANTE_C = "C_HIBRIDA"
+VARIANTE_LINHAS = "D_LINHAS"   # 4º cenário: estratégias pela dinâmica das linhas de score fuzzy
 
 # Estratégias da Variante A cujo gatilho é uma ZONA (S/R, order block, pivot): na Variante C, a
 # VIRADA de score do fuzzy na zona (transição de causa) confirma o giro do preço no nível.
@@ -1094,3 +1100,179 @@ def gestao_saida_variante(variante: str, direcao: str, preco: float, sl: float, 
         if not cedo and saida_tecnica_fuzzy_puro(direcao, preco, sma50=sma50, vwap=vwap):
             return {"novo_sl": sl, "fechar": True, "motivo": "saída técnica B (VWAP/SMA50 oposta)"}
     return {"novo_sl": sl, "fechar": False, "motivo": ""}
+
+
+# =========================================================================== #
+# FAMÍLIA D_LINHAS — estratégias pela DINÂMICA das curvas de score fuzzy por TF.
+#
+# As 9 estratégias (Variante A) e a B/C leem o score como NÍVEL estático no instante da decisão.
+# Esta família lê o MOVIMENTO das linhas: divergência linha×preço (Lei 2 de Wyckoff), pullback do
+# leque (rápida recua e reengata na maré), convergência (Sync alinhando) e exaustão (clímax). Cada
+# uma é um LIVRO de sombra próprio (variante=D_LINHAS) — um 4º cenário comparável no /relatorio.
+# Funções PURAS/testáveis; sem look-ahead (swings só usam candles já fechados/confirmados).
+#
+# Snapshot esperado (montado em decisao.montar_snapshot):
+#   snap["serie_op"] = {"high":[...], "low":[...], "close":[...], "score":[...]}  # TF de operação,
+#       alinhado candle-a-candle (JOIN candles×fuzzy_scores), cronológico.
+#   snap["score_acima"] = [scores do TF ACIMA]  (cronológico)
+#   snap["sync_ult"]    = [estados de sync ... penúltimo, último]
+# =========================================================================== #
+def _no_valor_topo(close, vw):
+    """True se o preço está no TOPO de valor (>= VWAP ou banda superior) — zona p/ procurar VENDA."""
+    vwap, sup1 = vw.get("vwap"), vw.get("sup1")
+    if sup1 is not None:
+        return close >= sup1
+    return vwap is not None and close >= vwap
+
+
+def _no_valor_fundo(close, vw):
+    """True se o preço está no FUNDO de valor (<= VWAP ou banda inferior) — zona p/ procurar COMPRA."""
+    vwap, inf1 = vw.get("vwap"), vw.get("inf1")
+    if inf1 is not None:
+        return close <= inf1
+    return vwap is not None and close <= vwap
+
+
+def avaliar_divergencia_fuzzy(snap: dict, *, sessao_utc, spread_max_pips, n_swing: int) -> dict:
+    """A — DIVERGÊNCIA esforço×resultado (Lei 2 de Wyckoff). Preço faz topo mais alto mas a linha de
+    score faz topo MAIS BAIXO (esforço decrescente sustentando o preço = distribuição) → VENDA no
+    topo de valor. Espelho p/ COMPRA (fundo mais baixo no preço + score subindo, no fundo de valor).
+    Reversão de qualidade: invalidação estrutural apertada (atrás do topo/fundo), alvo na média."""
+    regime = snap.get("regime", "indefinido")
+    s = snap.get("serie_op") or {}
+    highs, lows, scores = s.get("high") or [], s.get("low") or [], s.get("score") or []
+    vw = snap.get("vwap") or {}
+    close = snap["close"]
+    _d = lambda *a: _decisao(*a, estrategia=ESTRATEGIA_DIVERGENCIA, variante=VARIANTE_LINHAS)
+    if len(highs) < n_swing * 2 + 3 or len(scores) != len(highs):
+        return _d("nao_entrou", None, regime, 0, [], "sem série preço×score alinhada")
+    sw = indicadores.swings(highs, lows, n_swing)
+    tops = [w for w in sw if w["tipo"] == "high"]
+    bots = [w for w in sw if w["tipo"] == "low"]
+    direcao, conf = None, []
+    if len(tops) >= 2:
+        t1, t2 = tops[-2], tops[-1]
+        if t2["preco"] > t1["preco"] and scores[t2["i"]] < scores[t1["i"]] and _no_valor_topo(close, vw):
+            direcao, conf = "venda", ["div_baixa", "topo_preco_sobe_score_cai", "topo_vwap"]
+    if direcao is None and len(bots) >= 2:
+        b1, b2 = bots[-2], bots[-1]
+        if b2["preco"] < b1["preco"] and scores[b2["i"]] > scores[b1["i"]] and _no_valor_fundo(close, vw):
+            direcao, conf = "compra", ["div_alta", "fundo_preco_cai_score_sobe", "fundo_vwap"]
+    if direcao is None:
+        return _d("nao_entrou", None, regime, 0, [], "sem divergência linha×preço na banda")
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _d("nao_entrou", direcao, regime, len(conf), conf, f"fora da sessão ({hora}h UTC)")
+    if snap.get("spread_pips", 0.0) > spread_max_pips:
+        return _d("nao_entrou", direcao, regime, len(conf), conf, "spread alto")
+    return _d("entrou", direcao, regime, len(conf), conf, "divergência|" + "+".join(conf))
+
+
+def avaliar_pullback_leque(snap: dict, *, sessao_utc, spread_max_pips, mare_min, dip_janela: int) -> dict:
+    """B — PULLBACK DO LEQUE. Na maré comprada (M15 ≥ mare_min), a linha RÁPIDA (TF de operação)
+    recuou ABAIXO da lenta (TF acima) nas últimas velas e agora REENGATA (cruza de volta acima) →
+    COMPRA no valor (preço na/abaixo da VWAP). Espelho p/ VENDA (maré vendida, rápida pop acima e
+    reengata abaixo). Continuação a favor da tendência, pegando o fim do pullback."""
+    regime = snap.get("regime", "indefinido")
+    fz = snap.get("fuzzy") or {}
+    s = snap.get("serie_op") or {}
+    rapida = s.get("score") or []
+    lenta = snap.get("score_acima") or []
+    vw = snap.get("vwap") or {}
+    close, vwap = snap["close"], (snap.get("vwap") or {}).get("vwap")
+    _d = lambda *a: _decisao(*a, estrategia=ESTRATEGIA_PULLBACK_LEQUE, variante=VARIANTE_LINHAS)
+    mare = _lado_fuzzy((fz.get("M15") or {}).get("score"), mare_min)
+    if mare == 0:
+        return _d("nao_entrou", None, regime, 0, [], "sem maré (M15 neutro)")
+    direcao = "compra" if mare > 0 else "venda"
+    k = min(len(rapida), len(lenta))
+    if k < 3:
+        return _d("nao_entrou", direcao, regime, 0, [], "sem série de linhas (rápida×lenta)")
+    r, l = rapida[-k:], lenta[-k:]
+    j0 = max(0, k - 1 - dip_janela)
+    if direcao == "compra":
+        recuou = any(r[j] < l[j] for j in range(j0, k - 1))     # rápida esteve abaixo da lenta
+        reengatou = r[-2] <= l[-2] and r[-1] > l[-1]            # e cruzou de volta p/ cima agora
+        valor = vwap is None or close <= vwap                   # desconto
+    else:
+        recuou = any(r[j] > l[j] for j in range(j0, k - 1))
+        reengatou = r[-2] >= l[-2] and r[-1] < l[-1]
+        valor = vwap is None or close >= vwap                   # prêmio
+    if not (recuou and reengatou):
+        return _d("nao_entrou", direcao, regime, 0, [], "sem recuo+reengate do leque")
+    if not valor:
+        return _d("nao_entrou", direcao, regime, 1, ["leque_reengate"], "fora do valor da VWAP")
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _d("nao_entrou", direcao, regime, 0, [], f"fora da sessão ({hora}h UTC)")
+    if snap.get("spread_pips", 0.0) > spread_max_pips:
+        return _d("nao_entrou", direcao, regime, 0, [], "spread alto")
+    conf = ["mare_M15", "leque_recuo", "leque_reengate", "valor_vwap"]
+    return _d("entrou", direcao, regime, len(conf), conf, "pullback_leque|" + "+".join(conf))
+
+
+def avaliar_sync_flip(snap: dict, *, sessao_utc, spread_max_pips, mare_min) -> dict:
+    """C — CONVERGÊNCIA (Sync flip). As linhas SAEM de divergência (amarelo) e ALINHAM: a Sync vira
+    verde (compra) ou vermelho (venda) NESTE candle, confirmada pela maré M15 e rompendo a VWAP na
+    direção → entra no início do estouro (não depois que já cansou)."""
+    regime = snap.get("regime", "indefinido")
+    su = snap.get("sync_ult") or []
+    fz = snap.get("fuzzy") or {}
+    close, vwap = snap["close"], (snap.get("vwap") or {}).get("vwap")
+    _d = lambda *a: _decisao(*a, estrategia=ESTRATEGIA_SYNC_FLIP, variante=VARIANTE_LINHAS)
+    if len(su) < 2:
+        return _d("nao_entrou", None, regime, 0, [], "sem histórico de sync")
+    prev, atual = su[-2], su[-1]
+    if atual not in ("verde", "vermelho") or prev == atual:
+        return _d("nao_entrou", None, regime, 0, [], "sem flip de sync p/ alinhamento")
+    direcao = "compra" if atual == "verde" else "venda"
+    mare = _lado_fuzzy((fz.get("M15") or {}).get("score"), mare_min)
+    if (direcao == "compra" and mare < 0) or (direcao == "venda" and mare > 0):
+        return _d("nao_entrou", direcao, regime, 0, [], "maré M15 contra o flip")
+    rompe = vwap is None or (close > vwap if direcao == "compra" else close < vwap)
+    if not rompe:
+        return _d("nao_entrou", direcao, regime, 1, ["sync_flip"], "não rompeu a VWAP na direção")
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _d("nao_entrou", direcao, regime, 0, [], f"fora da sessão ({hora}h UTC)")
+    if snap.get("spread_pips", 0.0) > spread_max_pips:
+        return _d("nao_entrou", direcao, regime, 0, [], "spread alto")
+    conf = [f"sync_{prev}->{atual}", "maré_ok", "rompe_vwap"]
+    return _d("entrou", direcao, regime, len(conf), conf, "sync_flip|" + "+".join(conf))
+
+
+def avaliar_exaustao_fuzzy(snap: dict, *, sessao_utc, spread_max_pips, sat_candles: int,
+                           sat_alto: float, sat_baixo: float) -> dict:
+    """D — EXAUSTÃO (clímax). A linha de score do TF de operação ficou PRESA no extremo (>= sat_alto
+    p/ topo, <= sat_baixo p/ fundo) por `sat_candles` velas e agora ROLA (perde o extremo) com o
+    preço na banda ±2σ da VWAP → fade do clímax (Lei do esforço esgotado). Reversão curta rumo à
+    média; invalidação apertada além do extremo."""
+    regime = snap.get("regime", "indefinido")
+    s = snap.get("serie_op") or {}
+    scores = s.get("score") or []
+    vw = snap.get("vwap") or {}
+    close, vwap = snap["close"], vw.get("vwap")
+    sup2, inf2 = vw.get("sup2"), vw.get("inf2")
+    _d = lambda *a: _decisao(*a, estrategia=ESTRATEGIA_EXAUSTAO, variante=VARIANTE_LINHAS)
+    if len(scores) < sat_candles + 2:
+        return _d("nao_entrou", None, regime, 0, [], "série de score curta")
+    presos = scores[-(sat_candles + 1):-1]      # as velas ANTES da atual (o platô saturado)
+    atual, anterior = scores[-1], scores[-2]
+    direcao = None
+    if all(v >= sat_alto for v in presos) and atual < anterior:          # topo saturado rolando
+        no_extremo = (sup2 is not None and close >= sup2) or (vwap is not None and close > vwap)
+        if no_extremo:
+            direcao = "venda"
+    if direcao is None and all(v <= sat_baixo for v in presos) and atual > anterior:  # fundo saturado
+        no_extremo = (inf2 is not None and close <= inf2) or (vwap is not None and close < vwap)
+        if no_extremo:
+            direcao = "compra"
+    if direcao is None:
+        return _d("nao_entrou", None, regime, 0, [], "sem exaustão (saturação+rollover na banda)")
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _d("nao_entrou", direcao, regime, 0, [], f"fora da sessão ({hora}h UTC)")
+    if snap.get("spread_pips", 0.0) > spread_max_pips:
+        return _d("nao_entrou", direcao, regime, 0, [], "spread alto")
+    conf = ["saturado", "rollover", "banda_2sigma"]
+    return _d("entrou", direcao, regime, len(conf), conf, "exaustão|" + "+".join(conf))

@@ -772,6 +772,77 @@ def test_gestao_saida_variante_a_controle_nunca_mexe():
     assert d == {"novo_sl": 1.0990, "fechar": False, "motivo": ""}, d
 
 
+# --------------------------------------------------------------------------- #
+# FAMÍLIA D_LINHAS — dinâmica das curvas de score fuzzy
+# --------------------------------------------------------------------------- #
+_VW = {"vwap": 100.0, "sup1": 105.0, "inf1": 95.0, "sup2": 110.0, "inf2": 90.0}
+
+
+def _base_linhas(**kw):
+    b = dict(regime="tendencia_alta", hora_utc=10, spread_pips=1.0, close=100.0, vwap=_VW)
+    b.update(kw)
+    return b
+
+
+CFG_LINHAS = dict(sessao_utc=(7, 20), spread_max_pips=2.0)
+
+
+def test_divergencia_baixa_entra_venda():
+    # 2 topos de preço ASCENDENTES (i=2:15, i=6:18) + score DESCENDENTE neles (70→60), preço no topo
+    # de valor (>= sup1) → divergência de baixa = VENDA. (n_swing=2 p/ série curta.)
+    highs = [10, 11, 15, 11, 10, 12, 18, 12, 11, 10, 10]
+    lows = [9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9]
+    score = [50, 50, 70, 50, 50, 50, 60, 50, 50, 50, 50]
+    snap = _base_linhas(close=106.0, serie_op={"high": highs, "low": lows,
+                        "close": [100.0] * 11, "score": score})
+    d = e.avaliar_divergencia_fuzzy(snap, n_swing=2, **CFG_LINHAS)
+    assert d["resultado"] == "entrou" and d["direcao"] == "venda", d
+    assert d["variante"] == "D_LINHAS" and d["estrategia"] == "fuzzy_divergencia_v1", d
+    # sem divergência (score sobe junto com o preço) → não entra
+    d2 = e.avaliar_divergencia_fuzzy(_base_linhas(close=106.0, serie_op={"high": highs, "low": lows,
+                        "close": [100.0] * 11, "score": [50, 50, 60, 50, 50, 50, 70, 50, 50, 50, 50]}),
+                        n_swing=2, **CFG_LINHAS)
+    assert d2["resultado"] == "nao_entrou", d2
+
+
+def test_pullback_leque_entra_compra():
+    # Maré M15 comprada (65≥60); rápida recuou abaixo da lenta e REENGATA acima agora; preço ≤ VWAP.
+    snap = _base_linhas(close=98.0, fuzzy={"M15": {"score": 65}},
+                        serie_op={"high": [], "low": [], "close": [], "score": [45, 48, 50, 55]},
+                        score_acima=[53, 53, 53, 53])
+    d = e.avaliar_pullback_leque(snap, mare_min=60, dip_janela=6, **CFG_LINHAS)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["variante"] == "D_LINHAS", d
+    # sem reengate (rápida segue abaixo da lenta) → não entra
+    snap2 = _base_linhas(close=98.0, fuzzy={"M15": {"score": 65}},
+                         serie_op={"score": [45, 48, 50, 52]}, score_acima=[53, 53, 53, 53])
+    d2 = e.avaliar_pullback_leque(snap2, mare_min=60, dip_janela=6, **CFG_LINHAS)
+    assert d2["resultado"] == "nao_entrou", d2
+
+
+def test_sync_flip_entra_na_convergencia():
+    # Sync amarelo→verde (flip), maré M15 a favor, rompendo a VWAP p/ cima → COMPRA.
+    snap = _base_linhas(close=101.0, sync_ult=["amarelo", "verde"], fuzzy={"M15": {"score": 65}})
+    d = e.avaliar_sync_flip(snap, mare_min=60, **CFG_LINHAS)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    # sem flip (já estava verde) → não entra
+    d2 = e.avaliar_sync_flip(_base_linhas(close=101.0, sync_ult=["verde", "verde"],
+                             fuzzy={"M15": {"score": 65}}), mare_min=60, **CFG_LINHAS)
+    assert d2["resultado"] == "nao_entrou", d2
+
+
+def test_exaustao_entra_venda_no_climax():
+    # Score preso alto (85,86,87,88) por 4 velas e ROLA (82<88), preço na banda +2σ → fade = VENDA.
+    snap = _base_linhas(close=111.0, serie_op={"score": [70, 85, 86, 87, 88, 82]})
+    d = e.avaliar_exaustao_fuzzy(snap, sat_candles=4, sat_alto=80, sat_baixo=20, **CFG_LINHAS)
+    assert d["resultado"] == "entrou" and d["direcao"] == "venda", d
+    assert d["variante"] == "D_LINHAS", d
+    # ainda subindo (sem rollover) → não entra
+    d2 = e.avaliar_exaustao_fuzzy(_base_linhas(close=111.0, serie_op={"score": [70, 85, 86, 87, 88, 90]}),
+                                  sat_candles=4, sat_alto=80, sat_baixo=20, **CFG_LINHAS)
+    assert d2["resultado"] == "nao_entrou", d2
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

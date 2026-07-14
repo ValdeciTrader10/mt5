@@ -104,9 +104,9 @@ DD_DIARIO_MAX_PCT = 5.0
 # (EXECUCAO_ATIVA=false) NÃO se aplica trava de correlação nem cap por livro; só um teto de
 # segurança amplo (MAX_POS_SOMBRA) para não crescer sem limite. As travas abaixo valem só
 # no modo REAL (proteção de conta), onde risco correlacionado importa de verdade.
-# Teto ampliado p/ 400 (ETAPA 6): com a Variante C espelhando a A, o catálogo pode chegar a ~2× o
-# nº de livros virtuais (A + C + B) — 400 evita truncar amostra. Ajustável por env no Dokploy.
-MAX_POS_SOMBRA = int(os.environ.get("MAX_POS_SOMBRA", "400"))
+# Teto ampliado p/ 800: com a Variante C espelhando a A (ETAPA 6) e a família D_LINHAS (4 estratégias
+# novas), o catálogo cresceu — 800 evita truncar amostra. Ajustável por env no Dokploy.
+MAX_POS_SOMBRA = int(os.environ.get("MAX_POS_SOMBRA", "800"))
 # Caps do modo REAL, aplicados POR LIVRO DE TIMEFRAME: no máximo MAX_POS_POR_PAR posições
 # por (par, tf) e MAX_POS_TOTAL simultâneas dentro do mesmo TF.
 MAX_POS_POR_PAR = int(os.environ.get("MAX_POS_POR_PAR", "1"))
@@ -401,6 +401,29 @@ HIBRIDA_STOP_APERTO = float(os.environ.get("HIBRIDA_STOP_APERTO", "0.5"))
 HIBRIDA_SAIDA_MIN_CANDLES = float(os.environ.get("HIBRIDA_SAIDA_MIN_CANDLES", "2"))
 # Minutos por TF (para converter idade da posição em nº de velas do próprio TF).
 MINUTOS_TF = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440, "W1": 10080}
+
+# --------------------------------------------------------------------------- #
+# FAMÍLIA "LINHAS FUZZY" (Variante D_LINHAS) — estratégias pela DINÂMICA das curvas de score por TF
+# --------------------------------------------------------------------------- #
+# Grupo PARALELO/aditivo (não toca A/B/C): 4 estratégias que leem o MOVIMENTO das linhas de score
+# (não o nível estático). Cada uma é um livro de sombra próprio, comparável no /relatorio como um 4º
+# cenário. Janela da série de scores/preço alinhada por candle.
+LINHAS_JANELA = int(os.environ.get("LINHAS_JANELA", "60"))       # nº de velas da série (preço+score)
+LINHAS_N_SWING = int(os.environ.get("LINHAS_N_SWING", str(SWING_N_M5)))  # fractal p/ swings de preço
+# A — Divergência esforço×resultado (score vs preço) na banda da VWAP. Reversão.
+DIVERGENCIA_HABILITADA = os.environ.get("DIVERGENCIA_HABILITADA", "true").lower() in ("1", "true", "sim")
+# B — Pullback do leque: linha rápida (TF de operação) recua contra a lenta (TF acima) e REENGATA na
+# direção da maré (M15), no valor da VWAP. Continuação.
+PULLBACK_LEQUE_HABILITADA = os.environ.get("PULLBACK_LEQUE_HABILITADA", "true").lower() in ("1", "true", "sim")
+LEQUE_MARE_MIN = float(os.environ.get("LEQUE_MARE_MIN", "60"))   # M15 (maré) p/ o pullback do leque
+LEQUE_DIP_JANELA = int(os.environ.get("LEQUE_DIP_JANELA", "6"))  # velas p/ ter havido o recuo (dip/pop)
+# C — Sync flip: linhas SAEM de divergência e ALINHAM (Sync amarelo→verde/vermelho) rompendo a VWAP.
+SYNC_FLIP_HABILITADA = os.environ.get("SYNC_FLIP_HABILITADA", "true").lower() in ("1", "true", "sim")
+# D — Exaustão: score preso no extremo por N velas e ROLA (clímax) na banda ±2σ. Fade de exaustão.
+EXAUSTAO_HABILITADA = os.environ.get("EXAUSTAO_HABILITADA", "true").lower() in ("1", "true", "sim")
+EXAUSTAO_SAT_CANDLES = int(os.environ.get("EXAUSTAO_SAT_CANDLES", "4"))  # velas saturadas antes do rollover
+EXAUSTAO_SAT_ALTO = float(os.environ.get("EXAUSTAO_SAT_ALTO", "80"))     # saturação de compra (>=)
+EXAUSTAO_SAT_BAIXO = float(os.environ.get("EXAUSTAO_SAT_BAIXO", "20"))   # saturação de venda (<=)
 
 # GESTÃO DE SAÍDA POR VARIANTE (liga as saídas próprias de B/C na sombra) — ADITIVO, a Variante A
 # (controle) NUNCA passa por aqui, segue no gestor genérico. Motivado pela auditoria (14/07): 100%

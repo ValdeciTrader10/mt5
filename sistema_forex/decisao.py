@@ -153,6 +153,34 @@ def _fuzzy_mtf(conn, par: str) -> dict:
     return fuzzy_score.scores_recentes(conn, par, config.FUZZY_B_PIRAMIDE)
 
 
+def _serie_op(conn, par: str, tf: str, n: int) -> dict:
+    """Série ALINHADA candle-a-candle do TF de operação: high/low/close + score fuzzy (JOIN por
+    time_utc), últimos n candles cronológicos. Base das estratégias D_LINHAS (divergência/exaustão)."""
+    rows = conn.execute(
+        "SELECT c.high, c.low, c.close, f.score FROM candles c "
+        "JOIN fuzzy_scores f ON f.par=c.par AND f.tf=c.tf AND f.time_utc=c.time_utc "
+        "WHERE c.par=? AND c.tf=? ORDER BY c.time_utc DESC LIMIT ?",
+        (par, tf, n)).fetchall()
+    rows = list(reversed(rows))
+    return {"high": [r["high"] for r in rows], "low": [r["low"] for r in rows],
+            "close": [r["close"] for r in rows], "score": [r["score"] for r in rows]}
+
+
+def _score_serie(conn, par: str, tf: str, n: int) -> list:
+    """Série cronológica de scores fuzzy de um TF (p/ o leque: a linha do TF ACIMA)."""
+    rows = conn.execute(
+        "SELECT score FROM fuzzy_scores WHERE par=? AND tf=? ORDER BY time_utc DESC LIMIT ?",
+        (par, tf, n)).fetchall()
+    return [r["score"] for r in reversed(rows)]
+
+
+def _sync_ult(conn, par: str, k: int = 2) -> list:
+    """Últimos k estados da Sync Line (cronológico) — p/ detectar o flip de alinhamento (D_LINHAS/C)."""
+    rows = conn.execute(
+        "SELECT estado FROM sync_line WHERE par=? ORDER BY time_utc DESC LIMIT ?", (par, k)).fetchall()
+    return [r["estado"] for r in reversed(rows)]
+
+
 def _vwap_bandas(conn, par: str) -> dict:
     """VWAP + bandas do par (níveis do motor) como dict — contexto da Variante B."""
     mapa = {"vwap": "vwap", "vwap_sup1": "sup1", "vwap_inf1": "inf1",
@@ -205,6 +233,11 @@ def montar_snapshot(conn, par: str, tf: str, candle) -> dict:
         # Janela do TF de operação p/ o sweep+CHoCH (chave histórica "m5_janela" mantida
         # para as estratégias/tests; aqui contém a janela do `tf` corrente).
         "m5_janela": _janela(conn, par, tf, config.SWEEP_JANELA),
+        # Família D_LINHAS (dinâmica das curvas de score): série alinhada preço×score do TF de
+        # operação, a linha do TF ACIMA (leque) e o histórico da Sync (flip de alinhamento).
+        "serie_op": _serie_op(conn, par, tf, config.LINHAS_JANELA),
+        "score_acima": _score_serie(conn, par, config.TF_ACIMA.get(tf, tf), config.LINHAS_JANELA),
+        "sync_ult": _sync_ult(conn, par, 2),
     }
 
 
@@ -436,6 +469,24 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             )
             if dc is not None:
                 decs.append(dc)
+
+    # FAMÍLIA D_LINHAS — estratégias pela DINÂMICA das linhas de score (4º cenário, aditivo). Cada
+    # uma é um livro de sombra próprio (variante=D_LINHAS), comparável no /relatorio.
+    if config.DIVERGENCIA_HABILITADA:
+        decs.append(estrategias.avaliar_divergencia_fuzzy(
+            snap, sessao_utc=sessao_utc, spread_max_pips=spread_max, n_swing=config.LINHAS_N_SWING))
+    if config.PULLBACK_LEQUE_HABILITADA:
+        decs.append(estrategias.avaliar_pullback_leque(
+            snap, sessao_utc=sessao_utc, spread_max_pips=spread_max,
+            mare_min=config.LEQUE_MARE_MIN, dip_janela=config.LEQUE_DIP_JANELA))
+    if config.SYNC_FLIP_HABILITADA:
+        decs.append(estrategias.avaliar_sync_flip(
+            snap, sessao_utc=sessao_utc, spread_max_pips=spread_max, mare_min=config.LEQUE_MARE_MIN))
+    if config.EXAUSTAO_HABILITADA:
+        decs.append(estrategias.avaliar_exaustao_fuzzy(
+            snap, sessao_utc=sessao_utc, spread_max_pips=spread_max,
+            sat_candles=config.EXAUSTAO_SAT_CANDLES, sat_alto=config.EXAUSTAO_SAT_ALTO,
+            sat_baixo=config.EXAUSTAO_SAT_BAIXO))
 
     for dec in decs:
         dec["_close"] = candle["close"]     # p/ o componente de localização (VWAP) do EV

@@ -162,7 +162,7 @@ Sem a carência a comparação A×C era inútil (C sempre raspava −1 pip). Env
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **219 testes, todos passando.**
+  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **223 testes, todos passando.**
   Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
@@ -186,6 +186,26 @@ Rodada de correções de fidelidade ao PDF didático (escolhidas pelo dono), ADI
   verdadeiro (absorção/exaustão/VWAP), forex inalterado (cai no tick_volume).
 - **NÃO feito (dono adiou):** item 2 (gatilho de rompimento no checklist da Variante B — MUDA entradas).
   Testes por item em `test_fuzzy`/`test_estrategias`/`test_b3`.
+
+## Família D_LINHAS — estratégias pela DINÂMICA das linhas de score (14/07)
+4º cenário comparável (A original · B fuzzy puro · C híbrida · **D_LINHAS**), ADITIVO/desligável. As
+A/B/C leem o score como NÍVEL estático; a D lê o MOVIMENTO das curvas por TF. 4 estratégias PURAS
+(`estrategias.py`, testadas), cada uma um livro de sombra próprio (`variante=D_LINHAS`), rodando por
+(par, TF de operação):
+- **`fuzzy_divergencia_v1`** (A): esforço×resultado (Lei 2 Wyckoff) — preço faz topo↑ mas o score faz
+  topo↓ (na banda +1σ VWAP) → venda; espelho p/ compra no fundo. Reversão.
+- **`fuzzy_pullback_leque_v1`** (B): na maré M15, a linha RÁPIDA (TF op) recua contra a LENTA (TF acima)
+  e REENGATA cruzando de volta, no valor da VWAP → continuação a favor da tendência.
+- **`fuzzy_sync_flip_v1`** (C): Sync sai de amarelo e ALINHA (verde/vermelho) neste candle, com maré a
+  favor e rompendo a VWAP → estouro nascente.
+- **`fuzzy_exaustao_v1`** (D): score preso no extremo (≥80/≤20) por N velas e ROLA na banda ±2σ →
+  fade de clímax.
+Snapshot ganhou `serie_op` (high/low/close+score alinhados do TF op, JOIN candles×fuzzy_scores),
+`score_acima` (linha do `TF_ACIMA`) e `sync_ult` (2 últimos estados p/ o flip). Sem look-ahead (swings
+só usam velas fechadas). Envs: `DIVERGENCIA_/PULLBACK_LEQUE_/SYNC_FLIP_/EXAUSTAO_HABILITADA`, `LINHAS_*`,
+`LEQUE_*`, `EXAUSTAO_*`. `MAX_POS_SOMBRA` 400→800 (mais livros). ⚠️ SL/saída ainda é o genérico (ATR);
+o "deixar correr + prejuízo pequeno" (stop estrutural apertado) é a PRÓXIMA calibração, guiada por
+MAE/MFE por estratégia — não chutar (skill §2). Nada vira demo sem a Etapa 9 (N≥50 + split-half).
 
 ## Pares monitorados (sombra) — 13/07
 `config.PARES` (env-configurável no Dokploy): `EURUSD#, GBPUSD#, USDCAD, USDJPY#, AUDUSD#, GBPJPY#, GOLD`.
