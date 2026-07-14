@@ -41,6 +41,22 @@ def test_candidatos_aliases_customizados():
     assert cands == ["FOO", "BAR"], cands  # dedup preserva ordem e ignora repetidos
 
 
+def test_vwap_ancora_no_pregao_b3():
+    """Item 5: a VWAP da B3 ancora na ABERTURA DO PREGÃO (09:00 servidor); o forex, à meia-noite."""
+    from .. import analise
+    dia = 100 * 86400
+    agora = dia + 14 * 3600            # 14:00 do servidor
+    assert analise._inicio_sessao_vwap("EURUSD#", agora) == dia   # forex: meia-noite
+    orig = config_b3.B3_HABILITADO
+    try:
+        config_b3.B3_HABILITADO = True
+        assert analise._inicio_sessao_vwap("WIN$N", agora) == dia + 9 * 3600     # pregão de hoje
+        cedo = dia + 7 * 3600         # 07:00: antes de abrir → sessão corrente é a de ontem
+        assert analise._inicio_sessao_vwap("WIN$N", cedo) == dia - 86400 + 9 * 3600
+    finally:
+        config_b3.B3_HABILITADO = orig
+
+
 def test_pares_ativos_respeita_flag():
     """pares_ativos() = PARES_B3 quando habilitado; vazio quando desligado (isola o forex)."""
     orig = config_b3.B3_HABILITADO

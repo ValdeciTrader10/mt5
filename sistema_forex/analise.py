@@ -191,14 +191,29 @@ def niveis_periodo(conn, par: str, agora_srv: int, criado_em: int) -> int:
     return n
 
 
+def _inicio_sessao_vwap(par: str, agora_srv: int) -> int:
+    """Âncora do dia para a VWAP (epoch servidor). Forex (24h) = meia-noite do servidor; B3 (item 5)
+    = ABERTURA DO PREGÃO (`VWAP_B3_ANCORA_HORA`h no relógio do servidor Genial), pois a VWAP
+    intradiária da B3 deve zerar na abertura, não à meia-noite. Antes de abrir hoje, usa a abertura
+    anterior (a sessão corrente ainda é a de ontem). PURA/testável."""
+    meia_noite = agora_srv - (agora_srv % 86400)
+    if config_b3.B3_HABILITADO and par in config_b3.PARES_B3:
+        abertura = meia_noite + config_b3.VWAP_B3_ANCORA_HORA * 3600
+        if agora_srv < abertura:
+            abertura -= 86400
+        return abertura
+    return meia_noite
+
+
 def niveis_vwap(conn, par: str, agora_srv: int, criado_em: int) -> int:
-    """VWAP diária + bandas ±kσ do dia de SERVIDOR corrente (reset 00:00 servidor), do `VWAP_TF`.
+    """VWAP diária + bandas ±kσ do dia de SERVIDOR corrente, do `VWAP_TF`. Reset à meia-noite no
+    forex; na ABERTURA DO PREGÃO na B3 (item 5, `_inicio_sessao_vwap`).
 
     Grava níveis vwap/vwap_sup1|inf1/vwap_sup2|inf2 (zona de valor — ETAPA 3). Usa o tick_volume
     dos candles do dia. Retorna a contagem gravada (0 se desligado/sem volume)."""
     if not config.VWAP_HABILITADO:
         return 0
-    dia_inicio = agora_srv - (agora_srv % 86400)
+    dia_inicio = _inicio_sessao_vwap(par, agora_srv)
     rows = conn.execute(
         "SELECT high, low, close, tick_volume FROM candles WHERE par=? AND tf=? AND time_utc>=? "
         "ORDER BY time_utc ASC",

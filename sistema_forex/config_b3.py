@@ -60,6 +60,12 @@ COLETOR_B3_POLL_S = int(os.environ.get("COLETOR_B3_POLL_S", "5"))
 # Habilita o módulo B3 por completo (desligável sem remover os serviços).
 B3_HABILITADO = os.environ.get("B3_HABILITADO", "true").lower() in ("1", "true", "sim")
 
+# VWAP da B3 ancorada na ABERTURA DO PREGÃO (item 5) — a VWAP intradiária deve zerar quando o
+# pregão abre (~09:00), não à meia-noite como no forex 24h. Valor em HORAS no relógio do servidor
+# Genial. ⚠️ Assume que esse relógio mostra a hora local do pregão (WIN/WDO); se o fuso do servidor
+# for outro, ajuste aqui (validar com os candles: a VWAP deve reiniciar junto com o 1º candle do dia).
+VWAP_B3_ANCORA_HORA = int(os.environ.get("VWAP_B3_ANCORA_HORA", "9"))
+
 # --------------------------------------------------------------------------- #
 # Calibração de escala (ETAPA 8b) — derivar do banco, NÃO chutar (lição GOLD)
 # --------------------------------------------------------------------------- #
