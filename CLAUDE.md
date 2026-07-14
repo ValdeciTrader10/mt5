@@ -33,7 +33,13 @@ a sombra (regra: demo/sombra primeiro).
   + reversão), `order_block_v1` (Order block), `pullback_tendencia_v1` (Pullback na tendência),
   `fecha_gap_v1` (Fechamento de gap), `pullback_rompimento_v1` (Pullback ao rompimento — reteste
   com inversão de polaridade: nível rompido por BOS vira suporte/resistência e rejeita) e
-  `rompimento_extremos_v1` (Rompimento máx/mín do dia — PDH/PDL + reteste). Cada uma grava sua
+  `rompimento_extremos_v1` (Rompimento máx/mín do dia — PDH/PDL + reteste). **A/B da caça-stops:**
+  `sweep_choch_abs_v1` é a GÊMEA da `sweep_choch_v1` — mesma detecção e mesmos gates, mas só entra
+  se a vela da varredura mostrar ABSORÇÃO (volume alto + corpo fraco = esforço sem resultado, a
+  leitura Wyckoff de que o smart money absorveu a liquidez; usa `fuzzy_score.flags_no_indice` no
+  candle `i_sweep`, sem look-ahead). Livro de sombra INDEPENDENTE → a expectância das duas responde
+  se a caça-stops rende mais COM ou SEM o filtro de absorção (a `sweep_choch_v1` fica intocada como
+  controle). Env `SWEEP_ABS_HABILITADA`/`SWEEP_ABS_JANELA`. Cada uma grava sua
   própria linha em `decisoes`; o executor deduplica no nível de posição. Todas desligáveis por
   env (`*_HABILITADA`). **Multi-TF:**
   avalia por (par, **TF de operação**) para cada TF em `config.TFS_OPERACAO` (default
@@ -132,7 +138,7 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`, `test_relatorio`). **160 testes, todos passando.** Rodar sempre antes de commitar.
+  `test_fuzzy`, `test_relatorio`). **163 testes, todos passando.** Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
 - Env sensíveis (senha do painel, VNC, MT5) só no Environment do Dokploy — nunca no git.

@@ -119,7 +119,7 @@ def _extremos_dia(conn, par: str, agora_utc: int):
 def _janela(conn, par: str, tf: str, n: int) -> dict:
     """Últimos `n` candles do TF de operação (cronológicos) p/ a detecção de sweep+CHoCH."""
     rows = conn.execute(
-        "SELECT open, high, low, close FROM candles WHERE par=? AND tf=? "
+        "SELECT open, high, low, close, tick_volume FROM candles WHERE par=? AND tf=? "
         "ORDER BY time_utc DESC LIMIT ?",
         (par, tf, n),
     ).fetchall()
@@ -129,6 +129,7 @@ def _janela(conn, par: str, tf: str, n: int) -> dict:
         "high": [r["high"] for r in rows],
         "low": [r["low"] for r in rows],
         "close": [r["close"] for r in rows],
+        "volume": [r["tick_volume"] for r in rows],   # p/ o filtro de absorção (sweep_choch_abs_v1)
     }
 
 
@@ -307,6 +308,18 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
             sweep_recente=config.SWEEP_RECENTE,
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             forca_min=config.SR_FORCA_MIN,
+        ))
+    if config.SWEEP_ABS_HABILITADA:
+        decs.append(estrategias.avaliar_sweep_choch_abs(
+            snap,
+            sessao_utc=config.SESSAO_UTC,
+            spread_max_pips=spread_max,
+            n_swing=config.SWEEP_N_SWING,
+            sweep_min_atr=config.SWEEP_MIN_ATR,
+            sweep_recente=config.SWEEP_RECENTE,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            forca_min=config.SR_FORCA_MIN,
+            absorcao_janela=config.SWEEP_ABS_JANELA,
         ))
     if config.OB_HABILITADA:
         decs.append(estrategias.avaliar_order_block(

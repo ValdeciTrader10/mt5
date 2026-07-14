@@ -20,10 +20,11 @@ confluências → gates → decisão auditável) já fica pronta e testada.
   entra só como REFORÇO (nunca veto), regime nunca gateia (é reversão, brilha no extremo).
 """
 
-from . import indicadores
+from . import fuzzy_score, indicadores
 
 ESTRATEGIA = "confluencia_v1"
 ESTRATEGIA_SWEEP = "sweep_choch_v1"
+ESTRATEGIA_SWEEP_ABS = "sweep_choch_abs_v1"   # gêmea da caça-stops COM filtro de absorção
 ESTRATEGIA_OB = "order_block_v1"
 ESTRATEGIA_PULLBACK = "pullback_tendencia_v1"
 ESTRATEGIA_GAP = "fecha_gap_v1"
@@ -285,6 +286,75 @@ def avaliar_sweep_choch(snap: dict, *, sessao_utc, spread_max_pips, n_swing, swe
 
     return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
                     estrategia=ESTRATEGIA_SWEEP)
+
+
+def avaliar_sweep_choch_abs(snap: dict, *, sessao_utc, spread_max_pips, n_swing, sweep_min_atr,
+                            sweep_recente, nivel_prox_atr, forca_min, absorcao_janela=20) -> dict:
+    """Gêmea da caça-stops (`sweep_choch_v1`) que EXIGE ABSORÇÃO no candle da varredura.
+
+    MESMA detecção (`detectar_sweep_choch`) e MESMOS gates (sessão/spread) da `sweep_choch_v1`;
+    a ÚNICA diferença é um filtro extra: a vela que varreu a liquidez (`i_sweep`) tem de mostrar
+    ABSORÇÃO — volume alto + corpo fraco (esforço sem resultado), a leitura Wyckoff de que o
+    "smart money" ABSORVEU a liquidez varrida (spring/absorção). Usa a MESMA definição de
+    absorção do resto do sistema (`fuzzy_score`), sem look-ahead (só candles ≤ i_sweep).
+
+    É um LIVRO DE SOMBRA INDEPENDENTE e diretamente comparável à `sweep_choch_v1`: como suas
+    entradas são o subconjunto das sweeps que tiveram absorção, a expectância das duas responde
+    empiricamente ao pedido do dono — a caça-stops é MAIS lucrativa COM ou SEM o filtro de
+    absorção? Não toca a `sweep_choch_v1` (grupo de controle intocável).
+    """
+    regime = snap.get("regime", "indefinido")
+    jan = snap.get("m5_janela")
+    atr = snap.get("atr")
+    if not jan or not jan.get("close") or not atr:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem janela M5/ATR",
+                        estrategia=ESTRATEGIA_SWEEP_ABS)
+
+    det = detectar_sweep_choch(jan["open"], jan["high"], jan["low"], jan["close"], atr,
+                               n_swing=n_swing, sweep_min_atr=sweep_min_atr,
+                               sweep_recente=sweep_recente)
+    if det is None:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem sweep+choch",
+                        estrategia=ESTRATEGIA_SWEEP_ABS)
+
+    # Filtro que DEFINE esta variante: absorção na vela da varredura (volume alto + corpo fraco).
+    vols = jan.get("volume")
+    flags = None
+    if vols:
+        flags = fuzzy_score.flags_no_indice(jan["open"], jan["high"], jan["low"], jan["close"],
+                                            vols, det["i_sweep"], janela=absorcao_janela)
+    if not flags or not flags.get("absorcao"):
+        motivo = "sweep sem absorção" if flags else "sem volume p/ medir absorção"
+        return _decisao("nao_entrou", det["direcao"], regime, 0, ["sweep+choch"], motivo,
+                        estrategia=ESTRATEGIA_SWEEP_ABS)
+
+    direcao = det["direcao"]
+    conf = ["sweep+choch", "absorcao"]
+
+    # S/R forte no nível varrido = reforço (idêntico à sweep_choch_v1). Nunca veto.
+    tol = nivel_prox_atr * atr
+    niveis = snap.get("suportes" if direcao == "compra" else "resistencias", [])
+    nv = _mais_forte_perto(det["nivel_sweep"], niveis, tol)
+    if nv and nv[1] >= forca_min:
+        conf.append(f"sr_confluente_{int(nv[1])}")
+    if (direcao == "compra" and regime == "tendencia_alta") or \
+       (direcao == "venda" and regime == "tendencia_baixa"):
+        conf.append("a_favor_regime")
+    score = len(conf)
+
+    # Gates duros (iguais aos da sweep_choch_v1): sessão e spread.
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"fora da sessão ({hora}h UTC)", estrategia=ESTRATEGIA_SWEEP_ABS)
+    spread = snap.get("spread_pips", 0.0)
+    if spread > spread_max_pips:
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
+                        estrategia=ESTRATEGIA_SWEEP_ABS)
+
+    return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
+                    estrategia=ESTRATEGIA_SWEEP_ABS)
 
 
 # --------------------------------------------------------------------------- #

@@ -165,6 +165,41 @@ def test_avaliar_sweep_sem_padrao_nao_entra():
 
 
 # --------------------------------------------------------------------------- #
+# Estratégia 2b — caça-stops COM filtro de absorção (sweep_choch_abs_v1)
+# --------------------------------------------------------------------------- #
+# A vela de SWEEP é a @13 (open=close=1.1004 → corpo doji). Volume plano com PICO nessa vela
+# → absorção (volume alto + corpo fraco); volume plano em tudo → sem absorção.
+_VOL_ABS = [100] * 13 + [320] + [100] * 4
+_VOL_FLAT = [100] * 18
+CFG_SWEEP_ABS = {**CFG_SWEEP, "absorcao_janela": 20}
+
+
+def _jan_sweep(volume):
+    return {"open": _CLOSE, "high": _HIGH, "low": _LOW, "close": _CLOSE, "volume": volume}
+
+
+def test_avaliar_sweep_abs_entra_com_absorcao():
+    snap = _snap_sweep(suportes=[(1.1000, 5)], m5_janela=_jan_sweep(_VOL_ABS))
+    d = e.avaliar_sweep_choch_abs(snap, **CFG_SWEEP_ABS)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["estrategia"] == "sweep_choch_abs_v1", d
+    assert "absorcao" in d["confluencias"] and "sweep+choch" in d["confluencias"], d
+
+
+def test_avaliar_sweep_abs_sem_absorcao_nao_entra():
+    # mesmo sweep, mas volume plano na varredura → sem absorção → não entra (é o A/B vs sweep_choch_v1)
+    snap = _snap_sweep(m5_janela=_jan_sweep(_VOL_FLAT))
+    d = e.avaliar_sweep_choch_abs(snap, **CFG_SWEEP_ABS)
+    assert d["resultado"] == "nao_entrou" and "absorção" in d["motivo"], d
+
+
+def test_avaliar_sweep_abs_sem_volume_nao_entra():
+    # janela sem coluna de volume → não dá p/ medir absorção → não entra (seguro, sem crash)
+    d = e.avaliar_sweep_choch_abs(_snap_sweep(), **CFG_SWEEP_ABS)
+    assert d["resultado"] == "nao_entrou" and "volume" in d["motivo"], d
+
+
+# --------------------------------------------------------------------------- #
 # Estratégia 3 — reteste de Order Block
 # --------------------------------------------------------------------------- #
 CFG_OB = dict(sessao_utc=(7, 20), spread_max_pips=2.0, nivel_prox_atr=0.5, forca_min=3,

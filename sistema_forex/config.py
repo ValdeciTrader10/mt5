@@ -300,6 +300,14 @@ SWEEP_MIN_ATR = float(os.environ.get("SWEEP_MIN_ATR", "0.1"))
 # O sweep tem de ter ocorrido há no máximo estes candles do CHoCH (follow-through no tempo).
 SWEEP_RECENTE = int(os.environ.get("SWEEP_RECENTE", "6"))
 
+# --- 2b. Gêmea da caça-stops COM filtro de ABSORÇÃO (sweep_choch_abs_v1) ---
+# Livro de sombra INDEPENDENTE da sweep_choch_v1 (mesma detecção + gates), mas só entra se a
+# vela da varredura mostrar ABSORÇÃO (volume alto + corpo fraco). A/B do dono: a caça-stops é
+# mais lucrativa COM ou SEM o filtro de absorção? (a sweep_choch_v1 fica intocada como controle).
+SWEEP_ABS_HABILITADA = os.environ.get("SWEEP_ABS_HABILITADA", "true").lower() in ("1", "true", "sim")
+# Candles anteriores usados como referência p/ medir volume/range médios da absorção.
+SWEEP_ABS_JANELA = int(os.environ.get("SWEEP_ABS_JANELA", "20"))
+
 # --- 3ª estratégia: reteste de Order Block (M15/H1) + rejeição ---
 # Entra quando o preço RETESTA uma zona de OB fresca na direção do OB. S/R e regime a
 # favor entram como REFORÇO (nunca veto). A rejeição na borda é confluência; só vira gate

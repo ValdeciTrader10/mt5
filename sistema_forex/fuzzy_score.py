@@ -199,6 +199,23 @@ def avaliar_candle(opens, highs, lows, closes, volumes, *, janela: int = 20):
     return r
 
 
+def flags_no_indice(opens, highs, lows, closes, volumes, i: int, *, janela: int = 20):
+    """Flags/score fuzzy do candle no ÍNDICE `i` (não necessariamente o último), SEM look-ahead.
+
+    Fatia a janela até `i` (inclusive) e reaproveita `caracteristicas`+`pontuar`: assim a
+    absorção/exaustão/transição de um candle INTERNO (ex.: a vela que varreu a liquidez no
+    sweep) usa EXATAMENTE a mesma definição do resto do sistema, olhando só candles ≤ i.
+    Retorna o dict de `pontuar` (com `absorcao`/`exaustao`/`transicao`) ou None se faltam dados.
+    """
+    n = len(closes)
+    if i < 2 or i >= n or len(volumes) != n:
+        return None
+    sl = slice(0, i + 1)
+    carac = caracteristicas(opens[sl], highs[sl], lows[sl], closes[sl], volumes[sl],
+                            janela=janela)
+    return pontuar(carac) if carac is not None else None
+
+
 # --------------------------------------------------------------------------- #
 # Sync Line micro/macro — alinhamento entre timeframes (PURA)
 # --------------------------------------------------------------------------- #
