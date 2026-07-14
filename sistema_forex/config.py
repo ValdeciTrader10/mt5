@@ -367,6 +367,11 @@ FUZZY_B_TIMING_TF = os.environ.get("FUZZY_B_TIMING_TF", "M1")
 FUZZY_B_PIRAMIDE = [s.strip() for s in os.environ.get("FUZZY_B_PIRAMIDE", "M1,M5,M15").split(",") if s.strip()]
 # Limiares da pirâmide MTF (score fuzzy 0–100; o lado vendedor é o espelho: score <= 100-limiar).
 FUZZY_B_MARE_MIN = float(os.environ.get("FUZZY_B_MARE_MIN", "60"))       # M15 (maré/viés macro)
+# A/B da maré (item 4): livro PARALELO da Variante B com a maré FIEL ao PDF (Lima=76, mais seletiva).
+# Roda ao lado de fuzzy_puro_v1 (maré 60/verde) como estratégia `fuzzy_puro_lima_v1` — os dados dizem
+# se exigir Lima (menos sinais, mais qualidade) rende mais que verde. Desligável.
+FUZZY_B2_HABILITADA = os.environ.get("FUZZY_B2_HABILITADA", "true").lower() in ("1", "true", "sim")
+FUZZY_B2_MARE_MIN = float(os.environ.get("FUZZY_B2_MARE_MIN", "76"))     # maré Lima (fiel ao PDF)
 FUZZY_B_CORRENTE_MIN = float(os.environ.get("FUZZY_B_CORRENTE_MIN", "55"))  # M5 (correnteza)
 FUZZY_B_TIMING_MIN = float(os.environ.get("FUZZY_B_TIMING_MIN", "58"))   # M1 (timing/gatilho)
 # Força do candle-gatilho: corpo >= K × desvio-padrão dos 20 closes (energia com lastro).

@@ -33,6 +33,7 @@ ESTRATEGIA_EXTREMOS = "rompimento_extremos_v1"
 ESTRATEGIA_MEDIAS = "pullback_medias_v1"
 ESTRATEGIA_PIVOT = "pivot_confluencia_v1"
 ESTRATEGIA_FUZZY_PURO = "fuzzy_puro_v1"      # Variante B (ETAPA 5)
+ESTRATEGIA_FUZZY_PURO_LIMA = "fuzzy_puro_lima_v1"  # Variante B2 (item 4): mesma lógica, maré = Lima (76)
 
 # Variante do laboratório multi-variante. As estratégias deste módulo são o GRUPO DE CONTROLE
 # (Variante A). B_FUZZY_PURO / C_HIBRIDA marcam a decisão via este campo (ETAPAS 5-6).
@@ -870,9 +871,12 @@ def saida_tecnica_fuzzy_puro(direcao: str, close: float, sma50=None, vwap=None) 
 
 
 def avaliar_fuzzy_puro(snap: dict, *, sessao_utc, spread_max_pips, mare_min, corrente_min,
-                       timing_min, std_k, checklist_min) -> dict:
+                       timing_min, std_k, checklist_min, estrategia=ESTRATEGIA_FUZZY_PURO) -> dict:
     """Variante B (Fuzzy Puro). Pirâmide MTF estrita + checklist de 6 itens (compra/venda
     espelhados) + cenário nomeado. Decisão marcada variante=B_FUZZY_PURO / estrategia=fuzzy_puro_v1.
+    O `estrategia` é parametrizável para rodar LIVROS PARALELOS da MESMA lógica com maré diferente
+    (A/B do item 4: `fuzzy_puro_v1` com maré 60/verde vs `fuzzy_puro_lima_v1` com maré 76/lima) —
+    cada rótulo é um livro de sombra independente, comparável no /relatorio.
 
     Checklist (compra; venda é o espelho):
       1) maré       — M15 comprador (score >= mare_min)
@@ -890,12 +894,12 @@ def avaliar_fuzzy_puro(snap: dict, *, sessao_utc, spread_max_pips, mare_min, cor
     m15, m5, m1 = fz.get("M15"), fz.get("M5"), fz.get("M1")
     if not m15 or not m5 or not m1:
         return _decisao("nao_entrou", None, regime, 0, [], "sem fuzzy MTF (M15/M5/M1)",
-                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+                        estrategia=estrategia, variante=VARIANTE_B)
 
     mare = _lado_fuzzy(m15.get("score"), mare_min)
     if mare == 0:
         return _decisao("nao_entrou", None, regime, 0, [], "sem maré (M15 neutro)",
-                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+                        estrategia=estrategia, variante=VARIANTE_B)
     direcao = "compra" if mare > 0 else "venda"
     lado = 1 if direcao == "compra" else -1
 
@@ -927,28 +931,28 @@ def avaliar_fuzzy_puro(snap: dict, *, sessao_utc, spread_max_pips, mare_min, cor
     if cenario in CENARIOS_BLOQUEIO:
         return _decisao("nao_entrou", direcao, regime, score, conf,
                         f"cenário de bloqueio ({cenario})",
-                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+                        estrategia=estrategia, variante=VARIANTE_B)
     if cenario not in CENARIOS_ENTRADA:
         return _decisao("nao_entrou", direcao, regime, score, conf, "sem cenário fuzzy claro",
-                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+                        estrategia=estrategia, variante=VARIANTE_B)
 
     # Gates duros (sessão + spread) — iguais às demais.
     hora = snap.get("hora_utc", 0)
     if not (sessao_utc[0] <= hora < sessao_utc[1]):
         return _decisao("nao_entrou", direcao, regime, score, conf, f"fora da sessão ({hora}h UTC)",
-                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+                        estrategia=estrategia, variante=VARIANTE_B)
     spread = snap.get("spread_pips", 0.0)
     if spread > spread_max_pips:
         return _decisao("nao_entrou", direcao, regime, score, conf,
                         f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
-                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+                        estrategia=estrategia, variante=VARIANTE_B)
     if score < checklist_min:
         return _decisao("nao_entrou", direcao, regime, score, conf,
                         f"checklist {score}/6 < {checklist_min}",
-                        estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+                        estrategia=estrategia, variante=VARIANTE_B)
 
     return _decisao("entrou", direcao, regime, score, conf, f"{cenario}|" + "+".join(conf),
-                    estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+                    estrategia=estrategia, variante=VARIANTE_B)
 
 
 # --------------------------------------------------------------------------- #

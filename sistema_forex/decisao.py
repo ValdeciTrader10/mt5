@@ -406,6 +406,20 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             std_k=config.FUZZY_B_STD_K,
             checklist_min=config.FUZZY_B_CHECKLIST_MIN,
         ))
+        # Livro PARALELO A/B (item 4): mesma lógica, maré FIEL ao PDF (Lima=76). Estratégia
+        # `fuzzy_puro_lima_v1` (livro de sombra independente) — os dados dizem se Lima rende mais.
+        if config.FUZZY_B2_HABILITADA:
+            decs.append(estrategias.avaliar_fuzzy_puro(
+                snap,
+                sessao_utc=sessao_utc,
+                spread_max_pips=spread_max,
+                mare_min=config.FUZZY_B2_MARE_MIN,
+                corrente_min=config.FUZZY_B_CORRENTE_MIN,
+                timing_min=config.FUZZY_B_TIMING_MIN,
+                std_k=config.FUZZY_B_STD_K,
+                checklist_min=config.FUZZY_B_CHECKLIST_MIN,
+                estrategia=estrategias.ESTRATEGIA_FUZZY_PURO_LIMA,
+            ))
 
     # VARIANTE C — Híbrida (ETAPA 6). Grupo PARALELO (aditivo): espelha CADA decisão "entrou" da
     # Variante A e aplica a camada fuzzy (leitura dos fuzzy_scores/VWAP), marcando C_HIBRIDA. Só

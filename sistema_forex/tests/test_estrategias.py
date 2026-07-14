@@ -542,6 +542,22 @@ def test_fuzzy_puro_entra_pullback_vwap():
     assert "cenario_PULLBACK_VWAP" in d["confluencias"], d
 
 
+def test_fuzzy_puro_b2_lima_e_mais_seletiva_e_rotula_o_livro():
+    # A/B do item 4: MESMO snapshot (M15=70). A Variante B (maré 60/verde) ENTRA; a B2
+    # (maré 76/Lima) NÃO (70<76) — exigir Lima seca sinais. E o rótulo do livro paralelo propaga.
+    d_verde = e.avaliar_fuzzy_puro(_snap_b(), **CFG_B)
+    cfg_lima = dict(CFG_B); cfg_lima["mare_min"] = 76
+    d_lima = e.avaliar_fuzzy_puro(_snap_b(), estrategia=e.ESTRATEGIA_FUZZY_PURO_LIMA, **cfg_lima)
+    assert d_verde["resultado"] == "entrou" and d_verde["estrategia"] == "fuzzy_puro_v1", d_verde
+    assert d_lima["resultado"] == "nao_entrou" and "maré" in d_lima["motivo"], d_lima
+    assert d_lima["estrategia"] == "fuzzy_puro_lima_v1" and d_lima["variante"] == "B_FUZZY_PURO", d_lima
+    # com M15=80 (Lima), a B2 volta a entrar, ainda com o rótulo do livro paralelo
+    d_lima2 = e.avaliar_fuzzy_puro(
+        _snap_b(fuzzy={"M15": {"score": 80}, "M5": {"score": 62}, "M1": {"score": 65}}),
+        estrategia=e.ESTRATEGIA_FUZZY_PURO_LIMA, **cfg_lima)
+    assert d_lima2["estrategia"] == "fuzzy_puro_lima_v1", d_lima2
+
+
 def test_fuzzy_puro_estouro_venda():
     # Maré vendedora (M15<=40), gatilho forte abaixo da VWAP → ESTOURO de venda.
     d = e.avaliar_fuzzy_puro(_snap_b(
