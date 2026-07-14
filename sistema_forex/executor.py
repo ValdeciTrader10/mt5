@@ -108,22 +108,26 @@ def _espaco_r(conn, par: str, direcao: str, preco: float, risco: float):
     return abs(alvo - preco) / risco
 
 
-def pode_abrir(abertas_vals, par: str, tf: str, estrategia: str, *, livro: str, cap: int) -> bool:
-    """Decide (função PURA, testável) se cabe abrir mais uma posição p/ (par, tf, estrategia)
-    no LIVRO indicado.
+def pode_abrir(abertas_vals, par: str, tf: str, estrategia: str, *, livro: str, cap: int,
+               variante: str = "A_ORIGINAL") -> bool:
+    """Decide (função PURA, testável) se cabe abrir mais uma posição p/ (par, tf, estrategia,
+    VARIANTE) no LIVRO indicado.
 
     Há DOIS livros independentes que podem coexistir para a MESMA combinação (gêmeos):
-      - `livro="sombra"` (virtual): catálogo — cada (par, tf, ESTRATÉGIA) roda a sua; o único
-        limite é o teto amplo `cap` (MAX_POS_SOMBRA).
+      - `livro="sombra"` (virtual): catálogo — cada (par, tf, ESTRATÉGIA, VARIANTE) roda a sua; o
+        único limite é o teto amplo `cap` (MAX_POS_SOMBRA).
       - `livro="real"` (demo): idem, mas conta só as posições reais e usa `cap`=MAX_POS_REAL
         (protege a margem do demo). A correlação é checada à parte (só real e se ligada).
 
-    Dedup: uma posição viva por (par, tf, ESTRATÉGIA) DENTRO do mesmo livro — uma virtual e
-    uma real da mesma combinação podem viver juntas (é o par sombra↔real que queremos comparar).
+    Dedup: uma posição viva por (par, tf, ESTRATÉGIA, VARIANTE) DENTRO do mesmo livro. A variante
+    entra na chave (ETAPA 6) para que A_ORIGINAL e C_HIBRIDA da mesma (par, tf, estratégia) sejam
+    LIVROS SEPARADOS (o gêmeo fuzzy-filtrado convive com o original — é o par A↔C a comparar), assim
+    como uma virtual e uma real da mesma combinação coexistem (par sombra↔real).
     """
     quer_real = livro == "real"
     mesmas = [p for p in abertas_vals if bool(p.get("real")) == quer_real]
-    if any(p["par"] == par and p["tf"] == tf and p["estrategia"] == estrategia for p in mesmas):
+    if any(p["par"] == par and p["tf"] == tf and p["estrategia"] == estrategia
+           and p.get("variante", "A_ORIGINAL") == variante for p in mesmas):
         return False
     return len(mesmas) < cap
 
@@ -139,7 +143,7 @@ def _decisoes_novas(conn, desde_id: int):
 def _abertas_do_banco(conn):
     return conn.execute(
         "SELECT id, ticket, par, tf, estrategia, direcao, lote, preco_entrada, sl_servidor, abertura_utc, "
-        "simulado, risco_inicial, mae_r, mfe_r FROM trades WHERE fechamento_utc IS NULL"
+        "simulado, risco_inicial, mae_r, mfe_r, variante FROM trades WHERE fechamento_utc IS NULL"
     ).fetchall()
 
 
@@ -261,6 +265,7 @@ class Executor:
                 "r_max": r["mfe_r"] or 0.0, "be_movido": be,
                 "mae_r": r["mae_r"] or 0.0, "mfe_r": r["mfe_r"] or 0.0,
                 "real": not r["simulado"],   # livro da posição (real=demo, else sombra)
+                "variante": r["variante"] or "A_ORIGINAL",   # dimensão do laboratório (dedup por variante)
             }
         # Alinha o relógio dos trades ao do SERVIDOR (candles/MetaTrader): mede o offset uma vez
         # no arranque a partir de um tick; depois `_tick` o mantém fresco.
@@ -426,19 +431,21 @@ class Executor:
             par, direcao = d["par"], d["direcao"]
             tf = d["tf"] or config.TF_OPERACAO
             estrategia = d["estrategia"]
+            variante = d["variante"] or "A_ORIGINAL"
 
-            # LIVRO SOMBRA (virtual): cataloga TODAS as combinações — salvo no full-real, em
-            # que só existe o livro real.
+            # LIVRO SOMBRA (virtual): cataloga TODAS as combinações (incl. cada variante como livro
+            # próprio) — salvo no full-real, em que só existe o livro real.
             if not self.ativa and pode_abrir(self.abertas.values(), par, tf, estrategia,
-                                             livro="sombra", cap=config.MAX_POS_SOMBRA):
+                                             livro="sombra", cap=config.MAX_POS_SOMBRA,
+                                             variante=variante):
                 self._abrir_seguro(conn, par, tf, direcao, estrategia, real=False, d=d)
 
             # LIVRO REAL (demo): full-real abre tudo; curado abre só as combinações positivas.
             quer_real = self.ativa or (self.real_curada and config.combo_real(estrategia, tf))
-            if quer_real and self._pode_abrir_real(par, tf, direcao, estrategia):
+            if quer_real and self._pode_abrir_real(par, tf, direcao, estrategia, variante):
                 self._abrir_seguro(conn, par, tf, direcao, estrategia, real=True, d=d)
 
-    def _pode_abrir_real(self, par, tf, direcao, estrategia) -> bool:
+    def _pode_abrir_real(self, par, tf, direcao, estrategia, variante="A_ORIGINAL") -> bool:
         if not self._dd_real_ok:            # teto de DD diário trava só o livro real
             return False
         # Guarda de correlação: só se ligada (GUARDA_CORRELACAO) — avalia só as posições reais.
@@ -449,7 +456,7 @@ class Executor:
                 log.info("Real bloqueado por correlação [%s]: %s %s", tf, par, direcao)
                 return False
         return pode_abrir(self.abertas.values(), par, tf, estrategia,
-                          livro="real", cap=config.MAX_POS_REAL)
+                          livro="real", cap=config.MAX_POS_REAL, variante=variante)
 
     def _abrir_seguro(self, conn, par, tf, direcao, estrategia, *, real, d):
         try:
@@ -505,6 +512,7 @@ class Executor:
             "estrategia": estrategia, "direcao": direcao, "lote": config.LOTE,
             "preco_entrada": entrada, "sl": sl, "risco": risco, "abertura_utc": _agora(),
             "r_max": 0.0, "be_movido": False, "mae_r": 0.0, "mfe_r": 0.0, "real": real,
+            "variante": variante,
         }
         tag = " [real]" if real else " [sim]"
         extra = ""

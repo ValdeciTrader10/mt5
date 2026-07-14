@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Relatório sombra multi-variante</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #0e1117; color: #e6e6e6; margin: 0; }
+    header { display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 1.5rem; border-bottom: 1px solid #21262d; background: #161b22; }
+    header h1 { font-size: 1.05rem; margin: 0; }
+    header nav a { color: #8b949e; text-decoration: none; font-size: .85rem; margin-left: 1rem; }
+    header nav a:hover, header nav a.on { color: #e6e6e6; }
+    main { padding: 1.5rem; max-width: 1200px; margin: 0 auto; }
+    .filtros { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: 1.2rem; }
+    label.f { color: #8b949e; font-size: .82rem; }
+    input[type=date], .btn, select { background: #0d1117; color: #e6e6e6; border: 1px solid #30363d;
+      border-radius: 8px; padding: .4rem .6rem; font-size: .9rem; }
+    .btn { cursor: pointer; text-decoration: none; }
+    .btn:hover { border-color: #2f81f7; }
+    .btn.p { background: #2f81f7; border-color: #2f81f7; color: #fff; font-weight: 600; }
+    section { margin-top: 1.8rem; }
+    section > h2 { font-size: .95rem; border-left: 3px solid #2f81f7; padding-left: .6rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .84rem; }
+    th, td { text-align: left; padding: .4rem .55rem; border-bottom: 1px solid #21262d; }
+    th { color: #8b949e; font-weight: 600; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pos { color: #3fb950; } .neg { color: #f85149; } .muted { color: #8b949e; font-size: .82rem; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .7rem; }
+    .kpi { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: .7rem .9rem; }
+    .kpi h3 { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: #8b949e; margin: 0 0 .25rem; }
+    .kpi .v { font-size: 1.35rem; font-weight: 700; }
+    .tag { font-size: .72rem; font-weight: 600; padding: .06rem .4rem; border-radius: 6px; white-space: nowrap; }
+    .ok { color: #3fb950; background: #12261a; } .no { color: #8b949e; background: #1c2128; }
+    .copiabox { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 1rem; }
+    .copiabox textarea { width: 100%; min-height: 220px; background: #0d1117; color: #c9d1d9;
+      border: 1px solid #30363d; border-radius: 8px; padding: .7rem; font-family: ui-monospace, monospace;
+      font-size: .78rem; line-height: 1.4; resize: vertical; }
+    .copiarow { display: flex; gap: .6rem; align-items: center; margin-bottom: .6rem; flex-wrap: wrap; }
+    .copiado { color: #3fb950; font-size: .82rem; }
+    .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🧪 Relatório sombra <span class="muted">· multi-variante (A · B · C)</span></h1>
+    <nav>
+      <a href="/">Painel</a><a href="/analitico">Análise</a><a href="/auditoria">Auditoria IA</a>
+      <a href="/relatorio" class="on">Relatório</a><a href="/logout">Sair</a>
+    </nav>
+  </header>
+  <main>
+    <form class="filtros" method="get" action="/relatorio">
+      <label class="f">De <input type="date" name="de" value="{{ de }}"></label>
+      <label class="f">Até <input type="date" name="ate" value="{{ ate }}"></label>
+      <button class="btn p" type="submit">Filtrar</button>
+      <span class="muted">Período: {{ dados.periodo.de }} → {{ dados.periodo.ate }}
+        · mín. {{ dados.min_sinais }} sinais/célula</span>
+    </form>
+
+    <section>
+      <h2>Como ler</h2>
+      <p class="muted">O laboratório roda A (controle), B (fuzzy puro) e C (híbrida) em sombra ao
+        mesmo tempo. Aqui a leitura por <b>expectância em R</b> (a métrica-mãe) diz qual
+        <b>célula</b> (variante × estratégia × TF × par) tem edge — só conta com amostra suficiente.
+        <b>A vs C</b> mede o efeito do filtro fuzzy (perdas evitadas × ganhos perdidos) e o
+        <b>split-half</b> separa edge estável de sorte de uma metade. Também em
+        <a href="/api/relatorio?formato=texto{% if de %}&de={{ de }}{% endif %}{% if ate %}&ate={{ ate }}{% endif %}" style="color:#2f81f7">texto puro</a>
+        e <a href="/api/relatorio{% if de %}?de={{ de }}{% endif %}" style="color:#2f81f7">JSON</a>.</p>
+    </section>
+
+    <section>
+      <div class="copiabox">
+        <div class="copiarow">
+          <button class="btn p" id="copiar" type="button">📋 Copiar relatório</button>
+          <span class="copiado" id="copiado" style="display:none">✔ copiado</span>
+        </div>
+        <textarea id="rel" readonly>{{ texto }}</textarea>
+      </div>
+    </section>
+
+    <section>
+      <h2>Resumo do período (livro sombra)</h2>
+      <div class="kpis">
+        <div class="kpi"><h3>Trades</h3><div class="v">{{ dados.geral.n }}</div></div>
+        <div class="kpi"><h3>Winrate</h3><div class="v">{{ dados.geral.winrate }}%</div></div>
+        <div class="kpi"><h3>Expectância R</h3><div class="v {{ 'pos' if (dados.geral.exp_r or 0) >= 0 else 'neg' }}">{{ dados.geral.exp_r if dados.geral.exp_r is not none else '—' }}</div></div>
+        <div class="kpi"><h3>PF</h3><div class="v">{{ dados.geral.profit_factor if dados.geral.profit_factor is not none else '—' }}</div></div>
+        <div class="kpi"><h3>USD total</h3><div class="v {{ 'pos' if dados.geral.usd >= 0 else 'neg' }}">{{ dados.geral.usd }}</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Por variante <span class="muted">— A controle · B fuzzy puro · C híbrida</span></h2>
+      <table>
+        <tr><th>Variante</th><th class="num">n</th><th class="num">wr%</th><th class="num">exp R</th>
+          <th class="num">exp USD</th><th class="num">PF</th><th class="num">USD</th><th class="num">maxDD</th></tr>
+        {% for v in dados.por_variante %}
+        <tr>
+          <td>{{ v.variante_nome }}</td>
+          <td class="num">{{ v.n }}</td>
+          <td class="num">{{ v.winrate }}</td>
+          <td class="num {{ 'pos' if (v.exp_r or 0) >= 0 else 'neg' }}">{{ v.exp_r if v.exp_r is not none else '—' }}</td>
+          <td class="num {{ 'pos' if v.exp_usd >= 0 else 'neg' }}">{{ v.exp_usd }}</td>
+          <td class="num">{{ v.profit_factor if v.profit_factor is not none else '—' }}</td>
+          <td class="num {{ 'pos' if v.usd >= 0 else 'neg' }}">{{ v.usd }}</td>
+          <td class="num neg">{{ v.max_dd }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if not dados.por_variante %}<p class="muted">Sem trades de sombra fechados no período.</p>{% endif %}
+    </section>
+
+    <section>
+      <h2>Efeito do filtro fuzzy (A vs C)</h2>
+      {% set ac = dados.a_vs_c %}
+      <p class="muted">Dos setups que a Variante A tomou, a C manteve <b>{{ ac.c_manteve }}</b> e
+        bloqueou <b>{{ ac.c_bloqueou }}</b>. Dos bloqueados, quantos eram perdedores (bom veto) vs
+        vencedores (veto ruim):</p>
+      <div class="kpis">
+        <div class="kpi"><h3>Perdas evitadas</h3><div class="v pos">{{ ac.ruins_evitados }}</div></div>
+        <div class="kpi"><h3>Ganhos perdidos</h3><div class="v neg">{{ ac.bons_perdidos }}</div></div>
+        <div class="kpi"><h3>USD prejuízo evitado</h3><div class="v pos">{{ ac.usd_evitado }}</div></div>
+        <div class="kpi"><h3>USD lucro perdido</h3><div class="v neg">{{ ac.usd_perdido }}</div></div>
+        <div class="kpi"><h3>Benefício líquido</h3><div class="v {{ 'pos' if ac.beneficio_liquido >= 0 else 'neg' }}">{{ ac.beneficio_liquido }}</div></div>
+        <div class="kpi"><h3>Sem desfecho</h3><div class="v muted">{{ ac.bloqueio_sem_desfecho }}</div></div>
+      </div>
+      {% if dados.distribuicao_bloqueio %}
+      <h2 style="margin-top:1.4rem">Motivos de bloqueio da C</h2>
+      <table>
+        <tr><th>Motivo (veto fuzzy)</th><th class="num">Qtde</th></tr>
+        {% for x in dados.distribuicao_bloqueio %}
+        <tr><td>{{ x.motivo }}</td><td class="num">{{ x.n }}</td></tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Ranking de células <span class="muted">— variante × estratégia × TF × par (por expectância R)</span></h2>
+      <table>
+        <tr><th>Célula</th><th class="num">n</th><th class="num">exp R</th><th class="num">PF</th>
+          <th class="num">wr%</th><th class="num">USD</th><th>Amostra</th></tr>
+        {% for x in dados.ranking[:40] %}
+        <tr>
+          <td>{{ x.chave }}</td>
+          <td class="num">{{ x.n }}</td>
+          <td class="num {{ 'pos' if (x.exp_r or 0) >= 0 else 'neg' }}">{{ x.exp_r if x.exp_r is not none else '—' }}</td>
+          <td class="num">{{ x.profit_factor if x.profit_factor is not none else '—' }}</td>
+          <td class="num">{{ x.winrate }}</td>
+          <td class="num {{ 'pos' if x.usd >= 0 else 'neg' }}">{{ x.usd }}</td>
+          <td><span class="tag {{ 'ok' if x.suficiente else 'no' }}">{{ '≥mín' if x.suficiente else 'pequena' }}</span></td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if not dados.ranking %}<p class="muted">Sem células ainda.</p>{% endif %}
+    </section>
+
+    <section>
+      <h2>Split-half <span class="muted">— a expectância se mantém nas duas metades? (edge × sorte)</span></h2>
+      <table>
+        <tr><th>Variante · Estratégia · TF</th><th class="num">n (1ª)</th><th class="num">exp R (1ª)</th>
+          <th class="num">n (2ª)</th><th class="num">exp R (2ª)</th><th>Estável</th></tr>
+        {% for x in dados.split_half[:30] %}
+        <tr>
+          <td>{{ x.chave }}</td>
+          <td class="num">{{ x.n1 }}</td>
+          <td class="num {{ 'pos' if (x.exp_r1 or 0) >= 0 else 'neg' }}">{{ x.exp_r1 if x.exp_r1 is not none else '—' }}</td>
+          <td class="num">{{ x.n2 }}</td>
+          <td class="num {{ 'pos' if (x.exp_r2 or 0) >= 0 else 'neg' }}">{{ x.exp_r2 if x.exp_r2 is not none else '—' }}</td>
+          <td><span class="tag {{ 'ok' if x.estavel else 'no' }}">{{ 'SIM' if x.estavel else 'não' }}</span></td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if not dados.split_half %}<p class="muted">Amostra insuficiente para dividir o período.</p>{% endif %}
+    </section>
+  </main>
+  <script>
+    document.getElementById('copiar').addEventListener('click', async function () {
+      var ta = document.getElementById('rel');
+      try { await navigator.clipboard.writeText(ta.value); }
+      catch (e) { ta.focus(); ta.select(); document.execCommand('copy'); }
+      var ok = document.getElementById('copiado');
+      ok.style.display = 'inline';
+      setTimeout(function () { ok.style.display = 'none'; }, 3000);
+    });
+  </script>
+</body>
+</html>

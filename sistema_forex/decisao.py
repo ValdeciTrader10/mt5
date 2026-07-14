@@ -385,6 +385,22 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
             checklist_min=config.FUZZY_B_CHECKLIST_MIN,
         ))
 
+    # VARIANTE C — Híbrida (ETAPA 6). Grupo PARALELO (aditivo): espelha CADA decisão "entrou" da
+    # Variante A e aplica a camada fuzzy (leitura dos fuzzy_scores/VWAP), marcando C_HIBRIDA. Só
+    # produz decisão quando a estratégia-base entrou (há setup) → o livro C é o subconjunto
+    # fuzzy-filtrado do A, diretamente comparável (A vs C) no relatório. Não toca a Variante A/B.
+    if config.HIBRIDA_HABILITADA:
+        for dec in list(decs):
+            if dec.get("variante") != estrategias.VARIANTE_A:
+                continue  # C só espelha a Variante A (B tem seu próprio livro fuzzy_puro_v1)
+            dc = estrategias.avaliar_hibrida(
+                dec, snap,
+                mare_min=config.FUZZY_B_MARE_MIN,
+                corrente_min=config.FUZZY_B_CORRENTE_MIN,
+            )
+            if dc is not None:
+                decs.append(dc)
+
     for dec in decs:
         dec["_close"] = candle["close"]     # p/ o componente de localização (VWAP) do EV
         _gravar_decisao(conn, par, tf, candle["time_utc"], dec)

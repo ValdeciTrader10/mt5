@@ -104,7 +104,9 @@ DD_DIARIO_MAX_PCT = 5.0
 # (EXECUCAO_ATIVA=false) NÃO se aplica trava de correlação nem cap por livro; só um teto de
 # segurança amplo (MAX_POS_SOMBRA) para não crescer sem limite. As travas abaixo valem só
 # no modo REAL (proteção de conta), onde risco correlacionado importa de verdade.
-MAX_POS_SOMBRA = int(os.environ.get("MAX_POS_SOMBRA", "200"))
+# Teto ampliado p/ 400 (ETAPA 6): com a Variante C espelhando a A, o catálogo pode chegar a ~2× o
+# nº de livros virtuais (A + C + B) — 400 evita truncar amostra. Ajustável por env no Dokploy.
+MAX_POS_SOMBRA = int(os.environ.get("MAX_POS_SOMBRA", "400"))
 # Caps do modo REAL, aplicados POR LIVRO DE TIMEFRAME: no máximo MAX_POS_POR_PAR posições
 # por (par, tf) e MAX_POS_TOTAL simultâneas dentro do mesmo TF.
 MAX_POS_POR_PAR = int(os.environ.get("MAX_POS_POR_PAR", "1"))
@@ -363,6 +365,38 @@ FUZZY_B_TIMING_MIN = float(os.environ.get("FUZZY_B_TIMING_MIN", "58"))   # M1 (t
 FUZZY_B_STD_K = float(os.environ.get("FUZZY_B_STD_K", "1.0"))
 # Nº mínimo de itens do checklist de 6 para entrar (5 de 6 = alto padrão, fiel ao didático).
 FUZZY_B_CHECKLIST_MIN = int(os.environ.get("FUZZY_B_CHECKLIST_MIN", "5"))
+
+# --------------------------------------------------------------------------- #
+# Variante C — Híbrida (ETAPA 6). As 9 estratégias da Variante A + 7 integrações fuzzy.
+# --------------------------------------------------------------------------- #
+# Grupo PARALELO (aditivo): NÃO altera nenhuma estratégia. Espelha cada decisão "entrou" da
+# Variante A e aplica a camada fuzzy (veto de absorção/exaustão, maré M15, virada na zona, esforço
+# do sweep, localização VWAP), marcando variante=C_HIBRIDA. O livro C é o subconjunto fuzzy-filtrado
+# do A → A vs C fica direto comparável no relatório (ETAPA 7). Limiares reaproveitam os da Variante B.
+HIBRIDA_HABILITADA = os.environ.get("HIBRIDA_HABILITADA", "true").lower() in ("1", "true", "sim")
+# Saída da Variante C (funções puras prontas p/ o executor plugar; a sombra usa a saída genérica):
+#  - score M5 do lado oposto além deste limiar → saída antecipada (integração 5);
+#  - sob exaustão, aperta o stop por esta fração da distância ao preço (integração 6).
+HIBRIDA_SAIDA_M5_MIN = float(os.environ.get("HIBRIDA_SAIDA_M5_MIN", "60"))
+HIBRIDA_STOP_APERTO = float(os.environ.get("HIBRIDA_STOP_APERTO", "0.5"))
+
+# --------------------------------------------------------------------------- #
+# Relatório sombra multi-variante (ETAPA 7)
+# --------------------------------------------------------------------------- #
+# Mínimo de sinais por CÉLULA (variante × estratégia × TF × par) para a expectância ser
+# considerada estatisticamente utilizável (doc: 30–50). Abaixo disso, "amostra pequena".
+RELATORIO_MIN_SINAIS = int(os.environ.get("RELATORIO_MIN_SINAIS", "30"))
+# Rótulos amigáveis das variantes do laboratório (só exibição).
+NOMES_VARIANTES = {
+    "A_ORIGINAL": "A · Original (controle)",
+    "B_FUZZY_PURO": "B · Fuzzy Puro",
+    "C_HIBRIDA": "C · Híbrida (A + fuzzy)",
+}
+
+
+def nome_variante(codigo):
+    """Nome amigável da variante; devolve o próprio código se não houver mapeamento."""
+    return NOMES_VARIANTES.get(codigo, codigo or "—")
 
 # --------------------------------------------------------------------------- #
 # Executor + gestor de saída (Fase 5)

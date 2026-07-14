@@ -477,19 +477,6 @@ def test_pivot_sem_rejeicao_nao_entra():
     assert d["resultado"] == "nao_entrou" and "rejeição" in d["motivo"], d
 
 
-def main() -> int:
-    testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    for t in testes:
-        t()
-        print(f"  ok  {t.__name__}")
-    print(f"\n{len(testes)} testes passaram ✅")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
 # --------------------------------------------------------------------------- #
 # VARIANTE B — Fuzzy Puro (ETAPA 5)
 # --------------------------------------------------------------------------- #
@@ -575,3 +562,108 @@ def test_saida_tecnica_fuzzy_puro():
     assert e.saida_tecnica_fuzzy_puro("compra", 1.1010, sma50=1.1000, vwap=1.1005) is False
     assert e.saida_tecnica_fuzzy_puro("venda", 1.1010, vwap=1.1000) is True     # rompeu a VWAP p/ cima
     assert e.saida_tecnica_fuzzy_puro("venda", 1.0990, sma50=1.1000) is False
+
+
+# --------------------------------------------------------------------------- #
+# VARIANTE C — Híbrida (ETAPA 6): camada fuzzy sobre a decisão da Variante A
+# --------------------------------------------------------------------------- #
+CFG_C = dict(mare_min=60, corrente_min=55)
+
+
+def _dec_base(**kw):
+    """Decisão-base 'entrou' de uma estratégia da Variante A (só o que a camada C lê)."""
+    base = dict(resultado="entrou", direcao="compra", estrategia=e.ESTRATEGIA,
+                regime="tendencia_alta", score=2, confluencias=["regime", "nivel_forca_5"],
+                motivo="regime+nivel_forca_5", variante=e.VARIANTE_A)
+    base.update(kw)
+    return base
+
+
+def _snap_c(**kw):
+    base = dict(
+        close=1.0995,   # aquém da VWAP (1.1000) → localização de valor p/ compra
+        fuzzy={"M15": {"score": 70}, "M5": {"score": 62}, "M1": {"score": 65}},
+        vwap={"vwap": 1.1000, "sup1": 1.1010, "inf1": 1.0990, "sup2": 1.1020, "inf2": 1.0980},
+    )
+    base.update(kw)
+    return base
+
+
+def test_hibrida_confirma_e_soma_confluencias():
+    # Compra: M15 a favor + localização de valor (aquém da VWAP) → C entra com confluências fuzzy.
+    d = e.avaliar_hibrida(_dec_base(), _snap_c(), **CFG_C)
+    assert d is not None and d["resultado"] == "entrou", d
+    assert d["variante"] == "C_HIBRIDA" and d["estrategia"] == e.ESTRATEGIA, d
+    assert "fuzzy_m15" in d["confluencias"] and "fuzzy_vwap_valor" in d["confluencias"], d
+    assert d["score"] > 2, d   # somou bônus fuzzy sobre o score-base
+
+
+def test_hibrida_virada_na_zona_soma():
+    # Estratégia de zona + transição (virada de causa) no M5 → confluência fuzzy_virada.
+    snap = _snap_c(fuzzy={"M15": {"score": 70}, "M5": {"score": 62, "transicao": 1}, "M1": {"score": 65}})
+    d = e.avaliar_hibrida(_dec_base(estrategia=e.ESTRATEGIA_OB), snap, **CFG_C)
+    assert d["resultado"] == "entrou" and "fuzzy_virada" in d["confluencias"], d
+
+
+def test_hibrida_sweep_esforco_soma():
+    d = e.avaliar_hibrida(_dec_base(estrategia=e.ESTRATEGIA_SWEEP, direcao="compra"),
+                          _snap_c(), **CFG_C)
+    assert d["resultado"] == "entrou" and "fuzzy_esforco" in d["confluencias"], d
+
+
+def test_hibrida_veta_m15_contra():
+    # Compra, mas M15 fuzzy claramente vendedor (score<=40) → veta.
+    d = e.avaliar_hibrida(_dec_base(), _snap_c(
+        fuzzy={"M15": {"score": 30}, "M5": {"score": 62}, "M1": {"score": 65}}), **CFG_C)
+    assert d["resultado"] == "nao_entrou" and "M15 contra" in d["motivo"], d
+
+
+def test_hibrida_veta_exaustao():
+    d = e.avaliar_hibrida(_dec_base(), _snap_c(
+        fuzzy={"M15": {"score": 70}, "M5": {"score": 62}, "M1": {"score": 65, "exaustao": 1}}), **CFG_C)
+    assert d["resultado"] == "nao_entrou" and "exaustão" in d["motivo"], d
+
+
+def test_hibrida_veta_absorcao_topo():
+    # Compra com absorção no M5 e preço acima da banda +1σ da VWAP → veto de absorção de topo.
+    d = e.avaliar_hibrida(_dec_base(), _snap_c(
+        close=1.1012,
+        fuzzy={"M15": {"score": 70}, "M5": {"score": 62, "absorcao": 1}, "M1": {"score": 65}}), **CFG_C)
+    assert d["resultado"] == "nao_entrou" and "absorção de topo" in d["motivo"], d
+
+
+def test_hibrida_none_quando_base_nao_entrou():
+    assert e.avaliar_hibrida(_dec_base(resultado="nao_entrou"), _snap_c(), **CFG_C) is None
+
+
+def test_hibrida_saida_antecipada():
+    # Compra: M5 fuzzy vira vendedor forte (<=40) → saída antecipada; a favor (>=60) → segura.
+    assert e.saida_antecipada_hibrida("compra", 35, minimo=60) is True
+    assert e.saida_antecipada_hibrida("compra", 70, minimo=60) is False
+    assert e.saida_antecipada_hibrida("venda", 70, minimo=60) is True
+    assert e.saida_antecipada_hibrida("venda", None, minimo=60) is False
+
+
+def test_hibrida_ajuste_stop_exaustao():
+    # Compra, SL 10 pips abaixo; sob exaustão aperta para metade da distância (só aproxima do preço).
+    novo = e.ajuste_stop_exaustao(1.0990, "compra", 1.1000, True, aperto=0.5)
+    assert abs(novo - 1.0995) < 1e-9, novo
+    assert 1.0990 <= novo <= 1.1000, novo   # nunca afrouxa (fica entre o SL antigo e o preço)
+    # sem exaustão, mantém o SL
+    assert e.ajuste_stop_exaustao(1.0990, "compra", 1.1000, False) == 1.0990
+    # venda é o espelho: SL acima do preço, aperta para baixo (em direção ao preço)
+    nv = e.ajuste_stop_exaustao(1.1010, "venda", 1.1000, True, aperto=0.5)
+    assert abs(nv - 1.1005) < 1e-9 and 1.1000 <= nv <= 1.1010, nv
+
+
+def main() -> int:
+    testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    for t in testes:
+        t()
+        print(f"  ok  {t.__name__}")
+    print(f"\n{len(testes)} testes passaram ✅")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

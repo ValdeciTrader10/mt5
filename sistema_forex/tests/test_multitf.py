@@ -107,6 +107,35 @@ def test_niveis_periodo_grava_pivots_e_extremos():
         os.remove(caminho)
 
 
+def test_variante_c_espelha_a_quando_entra():
+    """ETAPA 6: quando uma estratégia da Variante A ENTRA, o avaliar_par também grava a decisão
+    espelhada da Variante C (mesma (par,tf,estratégia), variante=C_HIBRIDA)."""
+    caminho = _tmp_db()
+    try:
+        conn = db.conectar(caminho)
+        par = "EURUSD#"
+        _inserir_candles(conn, par, "M5", 30)
+        candle = decisao._ultimo(conn, par, "M5")
+        # contexto p/ a confluencia_v1 entrar: regime de alta + suporte forte junto ao preço.
+        conn.execute("INSERT INTO regime_log (par, time_utc, regime) VALUES (?,?,?)",
+                     (par, candle["time_utc"], "tendencia_alta"))
+        analise._grava_nivel(conn, par, "suporte", candle["close"] - 0.0001, "H1", 1, 6.0)
+        conn.commit()
+        decs = decisao.avaliar_par(conn, par, "M5", candle)
+        entrou_a = [d for d in decs if d["variante"] == "A_ORIGINAL" and d["resultado"] == "entrou"]
+        assert entrou_a, "a confluencia_v1 deveria entrar no cenário montado"
+        # cada A que entrou tem uma C espelhada (entrou ou vetada pelo fuzzy), com a mesma estratégia.
+        cs = [d for d in decs if d["variante"] == "C_HIBRIDA"]
+        assert cs, "a Variante C deveria espelhar as decisões que a A tomou"
+        assert {d["estrategia"] for d in cs} <= {d["estrategia"] for d in entrou_a}, (cs, entrou_a)
+        # persistiu no banco com a variante certa
+        n_c = conn.execute("SELECT COUNT(*) c FROM decisoes WHERE variante='C_HIBRIDA'").fetchone()["c"]
+        assert n_c == len(cs), (n_c, len(cs))
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
 def test_snapshot_tem_pivots_e_medias():
     """O snapshot carrega `pivots` (do motor) e `medias_acima` (EMAs do TF superior)."""
     caminho = _tmp_db()
@@ -172,8 +201,23 @@ def test_snapshot_usa_atr_do_tf():
         os.remove(caminho)
 
 
-def _pos(par, tf, estrat, real=False):
-    return {"par": par, "tf": tf, "estrategia": estrat, "real": real}
+def _pos(par, tf, estrat, real=False, variante="A_ORIGINAL"):
+    return {"par": par, "tf": tf, "estrategia": estrat, "real": real, "variante": variante}
+
+
+def test_pode_abrir_variante_e_livro_independente():
+    """ETAPA 6: A_ORIGINAL e C_HIBRIDA da MESMA (par,tf,estratégia) são livros separados — o gêmeo
+    fuzzy-filtrado convive com o original (é o par A↔C a comparar)."""
+    from ..executor import pode_abrir
+    abertas = [_pos("EURUSD#", "M5", "confluencia_v1", variante="A_ORIGINAL")]
+    # a C_HIBRIDA da mesma combinação PODE abrir (variante entra na chave de dedup)
+    assert pode_abrir(abertas, "EURUSD#", "M5", "confluencia_v1", livro="sombra", cap=400,
+                      variante="C_HIBRIDA") is True
+    # mas a MESMA variante já viva NÃO empilha
+    assert pode_abrir(abertas, "EURUSD#", "M5", "confluencia_v1", livro="sombra", cap=400,
+                      variante="A_ORIGINAL") is False
+    # default de variante = A_ORIGINAL (compatível com o comportamento anterior)
+    assert pode_abrir(abertas, "EURUSD#", "M5", "confluencia_v1", livro="sombra", cap=400) is False
 
 
 def test_pode_abrir_sombra_cataloga_cada_estrategia():

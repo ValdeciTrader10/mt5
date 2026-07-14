@@ -496,6 +496,38 @@ def api_auditoria(request: Request, de: str = "", ate: str = "", formato: str = 
     return JSONResponse(d)
 
 
+@app.get("/relatorio", response_class=HTMLResponse)
+def relatorio_page(request: Request, de: str = "", ate: str = ""):
+    """Relatório sombra multi-variante (ETAPA 7): ranking por expectância R por célula
+    (variante × estratégia × TF × par), A vs C (filtro fuzzy), split-half e curva por variante."""
+    if not auth.esta_logado(request):
+        return auth.redirecionar_login()
+    from .. import relatorio as rel
+
+    with db.sessao() as conn:
+        d = rel.montar_relatorio(conn, de, ate)
+    texto = rel.relatorio_texto(d)
+    return templates.TemplateResponse(
+        request, "relatorio.html", {"dados": d, "texto": texto, "de": de, "ate": ate}
+    )
+
+
+@app.get("/api/relatorio")
+def api_relatorio(request: Request, de: str = "", ate: str = "", formato: str = "json"):
+    """JSON (default) ou texto puro (`?formato=texto`) do relatório multi-variante."""
+    if not auth.esta_logado(request):
+        raise HTTPException(status_code=401, detail="login necessário")
+    from .. import relatorio as rel
+
+    with db.sessao() as conn:
+        d = rel.montar_relatorio(conn, de, ate)
+    if formato == "texto":
+        from fastapi.responses import PlainTextResponse
+
+        return PlainTextResponse(rel.relatorio_texto(d))
+    return JSONResponse(d)
+
+
 @app.get("/api/raiox/{trade_id}")
 def api_raiox(request: Request, trade_id: int, formato: str = "texto",
               antes: int = None, depois: int = None):

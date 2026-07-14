@@ -37,6 +37,11 @@ ESTRATEGIA_FUZZY_PURO = "fuzzy_puro_v1"      # Variante B (ETAPA 5)
 # (Variante A). B_FUZZY_PURO / C_HIBRIDA marcam a decisão via este campo (ETAPAS 5-6).
 VARIANTE_A = "A_ORIGINAL"
 VARIANTE_B = "B_FUZZY_PURO"
+VARIANTE_C = "C_HIBRIDA"
+
+# Estratégias da Variante A cujo gatilho é uma ZONA (S/R, order block, pivot): na Variante C, a
+# VIRADA de score do fuzzy na zona (transição de causa) confirma o giro do preço no nível.
+ESTRATEGIAS_ZONA = (ESTRATEGIA, ESTRATEGIA_OB, ESTRATEGIA_PIVOT)
 
 # Cenários nomeados do operacional Fuzzy Wyckoff (Variante B) — sempre logados na decisão.
 CENARIOS_ENTRADA = ("ESTOURO", "PULLBACK_VWAP")     # habilitam entrada
@@ -874,3 +879,115 @@ def avaliar_fuzzy_puro(snap: dict, *, sessao_utc, spread_max_pips, mare_min, cor
 
     return _decisao("entrou", direcao, regime, score, conf, f"{cenario}|" + "+".join(conf),
                     estrategia=ESTRATEGIA_FUZZY_PURO, variante=VARIANTE_B)
+
+
+# --------------------------------------------------------------------------- #
+# VARIANTE C — Híbrida (ETAPA 6). As 9 estratégias da Variante A + 7 integrações fuzzy.
+#
+# PRINCÍPIO GOVERNANTE (aditivo): NÃO altera a lógica interna de nenhuma estratégia. É uma CÓPIA
+# PARALELA que recebe a decisão-base já pronta da Variante A (`dec_base`) e aplica, como LEITURA
+# dos `fuzzy_scores`/VWAP (nada recalculado aqui), 7 integrações fuzzy:
+#   ENTRADA (aqui, marcam variante=C_HIBRIDA):
+#     (1) VETO de absorção contra no extremo da VWAP (esforço sem resultado no topo/fundo);
+#     (2) M15 fuzzy: VETA se claramente contra a direção (maré adversa); soma confluência se a favor;
+#     (3) virada de score na ZONA (OB/S-R/pivot): transição de causa a favor confirma o giro;
+#     (4) sweep validado por ESFORÇO: o M5 fuzzy confirma a energia do stop-hunt + reversão;
+#     (7) filtro de LOCALIZAÇÃO vs VWAP: comprar aquém / vender além da VWAP = melhor EV.
+#   SAÍDA (funções puras prontas p/ o executor plugar quando ligar a gestão por variante — a
+#   sombra hoje cataloga a saída pelo gestor genérico, igual à Variante B):
+#     (5) saída antecipada por score M5 contra;  (6) exaustão aperta o stop.
+#
+# Vetos = SÓ as contradições claras (skill: não engessar — muitos gates em AND secam as entradas);
+# o resto entra como confluência (ajuste de score). C só produz decisão quando a base ENTROU (há
+# setup) — assim o livro C é o subconjunto fuzzy-filtrado do A, diretamente comparável (A vs C).
+# --------------------------------------------------------------------------- #
+def _fuzzy_contra(fz_tf: dict, direcao: str, minimo: float) -> bool:
+    """True se o fuzzy do TF está claramente CONTRA a direção (lado oposto além do limiar)."""
+    lado = _lado_fuzzy((fz_tf or {}).get("score"), minimo)
+    return (direcao == "compra" and lado < 0) or (direcao == "venda" and lado > 0)
+
+
+def avaliar_hibrida(dec_base: dict, snap: dict, *, mare_min, corrente_min):
+    """Camada fuzzy da Variante C sobre a decisão de UMA estratégia da Variante A.
+
+    Recebe a decisão-base (dec_base) — a lógica da estratégia NÃO é tocada — e devolve uma decisão
+    marcada variante=C_HIBRIDA, ou None se a base não entrou (sem setup para filtrar). Ver o cabeçalho
+    da seção para as 7 integrações. Vetos só nas contradições claras; demais integrações somam score.
+    """
+    if dec_base.get("resultado") != "entrou":
+        return None
+    direcao = dec_base["direcao"]
+    estrategia = dec_base["estrategia"]
+    regime = dec_base["regime"]
+    conf = list(dec_base["confluencias"])
+    base_score = dec_base.get("score") or 0
+    bonus = 0
+    fz = snap.get("fuzzy") or {}
+    vw = snap.get("vwap") or {}
+    close = snap.get("close")
+    m15, m5, m1 = fz.get("M15") or {}, fz.get("M5") or {}, fz.get("M1") or {}
+
+    def _C(resultado, motivo, score):
+        return _decisao(resultado, direcao, regime, score, conf, motivo,
+                        estrategia=estrategia, variante=VARIANTE_C)
+
+    # (1) VETO de absorção contra no extremo da VWAP (esforço sem resultado no topo/fundo).
+    vwap, sup1, inf1 = vw.get("vwap"), vw.get("sup1"), vw.get("inf1")
+    absorve = m1.get("absorcao") or m5.get("absorcao")
+    if absorve and vwap is not None and close is not None:
+        if direcao == "compra" and sup1 is not None and close >= sup1:
+            return _C("nao_entrou", "fuzzy veto: absorção de topo", base_score)
+        if direcao == "venda" and inf1 is not None and close <= inf1:
+            return _C("nao_entrou", "fuzzy veto: absorção de fundo", base_score)
+
+    # VETO de exaustão (clímax) no timing — não perseguir um impulso que vai virar.
+    if m1.get("exaustao") or m5.get("exaustao"):
+        return _C("nao_entrou", "fuzzy veto: exaustão (clímax)", base_score)
+
+    # (2) M15 fuzzy: veta se claramente contra (maré adversa); soma se a favor.
+    if _fuzzy_contra(m15, direcao, mare_min):
+        return _C("nao_entrou", "fuzzy veto: M15 contra a direção", base_score)
+    lado_m15 = _lado_fuzzy(m15.get("score"), mare_min)
+    if (direcao == "compra" and lado_m15 > 0) or (direcao == "venda" and lado_m15 < 0):
+        conf.append("fuzzy_m15")
+        bonus += 1
+
+    # (3) virada de score na ZONA (OB/S-R/pivot): transição de causa a favor confirma o giro no nível.
+    if estrategia in ESTRATEGIAS_ZONA and (m5.get("transicao") or m1.get("transicao")):
+        conf.append("fuzzy_virada")
+        bonus += 1
+
+    # (4) sweep validado por ESFORÇO: o M5 fuzzy confirma a energia do stop-hunt + reversão.
+    if estrategia == ESTRATEGIA_SWEEP:
+        lado_m5 = _lado_fuzzy(m5.get("score"), corrente_min)
+        if (direcao == "compra" and lado_m5 > 0) or (direcao == "venda" and lado_m5 < 0):
+            conf.append("fuzzy_esforco")
+            bonus += 1
+
+    # (7) LOCALIZAÇÃO vs VWAP: comprar aquém / vender além da VWAP tem melhor EV (espaço de valor).
+    if vwap is not None and close is not None:
+        if (direcao == "compra" and close <= vwap) or (direcao == "venda" and close >= vwap):
+            conf.append("fuzzy_vwap_valor")
+            bonus += 1
+
+    return _C("entrou", "C|" + "+".join(conf), base_score + bonus)
+
+
+def saida_antecipada_hibrida(direcao: str, fuzzy_m5_score, *, minimo) -> bool:
+    """Integração 5 (saída da Variante C): fecha ANTECIPADO se o M5 fuzzy vira CLARAMENTE contra a
+    posição (score do lado oposto além de `minimo`). PURA — pronta p/ o executor plugar quando ligar
+    a gestão por variante (a sombra hoje cataloga a saída pelo gestor genérico)."""
+    lado = _lado_fuzzy(fuzzy_m5_score, minimo)
+    return (direcao == "compra" and lado < 0) or (direcao == "venda" and lado > 0)
+
+
+def ajuste_stop_exaustao(sl_atual: float, direcao: str, close: float, exaustao: bool,
+                         *, aperto=0.5) -> float:
+    """Integração 6 (saída da Variante C): sob EXAUSTÃO (clímax), APERTA o stop na direção do trade
+    (reduz a distância ao preço pela fração `aperto`). PURA e conservadora — NUNCA afrouxa o stop
+    (só o aproxima do preço). Pronta p/ o executor plugar na gestão por variante."""
+    if not exaustao or close is None or sl_atual is None:
+        return sl_atual
+    if direcao == "compra":
+        return max(sl_atual, close - (close - sl_atual) * aperto)
+    return min(sl_atual, close + (sl_atual - close) * aperto)

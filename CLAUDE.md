@@ -132,7 +132,7 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`). **141 testes, todos passando.** Rodar sempre antes de commitar.
+  `test_fuzzy`, `test_relatorio`). **160 testes, todos passando.** Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
 - Env sensíveis (senha do painel, VNC, MT5) só no Environment do Dokploy — nunca no git.
@@ -364,16 +364,30 @@ fiéis ao didático (encaixam na ETAPA 6/executor): a saída técnica e a "ordem
 detalhes de EXECUÇÃO ao vivo — a sombra cataloga a QUALIDADE DA ENTRADA (objetivo do laboratório) com a
 saída genérica; a função de saída da B já está pronta e testada para plugar quando ligar a gestão por variante.
 
-**⬜ ETAPA 6 — Variante C (Híbrida).** As 9 estratégias + 7 integrações fuzzy como LEITURA de
-`fuzzy_scores` (sem alterar a lógica interna): veto de absorção; score M15 confluência/veto; virada de
-score na zona (OB/sr_m15); sweep validado por esforço; saída antecipada por score M5 contra; exaustão
-aperta stop; filtro VWAP de localização. Marca `variante=C_HIBRIDA`. Aceite: A vs C comparável no relatório.
+**✅ ETAPA 6 — FEITO (14/07).** Variante C (Híbrida) — grupo PARALELO/aditivo (nada da A/B foi tocado).
+`estrategias.avaliar_hibrida` recebe CADA decisão "entrou" da Variante A e aplica a camada fuzzy como
+LEITURA dos `fuzzy_scores`/VWAP (nada recalculado): (1) VETO de absorção contra no extremo da VWAP; (2)
+M15 fuzzy — VETA se claramente contra a direção, soma se a favor; (3) virada de score (transição) na ZONA
+(OB/S-R/pivot); (4) sweep validado por ESFORÇO (M5); (7) localização vs VWAP. Vetos = só as contradições
+claras (não engessar). C só gera decisão quando a A entrou → o livro C é o subconjunto fuzzy-filtrado do A,
+`variante=C_HIBRIDA`, diretamente comparável (A vs C). `decisao.avaliar_par` espelha as decisões da A;
+`executor.pode_abrir` agora deduplica por (par, tf, estratégia, **VARIANTE**) → A e C são LIVROS separados
+(a posição carrega `variante`; `MAX_POS_SOMBRA` 200→400). Saída da C (integrações 5 saída antecipada por M5
+contra + 6 exaustão aperta stop) = funções PURAS `saida_antecipada_hibrida`/`ajuste_stop_exaustao` prontas
+p/ o executor plugar (a sombra usa a saída genérica, igual à B). Params `HIBRIDA_*`. **Corrigido bug latente:**
+o `main()` do `test_estrategias` ficava ANTES dos testes B/C → eles nunca rodavam; movido p/ o fim.
+Testes em `test_estrategias` (9 casos C) + `test_multitf` (dedup por variante + espelho A→C).
 
-**⬜ ETAPA 7 — Relatório sombra multi-variante.** `vw_performance` (view SQL ou agregação Python):
-ranking por expectância em R (mín. 30–50 sinais/célula), heatmap estratégia×TF por par, **A vs C**
-(trades ruins evitados vs bons perdidos pelo filtro fuzzy), curva de equity por variante, distribuição
-de motivos de bloqueio, **split-half** (edge estável nas duas metades). Resumo semanal via Telegram.
-Aceite: 1º relatório auditável.
+**✅ ETAPA 7 — FEITO (14/07).** Relatório sombra multi-variante (`relatorio.py`, rotas `/relatorio` +
+`/api/relatorio`, aba "Relatório", CLI `python -m sistema_forex.relatorio [de] [ate] [--json|semanal]`).
+Tudo PURO/testável, lê o livro SOMBRA fechado (sem look-ahead): `ranking_celulas` (expectância em **R** por
+CÉLULA variante×estratégia×TF×par, marcando N≥`RELATORIO_MIN_SINAIS`=30), `por_variante` (KPIs + equity/maxDD
+A vs B vs C), `heatmap_estrategia_tf` (exp R por estratégia×TF dentro de cada variante), **`a_vs_c`** (casa as
+decisões A↔C por (par,tf,estratégia,time_utc) + desfecho do trade A: dos setups que a C BLOQUEOU, quantos
+eram perdedores = prejuízo EVITADO vs vencedores = lucro PERDIDO, e o benefício líquido em USD),
+`distribuicao_bloqueio` (motivos dos vetos fuzzy) e **`split_half`** (exp R nas duas metades → edge estável ×
+sorte). `resumo_semanal` envia o resumo curto ao Telegram (anti-spam). Template `relatorio.html` + nav em
+todas as páginas. Testes em `test_relatorio.py` (8 casos). Aceite: 1º relatório auditável ✅.
 
 **⬜ ETAPA 8 — Módulo B3/WIN (fase posterior).** `coletor_b3` (WIN + WDO/DIs), tabela `correlacao_b3`,
 painel MACRO TRADE, `config_b3`, WIN na matriz (demo BR), **veto de correlação só no B3** (NUNCA no forex),
