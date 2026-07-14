@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import analise, config, db, mt5_bridge
+from .. import analise, config, db, fuzzy_score, mt5_bridge
 from . import auth
 
 logging.basicConfig(
@@ -553,6 +553,47 @@ def manutencao_reset(request: Request, confirmacao: str = Form("")):
     return HTMLResponse(_html_reset(corpo, ok=True))
 
 
+# Cor de cada estado fuzzy (para pintar as velas do gráfico — ETAPA 4).
+_COR_ESTADO = {
+    "lima": "#7ee787", "verde": "#3fb950", "branco": "#8b949e",
+    "fucsia": "#db61a2", "vermelho": "#f85149",
+}
+# Cor da Sync Line / semáforo de alinhamento.
+_COR_SYNC = {"verde": "#3fb950", "vermelho": "#f85149", "amarelo": "#d29922"}
+
+
+def _fuzzy_por_candle(conn, par: str, tf: str) -> dict:
+    """{time_utc: estado} do fuzzy do (par, tf) — para colorir cada vela pelo estado de fluxo."""
+    rows = conn.execute(
+        "SELECT time_utc, estado FROM fuzzy_scores WHERE par=? AND tf=?", (par, tf)).fetchall()
+    return {r["time_utc"]: r["estado"] for r in rows}
+
+
+def _series_scores(conn, par: str, lim: int) -> dict:
+    """Séries de score fuzzy por TF (M1/M5/M15/H1) para as linhas do painel de scores.
+    {tf: [{time, value}]} — cronológicas, limitadas às `lim` velas mais recentes de cada TF."""
+    saida = {}
+    for tf in config.FUZZY_TFS:
+        rows = conn.execute(
+            "SELECT time_utc, score FROM fuzzy_scores WHERE par=? AND tf=? "
+            "ORDER BY time_utc DESC LIMIT ?", (par, tf, lim)).fetchall()
+        if rows:
+            saida[tf] = [{"time": r["time_utc"], "value": r["score"]} for r in reversed(rows)]
+    return saida
+
+
+def _sync_atual(conn, par: str) -> dict:
+    """Última Sync Line do par (micro/macro/estado + cores) para o rodapé do gráfico."""
+    r = conn.execute(
+        "SELECT time_utc, micro, macro, estado, micro_score, macro_score FROM sync_line "
+        "WHERE par=? ORDER BY time_utc DESC LIMIT 1", (par,)).fetchone()
+    if not r:
+        return {}
+    return {"time": r["time_utc"], "micro": r["micro"], "macro": r["macro"],
+            "estado": r["estado"], "micro_score": r["micro_score"],
+            "macro_score": r["macro_score"], "cor": _COR_SYNC.get(r["estado"], "#8b949e")}
+
+
 @app.get("/api/candles/{par}/{tf}")
 def api_candles(request: Request, par: str, tf: str, n: int = 500):
     """OHLC + níveis S/R de (par, tf) em JSON, para o gráfico interativo (lightweight-charts).
@@ -563,18 +604,34 @@ def api_candles(request: Request, par: str, tf: str, n: int = 500):
         raise HTTPException(status_code=404, detail="par/tf inválido")
     from ..grafico import _buscar_candles
 
+    lim = max(20, min(n, 5000))
     with db.sessao() as conn:
-        rows = _buscar_candles(conn, par, tf, max(20, min(n, 5000)))
+        rows = _buscar_candles(conn, par, tf, lim)
         niveis = analise.niveis_ativos(conn, par)
-    candles = [{"time": r["time_utc"], "open": r["open"], "high": r["high"],
-                "low": r["low"], "close": r["close"]} for r in rows]
-    # S/R do motor + níveis de liquidez por período (pivots diários, máx/mín asiática/semana/mês).
+        # Estado fuzzy por candle do TF do gráfico (para pintar as velas) + séries de score.
+        fuzzy_tf = _fuzzy_por_candle(conn, par, tf)
+        scores = _series_scores(conn, par, lim)
+        sync = _sync_atual(conn, par)
+    # Cor da vela pelo estado fuzzy (lima/verde = alta; fúcsia/vermelho = baixa; branco = neutro).
+    candles = []
+    for r in rows:
+        c = {"time": r["time_utc"], "open": r["open"], "high": r["high"],
+             "low": r["low"], "close": r["close"]}
+        est = fuzzy_tf.get(r["time_utc"])
+        if est:
+            cor = _COR_ESTADO.get(est)
+            if cor:
+                c.update({"color": cor, "borderColor": cor, "wickColor": cor})
+        candles.append(c)
+    # S/R do motor + liquidez por período (pivots, máx/mín ásia/semana/mês) + VWAP e bandas.
     LINHAS = ("suporte", "resistencia", "pivot_pp", "pivot_r1", "pivot_r2", "pivot_r3",
               "pivot_s1", "pivot_s2", "pivot_s3", "max_asia", "min_asia", "max_semana",
-              "min_semana", "max_mes", "min_mes")
+              "min_semana", "max_mes", "min_mes", "vwap", "vwap_sup1", "vwap_inf1",
+              "vwap_sup2", "vwap_inf2")
     sr = [{"preco": nv["preco"], "tipo": nv["tipo"], "forca": nv.get("forca") or 1}
           for nv in niveis if nv["tipo"] in LINHAS]
-    return JSONResponse({"par": par, "tf": tf, "candles": candles, "niveis": sr})
+    return JSONResponse({"par": par, "tf": tf, "candles": candles, "niveis": sr,
+                         "scores": scores, "sync": sync})
 
 
 @app.get("/grafico/{par}/{tf}", response_class=HTMLResponse)

@@ -337,9 +337,15 @@ da decisão (`decisao._scores_ev`) — **NÃO bloqueia** (v1). Motor chama fuzzy
 `VWAP_*`, `FUZZY_*`, `SYNC_*_TFS`, `EV_HABILITADO`. Testes em `test_fuzzy.py` (rally→>76, absorção→flag,
 exaustão→~50, VWAP, Sync, EV). **131 testes, todos passando.**
 
-**⬜ ETAPA 4 — Painel de scores no gráfico.** No gráfico interativo: linhas de score M15/M5/M1 +
-**Sync Line** no rodapé (verde/vermelho/amarelo) + VWAP e bandas + **candles pintados pelo estado fuzzy**.
-Aceite: validação visual do dono em 3 dias distintos.
+**✅ ETAPA 4 — FEITO (14/07).** Painel de scores no gráfico interativo. O `/api/candles/{par}/{tf}`
+passou a devolver: **VWAP + bandas** (níveis `vwap`/`vwap_*` na régua de preço), a **cor de cada vela**
+pelo estado fuzzy do TF do gráfico (`_fuzzy_por_candle` → color/borderColor/wickColor por candle),
+as **séries de score** por TF (`_series_scores` → {tf:[{time,value}]}) e a **Sync Line** atual
+(`_sync_atual`). O `grafico.html` desenha: linhas de score **M1/M5/M15/H1** num sub-painel próprio
+(escala `scores`, margem inferior 20%, linhas de referência 24/50/76), VWAP dourada + bandas ±1σ/±2σ
+(`estiloNivel`), **velas pintadas pelo estado fuzzy** (lima/verde/branco/fúcsia/vermelho, cor vinda do
+backend) e a **Sync Line no rodapé** (chips micro/macro/combinado verde/vermelho/amarelo). Botão
+**"Scores"** liga/desliga o sub-painel. Aceite (pendente): validação visual do dono em 3 dias distintos.
 
 **⬜ ETAPA 5 — Variante B (Fuzzy Puro).** Checklist de 6 itens (compra/venda espelhados), desvio-padrão
 manual sobre 20 closes, pirâmide MTF estrita (M15 maré / M5 correnteza / M1 timing), cenários nomeados
