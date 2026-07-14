@@ -402,6 +402,101 @@ def test_reset_b3_so_apaga_livro_b3():
         os.remove(caminho)
 
 
+# --------------------------------------------------------------------------- #
+# Janela de negociação FINA da B3 (09:15–16:00 p/ abrir; 17:30 fecha à força) — só B3
+# --------------------------------------------------------------------------- #
+def test_hhmm_para_min():
+    assert config_b3._hhmm_para_min("09:15", 0) == 9 * 60 + 15
+    assert config_b3._hhmm_para_min("16:00", 0) == 16 * 60
+    assert config_b3._hhmm_para_min("9", 0) == 9 * 60          # só hora → minuto 0
+    assert config_b3._hhmm_para_min("lixo", 555) == 555        # malformado → default
+    assert config_b3._hhmm_para_min("25:99", 555) == 555       # fora de faixa → default
+
+
+def test_dentro_janela_abertura():
+    janela = (9 * 60 + 15, 16 * 60)                            # 09:15–16:00
+    assert config_b3.dentro_janela_abertura(9 * 60 + 15, janela) is True   # abre em 09:15
+    assert config_b3.dentro_janela_abertura(9 * 60 + 14, janela) is False  # 09:14 ainda não
+    assert config_b3.dentro_janela_abertura(12 * 60, janela) is True       # meio do pregão
+    assert config_b3.dentro_janela_abertura(15 * 60 + 59, janela) is True  # 15:59 ok
+    assert config_b3.dentro_janela_abertura(16 * 60, janela) is False      # 16:00 já fechou p/ abrir
+
+
+def test_hora_de_fechar_pregao():
+    corte = 17 * 60 + 30                                       # 17:30
+    assert config_b3.hora_de_fechar_pregao(17 * 60 + 29, corte) is False   # 17:29 ainda não
+    assert config_b3.hora_de_fechar_pregao(17 * 60 + 30, corte) is True    # 17:30 fecha à força
+    assert config_b3.hora_de_fechar_pregao(18 * 60, corte) is True         # depois também
+    assert config_b3.hora_de_fechar_pregao(9 * 60, corte) is False         # manhã não fecha
+
+
+def test_minuto_do_dia():
+    assert config_b3.minuto_do_dia(63300) == 17 * 60 + 35     # 63300s = 17:35
+    assert config_b3.minuto_do_dia(86400 + 63300) == 17 * 60 + 35  # ignora o dia
+
+
+def test_persistir_ao_vivo_grava_flutuante():
+    """P&L flutuante (R + dinheiro) da posição aberta é gravado p/ o painel ler ao vivo."""
+    caminho = _tmp_db()
+    try:
+        with db.sessao(caminho) as conn:
+            _inserir_trade_aberto(conn, "WIN$N", "b3")
+            tid = conn.execute("SELECT id FROM trades").fetchone()["id"]
+            executor._persistir_ao_vivo(conn, tid, 1.5, 42.0)
+            row = conn.execute("SELECT r_atual, lucro_atual FROM trades WHERE id=?", (tid,)).fetchone()
+            assert row["r_atual"] == 1.5 and row["lucro_atual"] == 42.0, dict(row)
+    finally:
+        os.remove(caminho)
+
+
+def test_encerrar_pregao_fecha_forcado_1730():
+    """_encerrar_pregao fecha à força TODAS as posições B3 às 17:30 com motivo catalogável;
+    antes das 17:30 não mexe (a corretora só zera no fim do pregão)."""
+    caminho = _tmp_db()
+    orig_agora = executor_b3._agora
+    orig_resolver = mt5_bridge_b3.resolver_simbolo
+    orig_tick = mt5_bridge_b3.tick_atual
+    orig_params = config_b3.PARAMS_SIMBOLO_B3
+    try:
+        config_b3.PARAMS_SIMBOLO_B3 = {"WIN$N": {"tamanho_pip": 5.0, "sl_min_pips": 60,
+                                                  "sl_max_pips": 300}}
+        mt5_bridge_b3.resolver_simbolo = lambda par: par
+        mt5_bridge_b3.tick_atual = lambda simbolo: {"bid": 105.0, "ask": 106.0, "time": 63300}
+        with db.sessao(caminho) as conn:
+            _inserir_trade_aberto(conn, "WIN$N", "b3")   # compra @100, sl 90, lote 1
+            r = conn.execute("SELECT id, par, direcao, preco_entrada, sl_servidor, risco_inicial, "
+                             "tf, estrategia, ticket, mae_r, mfe_r, variante FROM trades").fetchone()
+            ex = executor_b3.ExecutorB3()
+            ex.abertas[r["id"]] = {
+                "trade_id": r["id"], "ticket": r["ticket"], "par": r["par"], "tf": "M5",
+                "simbolo": "WIN$N", "estrategia": r["estrategia"], "direcao": r["direcao"],
+                "lote": 1, "preco_entrada": r["preco_entrada"], "sl": r["sl_servidor"],
+                "risco": r["risco_inicial"], "abertura_utc": 0, "r_max": 0.0, "be_movido": False,
+                "mae_r": 0.0, "mfe_r": 0.0, "real": False, "variante": "A_ORIGINAL",
+            }
+            # Antes das 17:30 (16:40) → não fecha.
+            executor_b3._agora = lambda: 16 * 3600 + 40 * 60
+            ex._encerrar_pregao(conn)
+            assert ex.abertas, "não deveria fechar antes das 17:30"
+            assert conn.execute("SELECT fechamento_utc FROM trades").fetchone()["fechamento_utc"] is None
+
+            # Às 17:35 → fecha à força com o motivo catalogável.
+            executor_b3._agora = lambda: 63300     # 17:35
+            ex._encerrar_pregao(conn)
+            assert not ex.abertas, "deveria ter fechado às 17:30"
+            fim = conn.execute("SELECT fechamento_utc, motivo_saida, lucro_usd FROM trades").fetchone()
+            assert fim["fechamento_utc"] is not None
+            assert fim["motivo_saida"] == config_b3.MOTIVO_FECHAMENTO_PREGAO, fim["motivo_saida"]
+            # compra 100→105, tick 5, WIN R$0,20/pt × 1 contrato = (105-100)*0.20 = 1.0 BRL
+            assert abs(fim["lucro_usd"] - 1.0) < 1e-6, fim["lucro_usd"]
+    finally:
+        executor_b3._agora = orig_agora
+        mt5_bridge_b3.resolver_simbolo = orig_resolver
+        mt5_bridge_b3.tick_atual = orig_tick
+        config_b3.PARAMS_SIMBOLO_B3 = orig_params
+        os.remove(caminho)
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

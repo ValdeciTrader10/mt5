@@ -100,12 +100,15 @@ def _status_dados() -> dict:
                 "sl": round(r["sl_servidor"], 5) if r["sl_servidor"] else None,
                 "desde": datetime.utcfromtimestamp(r["abertura_utc"]).strftime("%m-%d %H:%M"),
                 "simulado": bool(r["simulado"]),
+                "r_atual": r["r_atual"], "lucro_atual": r["lucro_atual"],  # P&L flutuante ao vivo
             }
             for r in conn.execute(
-                "SELECT par, direcao, estrategia, preco_entrada, sl_servidor, abertura_utc, simulado "
+                "SELECT par, direcao, estrategia, preco_entrada, sl_servidor, abertura_utc, simulado, "
+                "r_atual, lucro_atual "
                 "FROM trades WHERE fechamento_utc IS NULL ORDER BY abertura_utc DESC"
             ).fetchall()
         ]
+        flutuante_usd = round(sum(p["lucro_atual"] or 0 for p in posicoes_abertas), 2)
         trades_recentes = [
             {
                 "par": r["par"], "direcao": r["direcao"],
@@ -148,6 +151,7 @@ def _status_dados() -> dict:
         "decisoes": decisoes,
         "trades": trades,
         "posicoes_abertas": posicoes_abertas,
+        "flutuante_usd": flutuante_usd,
         "trades_recentes": trades_recentes,
         "execucao_ativa": config.EXECUCAO_ATIVA,
         "mt5_ok": mt5_ok,
@@ -541,15 +545,18 @@ def _dados_b3() -> dict:
         por_estrategia_tf = _por_estrategia_tf(fechados) if fechados else []
         # Posições abertas da sombra (o "quantidades" ao vivo, como no forex).
         abertas = [dict(r) for r in conn.execute(
-            "SELECT par, tf, estrategia, direcao, preco_entrada, sl_servidor, abertura_utc, variante "
+            "SELECT par, tf, estrategia, direcao, preco_entrada, sl_servidor, abertura_utc, variante, "
+            "r_atual, lucro_atual "
             "FROM trades WHERE mercado='b3' AND fechamento_utc IS NULL ORDER BY abertura_utc DESC").fetchall()]
         posicoes_abertas = [{
             "par": r["par"], "tf": r["tf"], "estrategia": config.nome_estrategia(r["estrategia"]),
             "direcao": r["direcao"], "entrada": r["preco_entrada"], "sl": r["sl_servidor"],
             "variante": config.nome_variante(r["variante"]),
+            "r_atual": r["r_atual"], "lucro_atual": r["lucro_atual"],  # P&L flutuante ao vivo (BRL)
             "hora": datetime.utcfromtimestamp(r["abertura_utc"]).strftime("%m-%d %H:%M")
             if r["abertura_utc"] else "—",
         } for r in abertas]
+        flutuante_brl = round(sum(p["lucro_atual"] or 0 for p in posicoes_abertas), 2)
         # Últimas decisões da B3 (entrou/não), como o feed do painel do forex.
         decisoes_recentes = [{
             "par": r["par"],
@@ -586,6 +593,7 @@ def _dados_b3() -> dict:
         "n_trades": n_trades,
         "n_abertas": len(posicoes_abertas),
         "pnl_brl": pnl_brl,
+        "flutuante_brl": flutuante_brl,
         "resumo": resumo_geral,
         "por_estrategia_tf": por_estrategia_tf,
         "posicoes_abertas": posicoes_abertas,

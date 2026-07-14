@@ -117,8 +117,65 @@ TFS_OPERACAO_B3 = [s.strip() for s in os.environ.get(
 # Janela de negociação da B3 — HORA DO SERVIDOR da Genial (o filtro usa a hora do candle). A B3
 # só forma candles durante o pregão, então o default é PERMISSIVO (00–24 = sem corte de sessão):
 # deixamos o próprio pregão ser o filtro e evitamos descartar tudo por um descasamento de fuso do
-# feed. Estreitar depois (ex.: 9–18) quando o fuso do servidor da Genial estiver confirmado.
+# feed. O corte FINO (minutos) da abertura fica em JANELA_ABERTURA_B3 (abaixo) — este par de horas
+# é só a rede grossa legada; mantido permissivo para não conflitar com a janela de minutos.
 SESSAO_B3 = (int(os.environ.get("SESSAO_B3_INICIO", "0")), int(os.environ.get("SESSAO_B3_FIM", "24")))
+
+# --------------------------------------------------------------------------- #
+# Janela de negociação FINA da B3 (pedido do dono) — precisão de MINUTOS (só B3)
+# --------------------------------------------------------------------------- #
+# Diferente do forex (24/5), a B3 tem pregão com horário fino e o volume CAI ao fim da tarde. O
+# dono pediu, SÓ para a B3:
+#   - ABRIR posições apenas entre 09:15 e 16:00 (encerra o gatilho mais cedo pela queda de volume);
+#   - FECHAR à força qualquer posição do dia às 17:30 — a corretora zera as posições no fim do
+#     pregão, independentemente do resultado; reproduzimos isso e CATALOGAMOS o motivo do
+#     fechamento (aparece no /analitico "por motivo de saída").
+# Tudo em MINUTOS-DO-DIA no relógio do servidor da Genial — o MESMO relógio do candle (decisao_b3)
+# e do executor_b3 (ver VWAP_B3_ANCORA_HORA: assume que o relógio do servidor mostra a hora local
+# do pregão; validar com os candles). Ajustável por env (formato "HH:MM").
+
+
+def _hhmm_para_min(txt: str, default_min: int) -> int:
+    """'HH:MM' (ou 'HH') → minutos-do-dia (0..1440); cai no default se malformado. Função PURA."""
+    try:
+        partes = str(txt).strip().split(":")
+        h = int(partes[0])
+        m = int(partes[1]) if len(partes) > 1 else 0
+        if 0 <= h <= 24 and 0 <= m < 60:
+            return h * 60 + m
+    except (ValueError, IndexError, AttributeError):
+        pass
+    return default_min
+
+
+# Janela em que a sombra da B3 pode ABRIR novas posições (gatilho). Fora dela, nenhuma entrada.
+JANELA_ABERTURA_B3 = (
+    _hhmm_para_min(os.environ.get("B3_ABERTURA_INICIO", "09:15"), 9 * 60 + 15),
+    _hhmm_para_min(os.environ.get("B3_ABERTURA_FIM", "16:00"), 16 * 60),
+)
+
+# Horário do FECHAMENTO FORÇADO do pregão (a corretora zera as posições no fim do dia).
+B3_FECHAMENTO_FORCADO_MIN = _hhmm_para_min(os.environ.get("B3_FECHAMENTO_FORCADO", "17:30"), 17 * 60 + 30)
+
+# Motivo de saída CATALOGÁVEL do fechamento forçado (o dono quer o log do porquê p/ auditar).
+MOTIVO_FECHAMENTO_PREGAO = "fechamento do pregao (17:30)"
+
+
+def minuto_do_dia(epoch_servidor: int) -> int:
+    """Minuto-do-dia (0..1439) de um epoch JÁ no fuso do servidor. Função PURA."""
+    return (int(epoch_servidor) % 86400) // 60
+
+
+def dentro_janela_abertura(minuto_dia: int, janela=None) -> bool:
+    """True se `minuto_dia` está na janela de ABERTURA da B3 (09:15–16:00). Função PURA."""
+    ini, fim = JANELA_ABERTURA_B3 if janela is None else janela
+    return ini <= minuto_dia < fim
+
+
+def hora_de_fechar_pregao(minuto_dia: int, corte_min: int = None) -> bool:
+    """True se já passou do fechamento forçado do pregão (17:30). Função PURA."""
+    corte = B3_FECHAMENTO_FORCADO_MIN if corte_min is None else corte_min
+    return minuto_dia >= corte
 
 # Filtro de spread da sombra da B3 (na régua interna pontos/10 do snapshot). Permissivo por ora
 # (catalogar o máximo; a régua de spread da B3 ainda será reconciliada — nota da calibração).

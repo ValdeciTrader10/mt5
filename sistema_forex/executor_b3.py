@@ -22,8 +22,8 @@ import os
 import signal
 import time
 
-from . import (calibracao_b3, config, config_b3, db, estrategias, executor,
-               fuzzy_score, gestao, mt5_bridge_b3)
+from . import (calibracao_b3, config, config_b3, db, decisao, estrategias,
+               executor, fuzzy_score, gestao, mt5_bridge_b3)
 
 log = logging.getLogger("executor_b3")
 
@@ -216,6 +216,16 @@ class ExecutorB3:
             if novo_mfe != p["mfe_r"] or novo_mae != p["mae_r"]:
                 p["mfe_r"], p["mae_r"] = novo_mfe, novo_mae
                 executor._persistir_excursao(conn, p["trade_id"], round(p["mae_r"], 3), round(p["mfe_r"], 3))
+            # P&L FLUTUANTE ao vivo (o dono acompanha no painel): R + BRL da posição aberta.
+            # BRL é PURO (config_b3.lucro_brl — sem martelar a ponte). Persistido só quando o R
+            # arredondado muda, para não escrever a cada segundo com centenas de posições.
+            if round(r, 2) != p.get("_r_persistido"):
+                p["_r_persistido"] = round(r, 2)
+                lucro_atual = config_b3.lucro_brl(p["direcao"], p["preco_entrada"], preco,
+                                                  p["par"], contratos=p["lote"])
+                executor._persistir_ao_vivo(
+                    conn, p["trade_id"], round(r, 3),
+                    round(lucro_atual, 2) if lucro_atual is not None else None)
             idade_h = (_agora() - p["abertura_utc"]) / 3600
             acao, motivo = gestao.avaliar_saida(
                 direcao=p["direcao"], r=r, r_max=p["r_max"], idade_h=idade_h,
@@ -244,6 +254,31 @@ class ExecutorB3:
         p["be_movido"] = True
         executor._atualizar_sl(conn, p["trade_id"], p["preco_entrada"])
         log.info("↔ [b3] %s %s → break-even", p["par"], p["direcao"])
+
+    # -- fechamento forçado do pregão (a corretora zera as posições no fim do dia) --
+    def _preco_encerramento(self, conn, par, direcao):
+        """Preço p/ valorar o fechamento forçado: tick vivo; se não houver (após o pregão), o
+        último close coletado — garante P&L do encerramento mesmo sem cotação ao vivo."""
+        preco = self._preco_saida(self._simbolo(par), direcao)
+        if preco is not None:
+            return preco
+        row = decisao._ultimo(conn, par, "M1") or decisao._ultimo(conn, par, "M5")
+        return row["close"] if row else None
+
+    def _encerrar_pregao(self, conn):
+        """Fechamento FORÇADO às 17:30 (relógio do servidor): a corretora zera TODAS as posições
+        do dia no fim do pregão, independentemente do resultado. Reproduzimos isso e catalogamos
+        o motivo (`MOTIVO_FECHAMENTO_PREGAO`). Só B3 (o forex é 24/5, não passa por aqui)."""
+        if not config_b3.hora_de_fechar_pregao(config_b3.minuto_do_dia(_agora())):
+            return
+        for trade_id in list(self.abertas):
+            p = self.abertas[trade_id]
+            preco = self._preco_encerramento(conn, p["par"], p["direcao"])
+            if preco is None:
+                continue  # sem preço p/ valorar — tenta de novo no próximo ciclo
+            escala = self._escala(conn, p["par"])
+            pip = escala["tick"] if escala else config_b3.param_simbolo_b3(p["par"], "tamanho_pip", 1.0)
+            self._fechar(conn, p, preco, pip, config_b3.MOTIVO_FECHAMENTO_PREGAO)
 
     # -- novas entradas --
     def entrar(self, conn):
@@ -298,6 +333,7 @@ class ExecutorB3:
     # -- ciclo --
     def ciclo(self, conn):
         self._tick_cache = {}
+        self._encerrar_pregao(conn)   # fecha à força às 17:30 (antes de gerir/entrar)
         self.gerir(conn)
         self.entrar(conn)
 

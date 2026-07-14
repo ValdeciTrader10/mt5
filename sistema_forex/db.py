@@ -121,7 +121,10 @@ CREATE TABLE IF NOT EXISTS trades (
     derrapagem_pips REAL,              -- fill real vs preço-sinal, em pips (adverso = positivo)
     delay_s        REAL,               -- segundos entre a gravação da decisão e o fill real
     variante       TEXT DEFAULT 'A_ORIGINAL',  -- variante do laboratório (herda da decisão de origem)
-    mercado        TEXT DEFAULT 'forex'  -- forex (XM) ou b3 (WIN/WDO): P&L em BRL, ponte data-only, livro isolado
+    mercado        TEXT DEFAULT 'forex',  -- forex (XM) ou b3 (WIN/WDO): P&L em BRL, ponte data-only, livro isolado
+    -- P&L FLUTUANTE (não realizado) da posição AINDA aberta, atualizado a cada ciclo de gestão:
+    r_atual        REAL,               -- resultado atual em múltiplos de R (ao vivo)
+    lucro_atual    REAL                -- resultado atual em dinheiro (USD no forex, BRL na B3)
 );
 CREATE INDEX IF NOT EXISTS idx_trades_par ON trades (par);
 CREATE INDEX IF NOT EXISTS idx_trades_abertos ON trades (fechamento_utc);
@@ -186,6 +189,9 @@ def _migrar(conn) -> None:
         conn.execute("ALTER TABLE trades ADD COLUMN variante TEXT DEFAULT 'A_ORIGINAL'")
     if "mercado" not in cols:     # forex (XM) vs b3 (WIN/WDO) — livros isolados (ETAPA 8b)
         conn.execute("ALTER TABLE trades ADD COLUMN mercado TEXT DEFAULT 'forex'")
+    for coluna in ("r_atual", "lucro_atual"):  # P&L flutuante ao vivo das posições abertas
+        if coluna not in cols:
+            conn.execute(f"ALTER TABLE trades ADD COLUMN {coluna} REAL")
     dcols = {r["name"] for r in conn.execute("PRAGMA table_info(decisoes)").fetchall()}
     if "tf" not in dcols:
         conn.execute("ALTER TABLE decisoes ADD COLUMN tf TEXT DEFAULT 'M5'")

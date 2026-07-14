@@ -50,6 +50,13 @@ def um_ciclo(conn, ultimo_visto: dict) -> None:
             if ultimo_visto.get(chave) == candle["time_utc"]:
                 continue  # nada novo neste (par, tf)
             ultimo_visto[chave] = candle["time_utc"]
+            # Janela de ABERTURA da B3 (só B3): fora de 09:15–16:00 não geramos entrada — o
+            # volume cai ao fim da tarde (pedido do dono). Relógio do servidor (hora do candle).
+            if not config_b3.dentro_janela_abertura(
+                    config_b3.minuto_do_dia(candle["time_utc"])):
+                log.debug("B3 %s %s @%s fora da janela de abertura (09:15–16:00) — sem entrada",
+                          par, tf, candle["time_utc"])
+                continue
             try:
                 for dec in decisao.avaliar_par(
                     conn, par, tf, candle,

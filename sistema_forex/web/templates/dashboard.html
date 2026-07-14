@@ -107,10 +107,10 @@
 
     <section>
       <h2>Posições e trades (Fase 5) <span id="exec-badge"></span></h2>
-      <p class="muted" style="margin-top:.2rem">Posições abertas</p>
+      <p class="muted" style="margin-top:.2rem">Posições abertas — <span id="flutuante-usd"></span></p>
       <table>
         <thead>
-          <tr><th>Par</th><th>Direção</th><th>Estratégia</th><th class="num">Entrada</th><th class="num">Stop</th><th>Desde (UTC)</th></tr>
+          <tr><th>Par</th><th>Direção</th><th>Estratégia</th><th class="num">Entrada</th><th class="num">Stop</th><th class="num">R atual</th><th class="num">P&amp;L (USD)</th><th>Desde (UTC)</th></tr>
         </thead>
         <tbody id="tbody-posicoes"></tbody>
       </table>
@@ -208,12 +208,23 @@
         return d === 'compra' ? '<span class="tag tag-compra">▲ compra</span>'
           : d === 'venda' ? '<span class="tag tag-venda">▼ venda</span>' : '—';
       }
+      function plCell(v, casas) {
+        if (v == null) return '<td class="num muted">—</td>';
+        return '<td class="num ' + (v >= 0 ? 'pos' : 'neg') + '">' + fmt(v, casas) + '</td>';
+      }
+      var flut = document.getElementById('flutuante-usd');
+      if (flut) {
+        var fu = s.flutuante_usd || 0;
+        flut.innerHTML = 'P&L flutuante: <strong class="' + (fu >= 0 ? 'pos' : 'neg') +
+          '">' + fmt(fu, 2) + ' USD</strong>';
+      }
       document.getElementById('tbody-posicoes').innerHTML = (s.posicoes_abertas || []).map(function (p) {
         return '<tr><td>' + esc(p.par) + (p.simulado ? ' <span class="badge badge-sim">sim</span>' : '') +
           '</td><td>' + dirTag(p.direcao) + '</td><td>' + esc(p.estrategia) + '</td>' +
           '<td class="num">' + fmt(p.entrada, 5) + '</td><td class="num">' + (p.sl != null ? fmt(p.sl, 5) : '—') + '</td>' +
+          plCell(p.r_atual, 2) + plCell(p.lucro_atual, 2) +
           '<td>' + esc(p.desde) + '</td></tr>';
-      }).join('') || '<tr><td colspan="6" class="muted">Nenhuma posição aberta.</td></tr>';
+      }).join('') || '<tr><td colspan="8" class="muted">Nenhuma posição aberta.</td></tr>';
 
       document.getElementById('tbody-trades').innerHTML = (s.trades_recentes || []).map(function (t) {
         var pcls = (t.pips || 0) >= 0 ? 'pos' : 'neg';

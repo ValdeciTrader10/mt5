@@ -162,7 +162,7 @@ Sem a carência a comparação A×C era inútil (C sempre raspava −1 pip). Env
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **209 testes, todos passando.**
+  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **219 testes, todos passando.**
   Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
@@ -553,6 +553,26 @@ dados corrompidos:** `manutencao.reset-b3` (`resetar_b3`) apaga SÓ o livro `mer
 + `reset_b3` isola o livro. **204 testes, todos passando.** ⚠️ Ainda **pendente rodar na VPS:** `python -m
 sistema_forex.manutencao reset-b3` + redeploy (o painel só volta a fazer sentido depois de zerar as vencedoras
 fantasmas já gravadas).
+
+**✅ Sub-etapa 8b.5 — HORÁRIO DE PREGÃO DA B3 + P&L FLUTUANTE AO VIVO (14/07, pedido do dono).** Dois ajustes,
+o de horário SÓ para a B3 (o forex 24/5 fica intocado). (1) **Janela FINA de negociação da B3** (precisão de
+MINUTOS — o forex usa hora cheia): `config_b3` ganhou `JANELA_ABERTURA_B3` (default **09:15–16:00**, envs
+`B3_ABERTURA_INICIO`/`FIM`) e `B3_FECHAMENTO_FORCADO_MIN` (**17:30**, env `B3_FECHAMENTO_FORCADO`), com as puras
+`_hhmm_para_min`/`minuto_do_dia`/`dentro_janela_abertura`/`hora_de_fechar_pregao` (relógio do servidor da Genial =
+hora do candle/executor). **Abrir só 09:15–16:00** (volume cai ao fim da tarde): `decisao_b3.um_ciclo` pula a
+avaliação do candle fora da janela (nenhuma entrada gerada). **Fechar à força às 17:30** (a corretora zera as
+posições no fim do pregão, independentemente do resultado): `executor_b3._encerrar_pregao` (chamado no topo do
+`ciclo`, antes de gerir/entrar) fecha TODAS as posições B3 abertas com o **motivo catalogável**
+`MOTIVO_FECHAMENTO_PREGAO="fechamento do pregao (17:30)"` (aparece no /analitico "por motivo"); usa o tick vivo ou,
+sem cotação após o pregão, o último close coletado (`_preco_encerramento`). (2) **P&L FLUTUANTE ao vivo** (forex E
+B3): coluna `trades.r_atual`/`lucro_atual` (migração idempotente) atualizada a cada ciclo de gestão (só quando o R
+arredondado muda — não martela o banco) via `executor._persistir_ao_vivo`. B3 = BRL puro (`config_b3.lucro_brl`);
+forex = USD por `usd_por_pip` (calculado UMA vez por posição via `order_calc_profit`, cacheado no dict → não
+martela a ponte). O painel (dashboard + `/b3`) mostra **R atual + P&L (USD/BRL)** por posição aberta e o **total
+flutuante** (`flutuante_usd`/`flutuante_brl`). Testes em `test_b3` (+7: janela/fechamento/hhmm/minuto/persistência/
+fechamento forçado 17:30). **219 testes, todos passando.** ⚠️ Assume que o relógio do servidor da Genial mostra a
+hora LOCAL do pregão (mesma premissa do `VWAP_B3_ANCORA_HORA`) — validar com os candles; ajustar os envs se o fuso
+diferir.
 
 **✅ ETAPA 9 — FEITO (14/07).** Auditoria estatística — o GATE que decide, por dados, o que vai p/ demo.
 `auditoria_estatistica.py` (PURO/testável, rotas via /relatorio + CLI `python -m sistema_forex.auditoria_estatistica

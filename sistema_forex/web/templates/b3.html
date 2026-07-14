@@ -137,15 +137,21 @@
     {% if dados.posicoes_abertas %}
     <section>
       <h2>Posições abertas na sombra ({{ dados.n_abertas }})</h2>
+      <p class="muted" style="margin-top:.2rem">P&L flutuante:
+        <strong class="{{ 'pos' if (dados.flutuante_brl or 0) >= 0 else 'neg' }}">
+          {{ '%.2f'|format(dados.flutuante_brl or 0) }} BRL</strong> (não realizado, ao vivo)</p>
       <table>
         <tr><th>Par</th><th>TF</th><th>Estratégia</th><th>Variante</th><th>Direção</th>
-          <th class="num">Entrada</th><th class="num">SL</th><th>Aberta</th></tr>
+          <th class="num">Entrada</th><th class="num">SL</th>
+          <th class="num">R atual</th><th class="num">P&L (BRL)</th><th>Aberta</th></tr>
         {% for p in dados.posicoes_abertas %}
         <tr>
           <td>{{ p.par }}</td><td>{{ p.tf }}</td><td>{{ p.estrategia }}</td><td>{{ p.variante }}</td>
           <td>{{ p.direcao }}</td>
           <td class="num">{{ '%.1f'|format(p.entrada) if p.entrada is not none else '—' }}</td>
           <td class="num">{{ '%.1f'|format(p.sl) if p.sl is not none else '—' }}</td>
+          <td class="num {{ 'pos' if (p.r_atual or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(p.r_atual) if p.r_atual is not none else '—' }}</td>
+          <td class="num {{ 'pos' if (p.lucro_atual or 0) >= 0 else 'neg' }}">{{ '%.2f'|format(p.lucro_atual) if p.lucro_atual is not none else '—' }}</td>
           <td>{{ p.hora }}</td>
         </tr>
         {% endfor %}

@@ -199,6 +199,14 @@ def _persistir_excursao(conn, trade_id, mae_r, mfe_r) -> None:
     conn.commit()
 
 
+def _persistir_ao_vivo(conn, trade_id, r_atual, lucro_atual) -> None:
+    """P&L FLUTUANTE (não realizado) da posição aberta — o dono acompanha ao vivo no painel.
+    `lucro_atual` em USD (forex) ou BRL (B3). Chamado só quando o R arredondado muda (barato)."""
+    conn.execute("UPDATE trades SET r_atual=?, lucro_atual=? WHERE id=?",
+                 (r_atual, lucro_atual, trade_id))
+    conn.commit()
+
+
 def _atualizar_sl(conn, trade_id, sl) -> None:
     conn.execute("UPDATE trades SET sl_servidor=? WHERE id=?", (sl, trade_id))
     conn.commit()
@@ -425,6 +433,25 @@ class Executor:
             if novo_mfe != p["mfe_r"] or novo_mae != p["mae_r"]:
                 p["mfe_r"], p["mae_r"] = novo_mfe, novo_mae
                 _persistir_excursao(conn, p["trade_id"], round(p["mae_r"], 3), round(p["mfe_r"], 3))
+            # P&L FLUTUANTE ao vivo (R + USD) — o dono acompanha as posições abertas no painel.
+            # `usd_por_pip` (USD de +1 pip a favor, neste lote) é calculado UMA vez por posição via
+            # order_calc_profit e cacheado no dict → não martela a ponte a cada ciclo. Persistido só
+            # quando o R arredondado muda. Aproximação: a conversão é a do preço de entrada (drift
+            # pequeno em pares USD-base); suficiente para exibir o flutuante da sombra.
+            if round(r, 2) != p.get("_r_persistido"):
+                p["_r_persistido"] = round(r, 2)
+                if "usd_por_pip" not in p:
+                    alvo = (p["preco_entrada"] + pip) if p["direcao"] == "compra" \
+                        else (p["preco_entrada"] - pip)
+                    try:
+                        p["usd_por_pip"] = mt5_bridge.calc_lucro(
+                            p["direcao"], p["simbolo"], p["lote"], p["preco_entrada"], alvo)
+                    except Exception:  # noqa: BLE001 - sem valor-por-pip, mostra só o R
+                        p["usd_por_pip"] = None
+                pips_atual = gestao.pips(p["direcao"], p["preco_entrada"], preco, pip)
+                lucro_atual = (p["usd_por_pip"] * pips_atual) if p.get("usd_por_pip") else None
+                _persistir_ao_vivo(conn, p["trade_id"], round(r, 3),
+                                   round(lucro_atual, 2) if lucro_atual is not None else None)
             idade_h = (_agora() - p["abertura_utc"]) / 3600
             acao, motivo = gestao.avaliar_saida(
                 direcao=p["direcao"], r=r, r_max=p["r_max"], idade_h=idade_h,
