@@ -140,14 +140,33 @@ def copy_rates_range(simbolo: str, tf: str, inicio, fim):
         return _para_dicts(rates)
 
 
+def tick_valido(bid: float, ask: float) -> bool:
+    """True se bid/ask é uma cotação REAL — não zero/negativo nem cruzada (função PURA).
+
+    A B3 tem fases de LEILÃO/pré-abertura/rolagem em que o MT5 devolve bid/ask = 0 (ou
+    cruzado, ask < bid). Essa cotação-fantasma é destrutiva na sombra: como preço de saída de
+    uma posição VENDIDA ela registra "entrada − 0" = o valor cheio do contrato como lucro
+    (ex.: WIN 178000 × R$0,20 = ~R$35 mil "de lucro" num único trade). O stop emulado só
+    protege o lado COMPRADO (preço 0 ≤ SL fecha em −1R), então uma cotação inválida corrompe o
+    P&L SÓ nas vencedoras vendidas — foi a origem do "lucro alto" impossível no painel B3.
+    Tratamos cotação inválida como AUSÊNCIA de preço (o executor apenas espera o próximo tick).
+    """
+    return bid > 0 and ask > 0 and ask >= bid
+
+
 def tick_atual(simbolo: str):
-    """Tick atual (bid/ask/time) do símbolo B3. None se indisponível."""
+    """Tick atual (bid/ask/time) do símbolo B3. None se indisponível OU cotação inválida."""
     with _LOCK:
         mt5 = _cliente()
         t = mt5.symbol_info_tick(simbolo)
         if t is None:
             return None
-        return {"time": int(t.time), "bid": float(t.bid), "ask": float(t.ask)}
+        bid, ask = float(t.bid), float(t.ask)
+        if not tick_valido(bid, ask):
+            log.debug("Tick inválido de %s (bid=%s ask=%s) — ignorado (leilão/fora do pregão).",
+                      simbolo, bid, ask)
+            return None
+        return {"time": int(t.time), "bid": bid, "ask": ask}
 
 
 def info_simbolo(simbolo: str):

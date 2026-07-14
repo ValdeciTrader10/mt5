@@ -14,8 +14,9 @@ O que PRESERVA:
 
 Antes de apagar, faz um BACKUP consistente do banco (API de backup do SQLite, segura em WAL).
 
-    python -m sistema_forex.manutencao status   # só conta as linhas (não apaga)
-    python -m sistema_forex.manutencao reset     # fecha posições do robô + BACKUP + limpa
+    python -m sistema_forex.manutencao status    # só conta as linhas (não apaga)
+    python -m sistema_forex.manutencao reset      # fecha posições do robô + BACKUP + limpa
+    python -m sistema_forex.manutencao reset-b3   # BACKUP + limpa SÓ o livro de sombra da B3
 
 `reset` faz tudo em ordem segura: (1) FECHA as posições do robô no broker (magic, p/ não
 ficarem órfãs); (2) BACKUP do banco; (3) apaga trades/decisões/derivados. Depois, REDEPLOY
@@ -85,6 +86,18 @@ def resetar(conn) -> dict:
     return apagados
 
 
+def resetar_b3(conn) -> dict:
+    """Apaga SÓ o livro de sombra da B3 (`trades`/`decisoes` com mercado='b3'); PRESERVA o
+    forex e os `candles`. Serve para recomeçar a sombra WIN/WDO limpa após um fix — ex.: a
+    correção do tick-fantasma de leilão que inflava as vencedoras vendidas. Retorna o nº
+    apagado por tabela."""
+    apagados = {}
+    for t in TABELAS_OPERACAO:
+        apagados[t] = conn.execute(f"DELETE FROM {t} WHERE mercado='b3'").rowcount
+    conn.commit()
+    return apagados
+
+
 def main() -> int:
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
 
@@ -112,7 +125,23 @@ def main() -> int:
               "(a memória de posições zera e ele recomeça a catalogar).")
         return 0
 
-    print("uso: python -m sistema_forex.manutencao [status|reset]")
+    if cmd == "reset-b3":
+        bak = _backup(config.DB_PATH)
+        print(f"Backup criado: {bak}")
+        with db.sessao() as conn:
+            antes = contar(conn)
+            apagados = resetar_b3(conn)
+            depois = contar(conn)
+        print("Apagados (só mercado='b3'):", {k: v for k, v in apagados.items() if v})
+        print(f"trades {antes['trades']}→{depois['trades']} · "
+              f"decisoes {antes['decisoes']}→{depois['decisoes']} · "
+              f"candles PRESERVADOS: {depois['candles']}")
+        print("\n⚠️ Agora: REDEPLOY no Dokploy para o executor_b3 reiniciar sem as posições "
+              "corrompidas em memória (ele recomeça a catalogar WIN/WDO já com o tick-fantasma "
+              "de leilão corrigido).")
+        return 0
+
+    print("uso: python -m sistema_forex.manutencao [status|reset|reset-b3]")
     return 1
 
 

@@ -387,13 +387,22 @@ def equity():
 
 
 def tick_atual(simbolo: str):
-    """Retorna dict com o tick atual (bid, ask, last, time, spread aproximado)."""
+    """Retorna dict com o tick atual (bid, ask, time). None se indisponível OU inválido.
+
+    Rejeita cotação-fantasma (bid/ask ≤ 0 ou cruzada) — no forex é raro (24/5), mas o GOLD
+    fora do pregão/fim de semana pode devolver 0, e um 0 como preço de saída de uma VENDA
+    registraria lucro absurdo na gestão de sombra. Cotação inválida = ausência de preço.
+    """
     with _LOCK:
         mt5 = _cliente()
         t = mt5.symbol_info_tick(simbolo)
         if t is None:
             return None
-        return {"time": int(t.time), "bid": float(t.bid), "ask": float(t.ask)}
+        bid, ask = float(t.bid), float(t.ask)
+        if not (bid > 0 and ask > 0 and ask >= bid):
+            log.debug("Tick inválido de %s (bid=%s ask=%s) — ignorado.", simbolo, bid, ask)
+            return None
+        return {"time": int(t.time), "bid": bid, "ask": ask}
 
 
 # --------------------------------------------------------------------------- #

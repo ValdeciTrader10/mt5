@@ -13,7 +13,8 @@ Cobre o que a fundação adiciona de forma PURA/determinística:
 import os
 import tempfile
 
-from .. import calibracao_b3, config_b3, coletor_b3, db, executor, executor_b3
+from .. import (calibracao_b3, config_b3, coletor_b3, db, executor, executor_b3,
+                manutencao, mt5_bridge_b3)
 from ..coletor_mt5 import contar, gravar_candles
 
 
@@ -328,6 +329,38 @@ def test_escala_sem_dados_none():
         with db.sessao(caminho) as conn:
             ex = executor_b3.ExecutorB3()
             assert ex._escala(conn, "WIN$N") is None
+    finally:
+        os.remove(caminho)
+
+
+def test_tick_valido_rejeita_cotacao_fantasma():
+    """Guarda do tick-fantasma de leilão: bid/ask ≤ 0 ou cruzado = cotação INVÁLIDA.
+
+    Foi a raiz do 'lucro alto' impossível no painel B3: um ask=0 fechando uma VENDA registrava
+    'entrada − 0' = valor cheio do contrato como lucro. Cotação válida só com bid>0, ask>0, ask≥bid."""
+    assert mt5_bridge_b3.tick_valido(178000.0, 178005.0) is True     # cotação normal
+    assert mt5_bridge_b3.tick_valido(0.0, 178005.0) is False         # bid zero (pré-abertura)
+    assert mt5_bridge_b3.tick_valido(178000.0, 0.0) is False         # ask zero → mataria a venda
+    assert mt5_bridge_b3.tick_valido(0.0, 0.0) is False              # leilão: ambos zero
+    assert mt5_bridge_b3.tick_valido(-1.0, 5.0) is False             # negativo
+    assert mt5_bridge_b3.tick_valido(178010.0, 178000.0) is False    # cruzado (ask < bid)
+
+
+def test_reset_b3_so_apaga_livro_b3():
+    """manutencao.resetar_b3 apaga só trades/decisoes mercado='b3'; o forex fica intocado."""
+    caminho = _tmp_db()
+    try:
+        with db.sessao(caminho) as conn:
+            _inserir_decisao(conn, "EURUSD#", "forex")
+            _inserir_decisao(conn, "WIN$N", "b3")
+            _inserir_trade_aberto(conn, "EURUSD#", "forex")
+            _inserir_trade_aberto(conn, "WIN$N", "b3")
+            apagados = manutencao.resetar_b3(conn)
+            assert apagados["trades"] == 1 and apagados["decisoes"] == 1, apagados
+            pares_tr = [r["par"] for r in conn.execute("SELECT par FROM trades").fetchall()]
+            pares_de = [r["par"] for r in conn.execute("SELECT par FROM decisoes").fetchall()]
+            assert pares_tr == ["EURUSD#"], pares_tr    # forex preservado
+            assert pares_de == ["EURUSD#"], pares_de
     finally:
         os.remove(caminho)
 

@@ -499,6 +499,23 @@ colar na IA). `analitico.html`/`auditoria.html` parametrizados por `|default` (t
 Teste novo: isolamento forex×b3 no dossiê (`test_auditoria`). **202 testes, todos passando.** ⚠️ Cosmético a
 calibrar depois: casas decimais do preço no raio-x visual da B3.
 
+**✅ Sub-etapa 8b.4 — FIX do TICK-FANTASMA DE LEILÃO (14/07, dono: "lucro alto, algo errado na matemática").**
+A sombra da B3 mostrava P&L absurdo (R$105 mil, PF 62.8) concentrado em 2 células de N minúsculo (Caça-stops M1
+n=3 = R$71k; Fuzzy B M1 n=4 = R$35k), com **MFE médio de 251.99 R e 99.19 R** (impossível — MFE normal é 0–3 R).
+**Causa-raiz:** `mt5_bridge_b3.tick_atual` devolvia `bid`/`ask` crus, incluindo os **0.0 que o MT5 retorna nas
+fases de LEILÃO/pré-abertura/rolagem** de WIN/WDO. Um `ask=0` fechando uma posição **vendida** registra
+`entrada − 0` = o valor CHEIO do contrato como lucro (WIN 178000 × R$0,20 ≈ R$35 mil num trade). Assimetria que
+explica tudo: o stop emulado só protege a COMPRA (preço 0 ≤ SL → −1R), então a cotação-fantasma corrompe **só as
+vencedoras vendidas** — por isso as perdedoras pareciam sãs (−1R limpo) e o "lucro" era todo fictício. **Correção
+(aditiva, defensiva):** `mt5_bridge_b3.tick_valido(bid,ask)` (PURA: exige bid>0, ask>0, ask≥bid) → `tick_atual`
+devolve `None` numa cotação inválida = AUSÊNCIA de preço (o executor já trata None: espera o próximo tick, nunca
+fecha no fantasma). Mesma guarda posta no `mt5_bridge.tick_atual` do forex (GOLD fim de semana). **Limpeza dos
+dados corrompidos:** `manutencao.reset-b3` (`resetar_b3`) apaga SÓ o livro `mercado='b3'` (BACKUP antes), forex e
+`candles` intactos → rodar na VPS + redeploy para a sombra da B3 recomeçar limpa. Testes: `tick_valido` (6 casos)
++ `reset_b3` isola o livro. **204 testes, todos passando.** ⚠️ Ainda **pendente rodar na VPS:** `python -m
+sistema_forex.manutencao reset-b3` + redeploy (o painel só volta a fazer sentido depois de zerar as vencedoras
+fantasmas já gravadas).
+
 **✅ ETAPA 9 — FEITO (14/07).** Auditoria estatística — o GATE que decide, por dados, o que vai p/ demo.
 `auditoria_estatistica.py` (PURO/testável, rotas via /relatorio + CLI `python -m sistema_forex.auditoria_estatistica
 [de] [ate] [--json]`) lê o livro SOMBRA fechado e aplica, por CÉLULA (variante×estratégia×TF×par), os 4
