@@ -691,6 +691,42 @@ def test_hibrida_ajuste_stop_exaustao():
     assert abs(nv - 1.1005) < 1e-9 and 1.1000 <= nv <= 1.1010, nv
 
 
+def test_gestao_saida_variante_c_antecipada():
+    # C, compra: M5 fuzzy vira vendedor forte → fecha antecipado (integração 5), SL inalterado.
+    d = e.gestao_saida_variante("C_HIBRIDA", "compra", 1.1000, 1.0990, fuzzy_m5=30,
+                                exausto=False, m5_min=60, aperto=0.5)
+    assert d["fechar"] is True and "antecipada C" in d["motivo"] and d["novo_sl"] == 1.0990
+
+
+def test_gestao_saida_variante_c_aperta_stop_na_exaustao():
+    # C, compra, M5 a favor (não fecha): sob exaustão aperta o stop (integração 6), sem fechar.
+    d = e.gestao_saida_variante("C_HIBRIDA", "compra", 1.1000, 1.0990, fuzzy_m5=70,
+                                exausto=True, m5_min=60, aperto=0.5)
+    assert d["fechar"] is False and abs(d["novo_sl"] - 1.0995) < 1e-9, d
+    # sem exaustão e M5 a favor: não mexe em nada
+    d2 = e.gestao_saida_variante("C_HIBRIDA", "compra", 1.1000, 1.0990, fuzzy_m5=70,
+                                 exausto=False, m5_min=60, aperto=0.5)
+    assert d2 == {"novo_sl": 1.0990, "fechar": False, "motivo": ""}, d2
+
+
+def test_gestao_saida_variante_b_tecnica_vwap():
+    # B, compra: preço cruzou ABAIXO da VWAP → perdeu a referência de valor → fecha.
+    d = e.gestao_saida_variante("B_FUZZY_PURO", "compra", 1.0990, 1.0980, vwap=1.1000,
+                                m5_min=60, aperto=0.5)
+    assert d["fechar"] is True and "técnica B" in d["motivo"]
+    # preço ainda ACIMA da VWAP → segura
+    d2 = e.gestao_saida_variante("B_FUZZY_PURO", "compra", 1.1010, 1.0980, vwap=1.1000,
+                                 m5_min=60, aperto=0.5)
+    assert d2["fechar"] is False
+
+
+def test_gestao_saida_variante_a_controle_nunca_mexe():
+    # A_ORIGINAL (controle) nunca passa pela gestão por variante: no-op mesmo com fuzzy contra.
+    d = e.gestao_saida_variante("A_ORIGINAL", "compra", 1.1000, 1.0990, fuzzy_m5=10,
+                                exausto=True, vwap=1.2000, m5_min=60, aperto=0.5)
+    assert d == {"novo_sl": 1.0990, "fechar": False, "motivo": ""}, d
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

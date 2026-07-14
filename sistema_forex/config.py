@@ -388,6 +388,14 @@ HIBRIDA_HABILITADA = os.environ.get("HIBRIDA_HABILITADA", "true").lower() in ("1
 HIBRIDA_SAIDA_M5_MIN = float(os.environ.get("HIBRIDA_SAIDA_M5_MIN", "60"))
 HIBRIDA_STOP_APERTO = float(os.environ.get("HIBRIDA_STOP_APERTO", "0.5"))
 
+# GESTÃO DE SAÍDA POR VARIANTE (liga as saídas próprias de B/C na sombra) — ADITIVO, a Variante A
+# (controle) NUNCA passa por aqui, segue no gestor genérico. Motivado pela auditoria (14/07): 100%
+# das perdedoras saíram no stop cheio (-1R) e a simulação de invalidação mostrou que uma saída
+# estrutural antecipada salvaria ~2/3 delas. Aqui a sombra passa a CATALOGAR a saída desenhada de
+# cada variante (C: saída antecipada por M5 fuzzy + aperto de stop na exaustão; B: saída técnica na
+# VWAP oposta) → o relatório A vs C mede se a saída inteligente melhora a expectância. Shadow-only.
+GESTAO_POR_VARIANTE = os.environ.get("GESTAO_POR_VARIANTE", "true").lower() in ("1", "true", "sim")
+
 # --------------------------------------------------------------------------- #
 # Relatório sombra multi-variante (ETAPA 7)
 # --------------------------------------------------------------------------- #

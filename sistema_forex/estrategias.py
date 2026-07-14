@@ -1061,3 +1061,24 @@ def ajuste_stop_exaustao(sl_atual: float, direcao: str, close: float, exaustao: 
     if direcao == "compra":
         return max(sl_atual, close - (close - sl_atual) * aperto)
     return min(sl_atual, close + (sl_atual - close) * aperto)
+
+
+def gestao_saida_variante(variante: str, direcao: str, preco: float, sl: float, *,
+                          fuzzy_m5=None, exausto: bool = False, vwap=None, sma50=None,
+                          m5_min: float, aperto: float) -> dict:
+    """Gestão de saída ESPECÍFICA por variante do laboratório — compõe as funções puras já testadas
+    de B e C. A Variante A (controle) NUNCA passa por aqui (segue no gestor genérico). PURA/testável.
+    Devolve {novo_sl, fechar, motivo}:
+      - C_HIBRIDA: integração 5 (fecha se o M5 fuzzy vira CLARAMENTE contra) + integração 6 (aperta
+        o stop sob EXAUSTÃO no TF do trade — só aproxima, nunca afrouxa);
+      - B_FUZZY_PURO: saída técnica (preço cruzou a VWAP/SMA50 p/ o lado oposto = perdeu a referência).
+    """
+    if variante == "C_HIBRIDA":
+        if saida_antecipada_hibrida(direcao, fuzzy_m5, minimo=m5_min):
+            return {"novo_sl": sl, "fechar": True, "motivo": "saída antecipada C (M5 fuzzy contra)"}
+        return {"novo_sl": ajuste_stop_exaustao(sl, direcao, preco, exausto, aperto=aperto),
+                "fechar": False, "motivo": ""}
+    if variante == "B_FUZZY_PURO":
+        if saida_tecnica_fuzzy_puro(direcao, preco, sma50=sma50, vwap=vwap):
+            return {"novo_sl": sl, "fechar": True, "motivo": "saída técnica B (VWAP/SMA50 oposta)"}
+    return {"novo_sl": sl, "fechar": False, "motivo": ""}

@@ -135,10 +135,26 @@ a sombra (regra: demo/sombra primeiro).
 `rpyc==5.2.3` (Python 3.11); (3) numpy 2.x quebrava o MetaTrader5 → `forex-start.sh`
 força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
 
+## Gestão de saída POR VARIANTE — ligada (14/07, motivada pela 1ª auditoria de dados reais)
+A 1ª auditoria da sombra (dossiê colado pelo dono) mostrou o vazamento nº 1: **100% das 156 perdedoras
+saíram no STOP CHEIO (-1R)** (MFE médio das perdedoras só 0,3R) e a **simulação de invalidação** estimou
+que uma saída estrutural antecipada salvaria ~2/3 delas (~0,88R cada). As saídas próprias de B/C já
+existiam PURAS e testadas (Etapas 5/6) mas **não estavam plugadas** — a sombra catalogava tudo pela saída
+genérica. Agora o `executor.gerir` chama `estrategias.gestao_saida_variante` **só para as posições virtuais
+B/C** (a Variante A CONTROLE nunca passa por lá — segue no gestor genérico): **C_HIBRIDA** = saída
+antecipada quando o M5 fuzzy vira contra (integração 5) + aperto de stop na exaustão (integração 6);
+**B_FUZZY_PURO** = saída técnica na VWAP oposta. Contexto fuzzy/VWAP lido por par e **cacheado por ciclo**
+(`_ctx_variante`, não martela o banco). ADITIVO e shadow-only: o relatório A vs C passa a MEDIR se a saída
+inteligente melhora a expectância (antes A e C só diferiam na ENTRADA; agora C tem a saída desenhada).
+Env `GESTAO_POR_VARIANTE` (default on), reusa `HIBRIDA_SAIDA_M5_MIN`/`HIBRIDA_STOP_APERTO`. Funções puras
++ wiring testados (`test_estrategias`: `gestao_saida_variante` C antecipada/exaustão, B técnica, A no-op).
+⚠️ Aperto de stop da exaustão é in-memory (não persiste em `sl_servidor`); some num restart do executor
+(aceitável na sombra). Próximo passo de auditoria: comparar exp. de C (com saída nova) vs A no /relatorio.
+
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`). **171 testes, todos passando.**
+  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`). **175 testes, todos passando.**
   Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.

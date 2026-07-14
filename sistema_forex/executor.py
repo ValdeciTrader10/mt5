@@ -21,7 +21,7 @@ import signal
 import time
 from datetime import datetime
 
-from . import analise, config, db, gestao, indicadores, mt5_bridge, telegram_notif
+from . import analise, config, db, estrategias, fuzzy_score, gestao, indicadores, mt5_bridge, telegram_notif
 
 log = logging.getLogger("executor")
 
@@ -206,6 +206,7 @@ class Executor:
         self.abertas = {}          # trade_id -> estado da posição
         self.simbolos = {}         # par -> símbolo real
         self._tick_cache = {}      # símbolo -> tick, reusado dentro do MESMO ciclo (fan-out)
+        self._ctx_cache = {}       # par -> (scores_fuzzy, vwap), reusado no MESMO ciclo (gestão por variante)
         self.ultima_decisao_id = 0
         self.saldo_inicial_dia = None
         self.dia = None
@@ -355,15 +356,43 @@ class Executor:
                 log.info("↩ %s fechada no servidor (reconciliação)", p["par"])
 
     # -- gestão das posições abertas (tick-speed) --
+    def _ctx_variante(self, conn, par):
+        """Contexto (fuzzy por TF + VWAP) do par para a gestão de saída por variante, CACHEADO por
+        ciclo (uma leitura por par mesmo com dezenas de posições — não martela o banco)."""
+        if par not in self._ctx_cache:
+            scores = fuzzy_score.scores_recentes(conn, par)
+            row = conn.execute("SELECT preco FROM niveis WHERE par=? AND tipo='vwap' AND ativo=1 "
+                               "ORDER BY criado_em DESC LIMIT 1", (par,)).fetchone()
+            self._ctx_cache[par] = (scores, row["preco"] if row else None)
+        return self._ctx_cache[par]
+
     def gerir(self, conn):
         if self.tem_real:
             self._reconciliar(conn)   # fecha no banco o que o broker fechou (só posições reais)
+        self._ctx_cache = {}          # zera o cache de contexto fuzzy/VWAP a cada ciclo
         for trade_id in list(self.abertas):
             p = self.abertas[trade_id]
             preco = self._preco_saida(p["simbolo"], p["direcao"])
             if preco is None:
                 continue
             pip = self._pip(p["simbolo"])
+
+            # Gestão de saída POR VARIANTE (só sombra B/C; a Variante A controle nunca passa aqui).
+            # Liga as saídas desenhadas de cada variante (roadmap Etapas 5/6, antes só catalogadas
+            # pela saída genérica) — motivado pela auditoria: perdedoras saíam 100% no stop cheio.
+            if (not p.get("real") and config.GESTAO_POR_VARIANTE
+                    and p.get("variante") in ("B_FUZZY_PURO", "C_HIBRIDA")):
+                scores, vwap = self._ctx_variante(conn, p["par"])
+                dec = estrategias.gestao_saida_variante(
+                    p["variante"], p["direcao"], preco, p["sl"],
+                    fuzzy_m5=(scores.get("M5") or {}).get("score"),
+                    exausto=bool((scores.get(p["tf"]) or {}).get("exaustao")),
+                    vwap=vwap, m5_min=config.HIBRIDA_SAIDA_M5_MIN, aperto=config.HIBRIDA_STOP_APERTO)
+                if dec["novo_sl"] != p["sl"]:
+                    p["sl"] = dec["novo_sl"]       # exaustão apertou o stop virtual (só aproxima)
+                if dec["fechar"]:
+                    self._fechar(conn, p, preco, pip, dec["motivo"])
+                    continue
 
             # Stop de emergência: posição REAL o broker cuida (SL de servidor); a VIRTUAL
             # (sombra) é emulada aqui tick a tick.
