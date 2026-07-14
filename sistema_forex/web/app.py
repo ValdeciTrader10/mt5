@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import analise, config, db, fuzzy_score, mt5_bridge
+from .. import analise, config, config_b3, db, fuzzy_score, mt5_bridge
 from . import auth
 
 logging.basicConfig(
@@ -494,6 +494,59 @@ def api_auditoria(request: Request, de: str = "", ate: str = "", formato: str = 
 
         return PlainTextResponse(aud.dossie_texto(d))
     return JSONResponse(d)
+
+
+def _dados_b3() -> dict:
+    """Dados do painel SEPARADO da B3 (WIN/WDO) — mercado distinto do forex (P&L em BRL, outra
+    escala), por isso página própria. Mostra a saúde da COLETA (candles por TF), a última cotação,
+    a análise do MOTOR (regime + níveis) e o estado das estratégias (a ligar na Etapa 8b). Enquanto
+    o executor de sombra da B3 não é fiado, `n_trades`=0 e o painel deixa isso explícito."""
+    pares = list(config_b3.PARES_B3)
+    with db.sessao() as conn:
+        simbolos = []
+        for par in pares:
+            resumo = analise.resumo_par(conn, par)
+            tfs, total = [], 0
+            for tf in config_b3.TFS_COLETA_B3:
+                r = conn.execute("SELECT COUNT(*) n, MAX(time_utc) t FROM candles WHERE par=? AND tf=?",
+                                 (par, tf)).fetchone()
+                total += r["n"] or 0
+                tfs.append({"tf": tf, "n": r["n"] or 0, "ultimo_utc": r["t"]})
+            lc = conn.execute("SELECT close, time_utc FROM candles WHERE par=? ORDER BY time_utc DESC "
+                              "LIMIT 1", (par,)).fetchone()
+            simbolos.append({
+                "par": par, "resumo": resumo, "tfs": tfs, "total_candles": total,
+                "ultimo_preco": lc["close"] if lc else None,
+                "ultimo_utc": lc["time_utc"] if lc else None,
+            })
+        n_dec = n_trades = 0
+        if pares:
+            ph = ",".join("?" * len(pares))
+            n_dec = conn.execute(f"SELECT COUNT(*) n FROM decisoes WHERE par IN ({ph})", pares).fetchone()["n"]
+            n_trades = conn.execute(f"SELECT COUNT(*) n FROM trades WHERE par IN ({ph})", pares).fetchone()["n"]
+    return {
+        "habilitado": config_b3.B3_HABILITADO,
+        "pares": pares,
+        "simbolos": simbolos,
+        "n_decisoes": n_dec,
+        "n_trades": n_trades,
+        "estrategias_ligadas": n_dec > 0,   # motor já roda; estratégias/executor = Etapa 8b
+    }
+
+
+@app.get("/b3", response_class=HTMLResponse)
+def b3_page(request: Request):
+    """Painel SEPARADO da B3 (WIN/WDO) — análise isolada do forex."""
+    if not auth.esta_logado(request):
+        return auth.redirecionar_login()
+    return templates.TemplateResponse(request, "b3.html", {"dados": _dados_b3()})
+
+
+@app.get("/api/b3")
+def api_b3(request: Request):
+    if not auth.esta_logado(request):
+        raise HTTPException(status_code=401, detail="login necessário")
+    return JSONResponse(_dados_b3())
 
 
 @app.get("/relatorio", response_class=HTMLResponse)

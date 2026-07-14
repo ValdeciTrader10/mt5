@@ -21,7 +21,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 
-from . import config, db, fuzzy_score, indicadores
+from . import config, config_b3, db, fuzzy_score, indicadores
 
 log = logging.getLogger("analise")
 
@@ -389,7 +389,10 @@ def resumo_par(conn, par: str) -> dict:
 
 
 def um_ciclo(conn) -> None:
-    for par in config.PARES:
+    # Forex (config.PARES) + B3 (WIN/WDO, se habilitado). O motor é DB-driven e só grava
+    # níveis/regime/estrutura — o executor NÃO age sobre isso, então analisar a B3 aqui é
+    # inócuo ao livro do forex (nenhum trade de B3 é aberto enquanto o executor não for fiado).
+    for par in config.PARES + config_b3.pares_ativos():
         try:
             r = analisar_par(conn, par)
             log.info(
@@ -416,7 +419,7 @@ def main() -> None:
     uma_vez = "--uma-vez" in sys.argv
     log.info("Motor de análise iniciado (%s). Pares: %s",
              "ciclo único" if uma_vez else f"loop a cada {config.ANALISE_POLL_S}s",
-             ", ".join(config.PARES))
+             ", ".join(config.PARES + config_b3.pares_ativos()))
 
     with db.sessao() as conn:
         if uma_vez:

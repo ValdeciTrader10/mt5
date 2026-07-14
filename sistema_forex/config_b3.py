@@ -61,6 +61,12 @@ COLETOR_B3_POLL_S = int(os.environ.get("COLETOR_B3_POLL_S", "5"))
 B3_HABILITADO = os.environ.get("B3_HABILITADO", "true").lower() in ("1", "true", "sim")
 
 
+def pares_ativos() -> list:
+    """Pares B3 a processar (motor/painel) — vazio se o módulo B3 estiver desligado.
+    Isola o forex: quem chama itera `config.PARES + config_b3.pares_ativos()`."""
+    return list(PARES_B3) if B3_HABILITADO else []
+
+
 def candidatos_simbolo(par: str, aliases: dict = None) -> list:
     """Nomes a tentar no broker para um par lógico: o próprio + aliases, sem duplicar.
 

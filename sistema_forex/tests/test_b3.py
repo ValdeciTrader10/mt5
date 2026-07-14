@@ -40,6 +40,18 @@ def test_candidatos_aliases_customizados():
     assert cands == ["FOO", "BAR"], cands  # dedup preserva ordem e ignora repetidos
 
 
+def test_pares_ativos_respeita_flag():
+    """pares_ativos() = PARES_B3 quando habilitado; vazio quando desligado (isola o forex)."""
+    orig = config_b3.B3_HABILITADO
+    try:
+        config_b3.B3_HABILITADO = True
+        assert config_b3.pares_ativos() == list(config_b3.PARES_B3)
+        config_b3.B3_HABILITADO = False
+        assert config_b3.pares_ativos() == []
+    finally:
+        config_b3.B3_HABILITADO = orig
+
+
 def test_alvo_barras_teto_m1():
     """M1 é limitado pelo teto; TFs maiores respeitam o piso mínimo."""
     assert coletor_b3._alvo_barras("M1") == config_b3.BACKFILL_M1_BARRAS_B3

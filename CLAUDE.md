@@ -434,10 +434,25 @@ velha; corrigido renomeando o volume p/ `mt5_b3_config_v2` (disco novo re-inicia
 atual). O `coletor_b3` já roda → WIN/WDO começam a entrar no banco. Aceite 8a: WIN logando (contagem
 crescendo, sem buracos) — conferir no banco/painel nos próximos ciclos.
 
-**⬜ Sub-etapas 8b+ (pendentes):** tabela `correlacao_b3`, painel MACRO TRADE, WIN na matriz de sombra
-(9 estratégias × TF, demo BR), **veto de correlação SÓ no B3** (NUNCA no forex — lá fica off), alerta de
-rollover do contrato. Aceite final: WIN logando **com correlações**. ⚠️ `gestao._moedas` não parseia
-metal/índice — tratar antes de qualquer guarda de correlação que envolva WIN/WDO/GOLD.
+**🔧 Sub-etapa 8b — PAINEL B3 SEPARADO + MOTOR na B3 (14/07, a pedido do dono "painel separado só p/ B3").**
+Entregue o começo do 8b, ADITIVO e ISOLADO do forex: (1) **página própria `/b3`** (`web/templates/b3.html`
++ rota `/b3` e `/api/b3`, `_dados_b3` no app; link "🇧🇷 B3" no nav de todas as páginas) — mercado distinto,
+P&L em BRL, por isso NÃO se mistura ao /analitico do forex. Mostra por símbolo: saúde da COLETA (candles por
+TF), última cotação, e a análise do MOTOR (regime/ADX + contagem de S/R, FVG, OB, gaps, eventos). (2) **motor
+ligado na B3**: `analise.um_ciclo` agora itera `config.PARES + config_b3.pares_ativos()` (helper novo, vazio se
+`B3_HABILITADO=false`) → grava níveis/regime de WIN/WDO. É inócuo ao livro do forex porque o motor só grava
+`niveis`/`regime_log`/`estrutura` e o executor NÃO age sobre isso. Testes: `test_b3.pares_ativos` + render do
+painel verificado. **181 testes, todos passando.**
+⚠️ **AINDA NÃO LIGADO (próximo passo do 8b):** estrategista + executor de SOMBRA da B3 (= os "resultados das
+estratégias" que o dono quer). Bloqueios reais a resolver antes: (a) **calibração de escala** de WIN/WDO em
+`PARAMS_SIMBOLO`/`tamanho_pip` (lição GOLD: stop < vela → 100% insta-stop; derivar do banco já coletado, não
+chutar); (b) o executor usa a ponte do **forex** p/ tick/pip/lucro — a ponte B3 é **data-only** (sem
+`calc_lucro`/`tamanho_pip`), então o shadow da B3 precisa de P&L PURO (valor-por-ponto, em BRL) e tick via
+`mt5_bridge_b3` — fazer ISOLADO (novo caminho/serviço) p/ não tocar no executor do forex ao vivo. NÃO ligar
+`decisao` na B3 antes disso (o executor pegaria as decisões e choraria na ponte errada). Painel já preparado:
+`_dados_b3` mostra `estrategias_ligadas`/`n_trades` e troca o aviso automaticamente quando começarem a existir.
+**Demais pendentes 8b+:** tabela `correlacao_b3`, painel MACRO, **veto de correlação SÓ no B3** (NUNCA no forex),
+alerta de rollover. ⚠️ `gestao._moedas` não parseia metal/índice — tratar antes de qualquer correlação WIN/WDO/GOLD.
 
 **✅ ETAPA 9 — FEITO (14/07).** Auditoria estatística — o GATE que decide, por dados, o que vai p/ demo.
 `auditoria_estatistica.py` (PURO/testável, rotas via /relatorio + CLI `python -m sistema_forex.auditoria_estatistica
