@@ -427,9 +427,12 @@ MESMA tabela `candles` com `par`=símbolo B3 (não colide; o motor do forex iter
 toca). (4) **Deploy:** serviços `mt5_b3` (VNC :3101, volume `mt5_b3_config`) e `coletor_b3` nos dois
 composes; `.env.example` com a seção B3 (`MT5_B3_*`, `PARES_B3`). Testes em `test_b3.py` (6 casos:
 candidatos, alvo/gatilho, coexistência WIN×forex no banco). **177 testes, todos passando.**
-⚠️ **Ação do dono no deploy:** logar na Genial pela tela VNC do `mt5_b3` (`http://IP:3101`) e conferir o
-nome REAL de WIN/WDO na Market Watch — se diferente de `WIN$N/WDO$N`, ajustar `PARES_B3` no Dokploy.
-Aceite 8a: WIN logando (contagem de candles crescendo, sem buracos).
+✅ **Ação do dono FEITA (14/07):** terminal Genial logado (`376363 GenialInvestimentos-PRD`, conta REAL só
+p/ cotação) e os nomes REAIS confirmados na Market Watch = **exatamente `WIN$N` e `WDO$N`** (batem com o
+`PARES_B3` padrão → nada a ajustar). VNC do `:3101` recusava a senha: o volume `/config` guardava uma senha
+velha; corrigido renomeando o volume p/ `mt5_b3_config_v2` (disco novo re-inicializa com o `VNC_PASSWORD`
+atual). O `coletor_b3` já roda → WIN/WDO começam a entrar no banco. Aceite 8a: WIN logando (contagem
+crescendo, sem buracos) — conferir no banco/painel nos próximos ciclos.
 
 **⬜ Sub-etapas 8b+ (pendentes):** tabela `correlacao_b3`, painel MACRO TRADE, WIN na matriz de sombra
 (9 estratégias × TF, demo BR), **veto de correlação SÓ no B3** (NUNCA no forex — lá fica off), alerta de
