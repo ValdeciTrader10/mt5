@@ -138,7 +138,8 @@ força `numpy<2` no Wine. Detalhes em `deploy/DOKPLOY.md`.
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`, `test_relatorio`). **163 testes, todos passando.** Rodar sempre antes de commitar.
+  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`). **171 testes, todos passando.**
+  Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
 - Env sensíveis (senha do painel, VNC, MT5) só no Environment do Dokploy — nunca no git.
@@ -399,9 +400,22 @@ todas as páginas. Testes em `test_relatorio.py` (8 casos). Aceite: 1º relatór
 painel MACRO TRADE, `config_b3`, WIN na matriz (demo BR), **veto de correlação só no B3** (NUNCA no forex),
 alerta de rollover. Aceite: WIN logando com correlações.
 
-**⬜ ETAPA 9 — Auditoria estatística → executor demo.** Só após 4–8 semanas de coleta. Critério de
-aprovação por célula: expectância >0 com ≥50 sinais, profit factor ≥1,3, **estável no split-half**. Liga
-a célula aprovada no executor demo (nunca real antes disso). Aceite: decisão POR DADOS.
+**✅ ETAPA 9 — FEITO (14/07).** Auditoria estatística — o GATE que decide, por dados, o que vai p/ demo.
+`auditoria_estatistica.py` (PURO/testável, rotas via /relatorio + CLI `python -m sistema_forex.auditoria_estatistica
+[de] [ate] [--json]`) lê o livro SOMBRA fechado e aplica, por CÉLULA (variante×estratégia×TF×par), os 4
+critérios do doc-mestre + skill §5: **(1)** N ≥ `APROVACAO_MIN_SINAIS` (50), **(2)** exp R > 0, **(3)** PF ≥
+`APROVACAO_PF_MIN` (1,3), **(4)** exp R positiva nas DUAS metades (`_split_half_celula`, guardião anti-sorte).
+`avaliar_celula` (pura) devolve os critérios + veredito + **confiança** (alta só com N ≥ 2×mín E split estável;
+senão média). **Armadilha de múltiplos testes** tratada explicitamente (skill §5, Deflated Sharpe): testamos
+centenas de células → `falsos_esperados ≈ testadas × APROVACAO_PROB_ACASO` (0,05) e `multiple_testing_alerta`
+quando as aprovadas não superam o acaso; o split-half obrigatório é o deflator prático. **Não liga NADA
+sozinho** — `_config_sugerida` só EXPÕE as células aprovadas + o env sugerido (`EXEC_REAL_ESTRATEGIAS`/
+`EXEC_REAL_TFS`) p/ o dono aplicar no Dokploy (só Variante A é promovível hoje; B/C aprovadas ficam listadas —
+promover exige fiar o executor por variante, futuro). Aba **"🎯 Aprovação para demo"** no topo do /relatorio.
+Env: `APROVACAO_MIN_SINAIS`/`APROVACAO_PF_MIN`/`APROVACAO_EXIGE_SPLIT_HALF`/`APROVACAO_PROB_ACASO`. Testes em
+`test_auditoria_estatistica.py` (8 casos: cada critério reprova sozinho, split como deflator, múltiplos testes,
+config sugerida). **163→171 testes, todos passando.** ⚠️ Só produz aprovações reais após 4–8 semanas de sombra
+(N por célula). Pendência real (não-código): deixar a sombra rodar e reauditar; ligar em demo é decisão do dono.
 
 **Regras que valem em todas as etapas:** nenhuma variante executa ordem real na sombra; chamadas MT5 sob
 lock global; candle em formação nunca entra na análise; gravar spread do sinal; no forex NÃO coletar/usar

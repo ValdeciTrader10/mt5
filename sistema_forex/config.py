@@ -407,6 +407,25 @@ def nome_variante(codigo):
     return NOMES_VARIANTES.get(codigo, codigo or "—")
 
 # --------------------------------------------------------------------------- #
+# ETAPA 9 — Gate de aprovação estatística por célula (sombra → demo)
+# --------------------------------------------------------------------------- #
+# Uma célula (variante × estratégia × TF × par) só é APROVADA para execução em DEMO
+# quando cumpre TODOS os critérios do doc-mestre (Parte 8/10) + a skill quant (§5) —
+# o gate que separa EDGE de SORTE antes de arriscar qualquer ordem, mesmo em demo:
+#   1. AMOSTRA:      N ≥ APROVACAO_MIN_SINAIS (winrate de 5 trades não é winrate)
+#   2. EXPECTÂNCIA:  exp R > 0 (a métrica-mãe, já líquida de spread na simulação)
+#   3. PROFIT FACTOR: PF ≥ APROVACAO_PF_MIN
+#   4. SPLIT-HALF:   exp R POSITIVA nas DUAS metades do período (guardião anti-sorte)
+APROVACAO_MIN_SINAIS = int(os.environ.get("APROVACAO_MIN_SINAIS", "50"))
+APROVACAO_PF_MIN = float(os.environ.get("APROVACAO_PF_MIN", "1.3"))
+APROVACAO_EXIGE_SPLIT_HALF = os.environ.get(
+    "APROVACAO_EXIGE_SPLIT_HALF", "true").lower() in ("1", "true", "sim")
+# Probabilidade nominal de uma célula "passar por ACASO" — testamos CENTENAS de células
+# ao mesmo tempo (armadilha de múltiplos testes / data-snooping da skill §5). A nota
+# `testadas × esta prob ≈ nº de falsos-positivos esperados` calibra a desconfiança.
+APROVACAO_PROB_ACASO = float(os.environ.get("APROVACAO_PROB_ACASO", "0.05"))
+
+# --------------------------------------------------------------------------- #
 # Executor + gestor de saída (Fase 5)
 # --------------------------------------------------------------------------- #
 # TRAVA DE SEGURANÇA. false = simulação sobre preço AO VIVO (nenhuma ordem é

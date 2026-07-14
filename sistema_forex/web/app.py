@@ -503,12 +503,15 @@ def relatorio_page(request: Request, de: str = "", ate: str = ""):
     if not auth.esta_logado(request):
         return auth.redirecionar_login()
     from .. import relatorio as rel
+    from .. import auditoria_estatistica as ae
 
     with db.sessao() as conn:
         d = rel.montar_relatorio(conn, de, ate)
+        apv = ae.auditar(conn, de, ate)          # ETAPA 9: gate de aprovação por célula
     texto = rel.relatorio_texto(d)
     return templates.TemplateResponse(
-        request, "relatorio.html", {"dados": d, "texto": texto, "de": de, "ate": ate}
+        request, "relatorio.html",
+        {"dados": d, "texto": texto, "aprovacao": apv, "de": de, "ate": ate},
     )
 
 
