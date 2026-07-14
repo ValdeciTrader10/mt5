@@ -43,13 +43,13 @@ def gravar_candles(conn, par: str, tf: str, candles: list) -> int:
     cur = conn.executemany(
         """
         INSERT OR IGNORE INTO candles
-            (par, tf, time_utc, open, high, low, close, tick_volume, spread)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (par, tf, time_utc, open, high, low, close, tick_volume, real_volume, spread)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
                 par, tf, c["time"], c["open"], c["high"], c["low"],
-                c["close"], c["tick_volume"], c["spread"],
+                c["close"], c["tick_volume"], c.get("real_volume"), c["spread"],
             )
             for c in candles
         ],

@@ -41,6 +41,27 @@ def test_candidatos_aliases_customizados():
     assert cands == ["FOO", "BAR"], cands  # dedup preserva ordem e ignora repetidos
 
 
+def test_real_volume_gravado_e_preferido():
+    """Item 6: gravar_candles persiste real_volume; os consumidores preferem o real (B3) via
+    COALESCE e caem no tick_volume quando real é NULL (forex — comportamento inalterado)."""
+    fd, caminho = tempfile.mkstemp(suffix=".db"); os.close(fd)
+    try:
+        db.init_db(caminho); conn = db.conectar(caminho)
+        gravar_candles(conn, "WIN$N", "M5", [{"time": 1000, "open": 1, "high": 2, "low": 0.5,
+            "close": 1.5, "tick_volume": 10, "real_volume": 350, "spread": 5}])
+        gravar_candles(conn, "EURUSD#", "M5", [{"time": 1000, "open": 1, "high": 2, "low": 0.5,
+            "close": 1.5, "tick_volume": 10, "spread": 5}])   # forex: sem chave real_volume
+        conn.commit()
+        q = "SELECT real_volume, COALESCE(NULLIF(real_volume,0), tick_volume) v FROM candles WHERE par=?"
+        win = conn.execute(q, ("WIN$N",)).fetchone()
+        eur = conn.execute(q, ("EURUSD#",)).fetchone()
+        assert win["real_volume"] == 350 and win["v"] == 350, dict(win)     # B3 usa contratos
+        assert eur["real_volume"] is None and eur["v"] == 10, dict(eur)     # forex cai no tick
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
 def test_vwap_ancora_no_pregao_b3():
     """Item 5: a VWAP da B3 ancora na ABERTURA DO PREGÃO (09:00 servidor); o forex, à meia-noite."""
     from .. import analise

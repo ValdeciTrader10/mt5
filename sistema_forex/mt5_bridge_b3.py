@@ -114,6 +114,10 @@ def _para_dicts(rates) -> list:
             "low": float(r["low"]),
             "close": float(r["close"]),
             "tick_volume": int(r["tick_volume"]),
+            # VOLUME REAL (contratos negociados) — na B3/futuros é o volume Wyckoff verdadeiro
+            # (tick_volume só conta ticks). Item 6: alimenta fuzzy/VWAP da B3. 0 quando o broker
+            # não publica (leilão/pré-abertura) → os consumidores caem no tick_volume.
+            "real_volume": int(r["real_volume"]) if "real_volume" in r.dtype.names else 0,
             "spread": int(r["spread"]),
         }
         for r in rates

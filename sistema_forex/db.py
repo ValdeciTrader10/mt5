@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS candles (
     low         REAL NOT NULL,
     close       REAL NOT NULL,
     tick_volume INTEGER,
+    real_volume INTEGER,               -- contratos negociados (B3/futuros = volume Wyckoff real); NULL no forex
     spread      INTEGER,
     PRIMARY KEY (par, tf, time_utc)
 );
@@ -194,6 +195,12 @@ def _migrar(conn) -> None:
         conn.execute("ALTER TABLE decisoes ADD COLUMN variante TEXT DEFAULT 'A_ORIGINAL'")
     if "mercado" not in dcols:    # o executor de cada mercado só lê as decisões do seu mercado
         conn.execute("ALTER TABLE decisoes ADD COLUMN mercado TEXT DEFAULT 'forex'")
+    tabelas = {r["name"] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "candles" in tabelas:      # guarda: o migrar pode rodar antes do schema (testes de migração)
+        ccols = {r["name"] for r in conn.execute("PRAGMA table_info(candles)").fetchall()}
+        if "real_volume" not in ccols:  # volume real (contratos) da B3/futuros — item 6
+            conn.execute("ALTER TABLE candles ADD COLUMN real_volume INTEGER")
 
 
 def conectar(db_path=None) -> sqlite3.Connection:

@@ -215,15 +215,17 @@ def niveis_vwap(conn, par: str, agora_srv: int, criado_em: int) -> int:
         return 0
     dia_inicio = _inicio_sessao_vwap(par, agora_srv)
     rows = conn.execute(
-        "SELECT high, low, close, tick_volume FROM candles WHERE par=? AND tf=? AND time_utc>=? "
-        "ORDER BY time_utc ASC",
+        # Item 6: usa o VOLUME REAL (contratos) quando existe — na B3 é o volume Wyckoff de verdade;
+        # no forex real_volume é NULL e o COALESCE cai no tick_volume (comportamento inalterado).
+        "SELECT high, low, close, COALESCE(NULLIF(real_volume,0), tick_volume) AS vol "
+        "FROM candles WHERE par=? AND tf=? AND time_utc>=? ORDER BY time_utc ASC",
         (par, config.VWAP_TF, dia_inicio),
     ).fetchall()
     if len(rows) < 2:
         return 0
     vb = indicadores.vwap_bandas(
         [r["high"] for r in rows], [r["low"] for r in rows], [r["close"] for r in rows],
-        [r["tick_volume"] for r in rows], config.VWAP_K1, config.VWAP_K2)
+        [r["vol"] for r in rows], config.VWAP_K1, config.VWAP_K2)
     if vb is None:
         return 0
     for tipo, chave in (("vwap", "vwap"), ("vwap_sup1", "sup1"), ("vwap_inf1", "inf1"),

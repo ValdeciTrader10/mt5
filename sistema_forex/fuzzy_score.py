@@ -328,7 +328,10 @@ def atualizar_par(conn, par: str, agora: int, tfs=None, limite: int = None, jane
     gravados = 0
     for tf in tfs:
         rows = conn.execute(
-            "SELECT time_utc, open, high, low, close, tick_volume FROM candles "
+            # Item 6: volume REAL (contratos) quando existe — na B3 é o volume Wyckoff verdadeiro
+            # (alimenta absorção/exaustão); no forex real_volume é NULL → cai no tick_volume.
+            "SELECT time_utc, open, high, low, close, "
+            "COALESCE(NULLIF(real_volume,0), tick_volume) AS vol FROM candles "
             "WHERE par=? AND tf=? ORDER BY time_utc DESC LIMIT ?",
             (par, tf, limite),
         ).fetchall()
@@ -341,7 +344,7 @@ def atualizar_par(conn, par: str, agora: int, tfs=None, limite: int = None, jane
         highs = [r["high"] for r in rows]
         lows = [r["low"] for r in rows]
         closes = [r["close"] for r in rows]
-        vols = [r["tick_volume"] for r in rows]
+        vols = [r["vol"] for r in rows]
         # Cada candle i (a partir do 3º) é pontuado com a janela ATÉ i (sem look-ahead).
         for i in range(2, len(rows)):
             t = rows[i]["time_utc"]
