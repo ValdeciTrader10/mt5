@@ -21,7 +21,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 
-from . import config, db, indicadores
+from . import config, db, fuzzy_score, indicadores
 
 log = logging.getLogger("analise")
 
@@ -191,6 +191,32 @@ def niveis_periodo(conn, par: str, agora_srv: int, criado_em: int) -> int:
     return n
 
 
+def niveis_vwap(conn, par: str, agora_srv: int, criado_em: int) -> int:
+    """VWAP diária + bandas ±kσ do dia de SERVIDOR corrente (reset 00:00 servidor), do `VWAP_TF`.
+
+    Grava níveis vwap/vwap_sup1|inf1/vwap_sup2|inf2 (zona de valor — ETAPA 3). Usa o tick_volume
+    dos candles do dia. Retorna a contagem gravada (0 se desligado/sem volume)."""
+    if not config.VWAP_HABILITADO:
+        return 0
+    dia_inicio = agora_srv - (agora_srv % 86400)
+    rows = conn.execute(
+        "SELECT high, low, close, tick_volume FROM candles WHERE par=? AND tf=? AND time_utc>=? "
+        "ORDER BY time_utc ASC",
+        (par, config.VWAP_TF, dia_inicio),
+    ).fetchall()
+    if len(rows) < 2:
+        return 0
+    vb = indicadores.vwap_bandas(
+        [r["high"] for r in rows], [r["low"] for r in rows], [r["close"] for r in rows],
+        [r["tick_volume"] for r in rows], config.VWAP_K1, config.VWAP_K2)
+    if vb is None:
+        return 0
+    for tipo, chave in (("vwap", "vwap"), ("vwap_sup1", "sup1"), ("vwap_inf1", "inf1"),
+                        ("vwap_sup2", "sup2"), ("vwap_inf2", "inf2")):
+        _grava_nivel(conn, par, tipo, vb[chave], config.VWAP_TF, criado_em, 1)
+    return 5
+
+
 # --------------------------------------------------------------------------- #
 # Análise de um par
 # --------------------------------------------------------------------------- #
@@ -285,10 +311,22 @@ def analisar_par(conn, par: str) -> dict:
     ult = conn.execute("SELECT MAX(time_utc) t FROM candles WHERE par=?", (par,)).fetchone()
     agora_srv = ult["t"] if ult and ult["t"] else agora
     resumo["periodo"] = niveis_periodo(conn, par, agora_srv, agora)
+    # VWAP diária + bandas (zona de valor — ETAPA 3), do dia de servidor corrente.
+    resumo["vwap"] = niveis_vwap(conn, par, agora_srv, agora)
 
     # Reforça as zonas de CONFLUÊNCIA de S/R (topos/fundos alinhados de TFs diferentes) — as
     # marcações que o preço mais respeita (pedido do dono). Roda sobre o snapshot recém-gravado.
     resumo["confluencias"] = _marcar_confluencia(conn, par, atr_ref)
+
+    # Fuzzy score (cache por candle) + Sync Line (ETAPA 3). Tabelas próprias — não são apagadas
+    # pelo _limpar_par (que só zera niveis/estrutura); o cache incremental é preservado.
+    if config.FUZZY_HABILITADO:
+        try:
+            resumo["fuzzy"] = fuzzy_score.atualizar_par(conn, par, agora)
+            sl = fuzzy_score.atualizar_sync(conn, par, agora)
+            resumo["sync"] = sl.get("estado") if sl else None
+        except Exception:  # noqa: BLE001 - fuzzy não pode derrubar o motor
+            log.exception("Falha no fuzzy/sync de %s", par)
 
     conn.commit()
     return resumo

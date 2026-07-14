@@ -321,12 +321,21 @@ de zona S/R/OB + rejeição; lateral = terreno natural). Ambas `variante=A_ORIGI
 (EMAs do TF superior, `MEDIAS_JANELA=260`). Agora são **9 livros por TF** (M1/M5/M15). Funções puras
 testadas em `test_estrategias` (8 novos casos). **106→120 testes, todos passando.**
 
-**⬜ ETAPA 3 — fuzzy_score.py + VWAP + tabelas base.** VWAP diária + bandas ±1σ/±2σ (reset 00:00
-servidor, nível `vwap`); `fuzzy_score.py` (inputs delta/range/vol/corpo/seq → fuzzificação triangular →
-regras SE-ENTÃO → score 0–100 + estados lima/verde/branco/fúcsia/vermelho + flags absorcao/exaustao/
-transicao_causa), tabela `fuzzy_scores`, **cache por (par,tf,candle)**; **Sync Line** micro/macro +
-tabela `sync_line`; **EV score** (4 componentes, gravado no `scores_json` do sinal, NÃO bloqueia na v1).
-Aceite: testes sintéticos (rally c/ volume → >76; absorção → flag; exaustão → puxa p/ 50) passam.
+**✅ ETAPA 3 — FEITO (13/07).** fuzzy_score.py + VWAP + tabelas base. (a) `indicadores.vwap_bandas`
+(VWAP acumulada ponderada por volume + bandas ±kσ) e `analise.niveis_vwap` gravam os níveis
+`vwap`/`vwap_sup1|inf1`/`vwap_sup2|inf2` do dia de SERVIDOR corrente (reset 00:00 servidor, TF
+`VWAP_TF`=M5). (b) **`fuzzy_score.py`** (PURO+testado): `caracteristicas` (delta/range/vol/corpo/seq
+normalizados pela referência recente, sem look-ahead) → `pontuar` (fuzzificação triangular + regras
+SE-ENTÃO + defuzzificação por média ponderada) → score 0–100 + estado (lima/verde/branco/fúcsia/
+vermelho) + flags **absorcao** (vol alto+corpo fraco), **exaustao** (clímax no fim de sequência longa
+→ puxa o score p/ 50) e **transicao** (vela inverte sequência estabelecida). Cache por (par,tf,candle)
+em `fuzzy_scores` via `atualizar_par` (janela deslizante, INSERT OR IGNORE). (c) **Sync Line** micro
+(M1/M5)/macro (M15/H1) — `sync_line` verde/vermelho/amarelo + tabela `sync_line` (`atualizar_sync`).
+(d) **EV score** (4 componentes: confluência+fuzzy+sync+localização VWAP) carimbado no `dados_json`
+da decisão (`decisao._scores_ev`) — **NÃO bloqueia** (v1). Motor chama fuzzy/sync a cada ciclo
+(`FUZZY_HABILITADO`); tabelas próprias não são apagadas pelo `_limpar_par` (cache preservado). Params:
+`VWAP_*`, `FUZZY_*`, `SYNC_*_TFS`, `EV_HABILITADO`. Testes em `test_fuzzy.py` (rally→>76, absorção→flag,
+exaustão→~50, VWAP, Sync, EV). **131 testes, todos passando.**
 
 **⬜ ETAPA 4 — Painel de scores no gráfico.** No gráfico interativo: linhas de score M15/M5/M1 +
 **Sync Line** no rodapé (verde/vermelho/amarelo) + VWAP e bandas + **candles pintados pelo estado fuzzy**.

@@ -131,6 +131,41 @@ def medias(closes: list) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# VWAP diária + bandas de desvio (±1σ/±2σ) — função PURA (ETAPA 3).
+# --------------------------------------------------------------------------- #
+def vwap_bandas(highs, lows, closes, volumes, k1: float = 1.0, k2: float = 2.0):
+    """VWAP acumulada do bloco de candles recebido + bandas ±k·σ (desvio ponderado por volume).
+
+    Recebe SÓ os candles do período (ex.: o dia de servidor corrente — quem chama recorta a
+    janela e faz o reset 00:00). Preço típico tp=(H+L+C)/3, ponderado por `volumes` (tick_volume).
+    σ é o desvio-padrão de tp ponderado por volume — a "largura" da VWAP, base das bandas que
+    Wyckoff/fluxo usam como zona de valor. None se não há volume (protege divisão por zero).
+    """
+    if not closes or not volumes or len(closes) != len(volumes):
+        return None
+    soma_pv = soma_v = soma_pv2 = 0.0
+    for h, l, c, v in zip(highs, lows, closes, volumes):
+        vol = float(v or 0)
+        if vol <= 0:
+            continue
+        tp = (h + l + c) / 3.0
+        soma_pv += tp * vol
+        soma_v += vol
+        soma_pv2 += tp * tp * vol
+    if soma_v <= 0:
+        return None
+    vwap = soma_pv / soma_v
+    var = max(soma_pv2 / soma_v - vwap * vwap, 0.0)
+    sigma = var ** 0.5
+    return {
+        "vwap": vwap,
+        "sup1": vwap + k1 * sigma, "inf1": vwap - k1 * sigma,
+        "sup2": vwap + k2 * sigma, "inf2": vwap - k2 * sigma,
+        "sigma": sigma,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Pivots clássicos (PP/R1-3/S1-3) do período FECHADO anterior — função PURA.
 # --------------------------------------------------------------------------- #
 def pivots_classicos(high: float, low: float, close: float) -> dict:

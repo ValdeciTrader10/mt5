@@ -121,6 +121,39 @@ CREATE TABLE IF NOT EXISTS trades (
 );
 CREATE INDEX IF NOT EXISTS idx_trades_par ON trades (par);
 CREATE INDEX IF NOT EXISTS idx_trades_abertos ON trades (fechamento_utc);
+
+-- Fuzzy score (Fuzzy Wyckoff) por (par, tf, candle) — cache idempotente (ETAPA 3)
+CREATE TABLE IF NOT EXISTS fuzzy_scores (
+    par       TEXT NOT NULL,
+    tf        TEXT NOT NULL,
+    time_utc  INTEGER NOT NULL,      -- candle FECHADO pontuado (hora do servidor)
+    score     REAL NOT NULL,         -- 0..100 (50 neutro; >50 comprador)
+    estado    TEXT,                  -- lima/verde/branco/fucsia/vermelho
+    delta     REAL,                  -- características normalizadas do candle (p/ auditoria)
+    rng       REAL,
+    vol       REAL,
+    corpo     REAL,
+    seq       INTEGER,
+    absorcao  INTEGER DEFAULT 0,     -- flags de leitura de fluxo
+    exaustao  INTEGER DEFAULT 0,
+    transicao INTEGER DEFAULT 0,
+    criado_em INTEGER,
+    PRIMARY KEY (par, tf, time_utc)
+);
+CREATE INDEX IF NOT EXISTS idx_fuzzy_par_tf_time ON fuzzy_scores (par, tf, time_utc);
+
+-- Sync Line micro/macro (alinhamento multi-TF) por par — cache por candle (ETAPA 3)
+CREATE TABLE IF NOT EXISTS sync_line (
+    par         TEXT NOT NULL,
+    time_utc    INTEGER NOT NULL,
+    micro       TEXT,                -- verde/vermelho/amarelo (TFs finos)
+    macro       TEXT,                -- verde/vermelho/amarelo (TFs altos)
+    estado      TEXT,                -- combinado
+    micro_score REAL,
+    macro_score REAL,
+    criado_em   INTEGER,
+    PRIMARY KEY (par, time_utc)
+);
 """
 
 

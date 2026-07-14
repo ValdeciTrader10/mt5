@@ -17,7 +17,7 @@ import signal
 import sys
 import time
 
-from . import config, db, estrategias, indicadores
+from . import config, db, estrategias, fuzzy_score, indicadores
 
 log = logging.getLogger("decisao")
 
@@ -189,7 +189,55 @@ def montar_snapshot(conn, par: str, tf: str, candle) -> dict:
 # --------------------------------------------------------------------------- #
 # Persistência
 # --------------------------------------------------------------------------- #
+def _fuzzy_tf(conn, par: str, tf: str, time_utc: int):
+    """Score fuzzy do (par, tf) no candle da decisão (ou o último disponível se o motor ainda
+    não pontuou este candle). None se não houver — o EV cai no neutro (0.5)."""
+    r = conn.execute(
+        "SELECT score FROM fuzzy_scores WHERE par=? AND tf=? AND time_utc=?",
+        (par, tf, time_utc)).fetchone()
+    if r is None:
+        r = conn.execute(
+            "SELECT score FROM fuzzy_scores WHERE par=? AND tf=? ORDER BY time_utc DESC LIMIT 1",
+            (par, tf)).fetchone()
+    return r["score"] if r else None
+
+
+def _sync_estado(conn, par: str):
+    r = conn.execute(
+        "SELECT estado FROM sync_line WHERE par=? ORDER BY time_utc DESC LIMIT 1", (par,)).fetchone()
+    return r["estado"] if r else None
+
+
+def _vwap(conn, par: str):
+    r = conn.execute(
+        "SELECT preco FROM niveis WHERE par=? AND ativo=1 AND tipo='vwap' LIMIT 1", (par,)).fetchone()
+    return r["preco"] if r else None
+
+
+def _scores_ev(conn, par: str, tf: str, time_utc: int, dec: dict) -> dict:
+    """EV score (4 componentes) do sinal — só CARIMBA a decisão (não bloqueia na v1). Junta
+    confluência da estratégia + alinhamento fuzzy/sync + localização vs VWAP."""
+    direcao = dec.get("direcao")
+    fuzzy_tf = _fuzzy_tf(conn, par, tf, time_utc)
+    sync = _sync_estado(conn, par)
+    vwap = _vwap(conn, par)
+    ev = fuzzy_score.ev_score(
+        confluencia=min((dec.get("score") or 0) / 4.0, 1.0),
+        fuzzy=fuzzy_score.componente_fuzzy(direcao, fuzzy_tf),
+        sync=fuzzy_score.componente_sync(direcao, sync),
+        localizacao=fuzzy_score.componente_localizacao(direcao, dec.get("_close"), vwap),
+    )
+    ev.update({"fuzzy_tf": fuzzy_tf, "sync": sync})
+    return ev
+
+
 def _gravar_decisao(conn, par: str, tf: str, time_utc: int, dec: dict) -> None:
+    dados = {"score": dec["score"], "confluencias": dec["confluencias"], "regime": dec["regime"]}
+    if config.EV_HABILITADO:
+        try:
+            dados["ev"] = _scores_ev(conn, par, tf, time_utc, dec)
+        except Exception:  # noqa: BLE001 - EV é informativo; nunca derruba a gravação
+            log.exception("Falha ao calcular EV de %s %s", par, tf)
     conn.execute(
         """
         INSERT INTO decisoes (par, time_utc, tf, estrategia, direcao, resultado, motivo, dados_json,
@@ -198,8 +246,7 @@ def _gravar_decisao(conn, par: str, tf: str, time_utc: int, dec: dict) -> None:
         """,
         (
             par, time_utc, tf, dec["estrategia"], dec["direcao"], dec["resultado"], dec["motivo"],
-            json.dumps({"score": dec["score"], "confluencias": dec["confluencias"],
-                        "regime": dec["regime"]}),
+            json.dumps(dados),
             int(time.time()),
             dec.get("variante", "A_ORIGINAL"),
         ),
@@ -303,6 +350,7 @@ def avaliar_par(conn, par: str, tf: str, candle) -> list:
             pavio_min=config.REJEICAO_PAVIO_MIN,
         ))
     for dec in decs:
+        dec["_close"] = candle["close"]     # p/ o componente de localização (VWAP) do EV
         _gravar_decisao(conn, par, tf, candle["time_utc"], dec)
     conn.commit()
     return decs

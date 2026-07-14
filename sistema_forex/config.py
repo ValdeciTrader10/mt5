@@ -225,6 +225,34 @@ SWING_N = {"M1": SWING_N_M1, "M5": SWING_N_M5, "M15": SWING_N_M15, "H1": SWING_N
            "D1": SWING_N_H1, "W1": SWING_N_H1}
 
 # --------------------------------------------------------------------------- #
+# VWAP diária + bandas (ETAPA 3) — zona de valor que Wyckoff/fluxo usam
+# --------------------------------------------------------------------------- #
+# VWAP acumulada do dia de SERVIDOR (reset 00:00 servidor), calculada no TF `VWAP_TF`.
+# Grava níveis vwap/vwap_sup1/vwap_inf1/vwap_sup2/vwap_inf2 (bandas ±k·σ ponderado por volume).
+VWAP_HABILITADO = os.environ.get("VWAP_HABILITADO", "true").lower() in ("1", "true", "sim")
+VWAP_TF = os.environ.get("VWAP_TF", "M5")
+VWAP_K1 = float(os.environ.get("VWAP_K1", "1.0"))
+VWAP_K2 = float(os.environ.get("VWAP_K2", "2.0"))
+
+# --------------------------------------------------------------------------- #
+# Fuzzy score (Fuzzy Wyckoff) + Sync Line + EV score (ETAPA 3)
+# --------------------------------------------------------------------------- #
+# O motor pontua cada candle FECHADO (cache por par/tf/candle em `fuzzy_scores`). Score 0–100
+# (50 neutro), estado por cor e flags absorção/exaustão/transição. Desligável por env.
+FUZZY_HABILITADO = os.environ.get("FUZZY_HABILITADO", "true").lower() in ("1", "true", "sim")
+# TFs pontuados (finos + estruturais). Cada TF é uma linha de score no painel (ETAPA 4).
+FUZZY_TFS = [s.strip() for s in os.environ.get("FUZZY_TFS", "M1,M5,M15,H1").split(",") if s.strip()]
+# Janela deslizante (candles recentes) recalculada por ciclo — não varre o histórico todo.
+FUZZY_JANELA = int(os.environ.get("FUZZY_JANELA", "120"))
+# Nº de velas ANTERIORES usadas como referência (range/volume médios) na normalização.
+FUZZY_REF_JANELA = int(os.environ.get("FUZZY_REF_JANELA", "20"))
+# Sync Line: quais TFs formam o alinhamento micro (fino) e macro (estrutural).
+SYNC_MICRO_TFS = [s.strip() for s in os.environ.get("SYNC_MICRO_TFS", "M1,M5").split(",") if s.strip()]
+SYNC_MACRO_TFS = [s.strip() for s in os.environ.get("SYNC_MACRO_TFS", "M15,H1").split(",") if s.strip()]
+# EV score no sinal (não bloqueia na v1 — só carimba a decisão no dados_json).
+EV_HABILITADO = os.environ.get("EV_HABILITADO", "true").lower() in ("1", "true", "sim")
+
+# --------------------------------------------------------------------------- #
 # Estrategista / decisão (Fase 4 — modo sombra)
 # --------------------------------------------------------------------------- #
 # Intervalo (segundos) entre verificações de candle M5 novo para decidir.
