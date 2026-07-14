@@ -88,10 +88,15 @@
     var CORES_TF = { M1: '#58a6ff', M5: '#e3b341', M15: '#db61a2', H1: '#a5d6ff' };
     var seriesScore = {};   // tf -> lineSeries
     var refScore = null;    // linhas de referência (24/50/76) na escala de scores
-    var mostrarScores = true;
-    chart.priceScale('scores').applyOptions({
-      scaleMargins: { top: 0.80, bottom: 0 }, visible: true, borderColor: '#30363d',
-    });
+    var mostrarScores = false;   // camada fuzzy (scores + velas pintadas) OFF por padrão: gráfico limpo
+    // A escala 'scores' é overlay (mesmo painel dos candles) — no v4 não há sub-painel real.
+    // O scaleMargins TEM de ser aplicado DEPOIS que a 1ª série usa a escala, senão o v4 o
+    // descarta e as linhas se espalham pela altura toda (bug da ETAPA 4). Reaplicado a cada load.
+    function aplicarEscalaScores() {
+      chart.priceScale('scores').applyOptions({
+        scaleMargins: { top: 0.82, bottom: 0 }, visible: mostrarScores, borderColor: '#30363d',
+      });
+    }
     function criarScore(tf) {
       var s = chart.addLineSeries({
         color: CORES_TF[tf] || '#8b949e', lineWidth: 1, priceScaleId: 'scores',
@@ -104,6 +109,7 @@
             lineStyle: LC.LineStyle.Dotted, axisLabelVisible: true, title: String(r[0]) });
         });
       }
+      aplicarEscalaScores();   // confina as linhas aos ~18% de baixo (só funciona pós-criação da série)
       return s;
     }
     function pintarSync(s) {
@@ -118,7 +124,9 @@
         chip('Sync', s.cor || cores[s.estado], (s.estado || '').toUpperCase()) +
         chip('micro', cores[s.micro], s.micro + (s.micro_score != null ? ' (' + Math.round(s.micro_score) + ')' : '')) +
         chip('macro', cores[s.macro], s.macro + (s.macro_score != null ? ' (' + Math.round(s.macro_score) + ')' : '')) +
-        '<span class="msg">velas coloridas = estado fuzzy do ' + CFG.tf + '</span>';
+        '<span class="msg">' + (mostrarScores
+          ? 'velas coloridas = estado fuzzy do ' + CFG.tf + ' · botão "Scores" desliga a camada'
+          : 'camada fuzzy off — botão "Scores" liga scores + velas pintadas') + '</span>';
     }
 
     // Nº de casas decimais do instrumento: JPY = 3, ouro (>=20) = 2, forex padrão = 5.
@@ -172,7 +180,12 @@
           { headers: { 'Accept': 'application/json' } });
         if (!r.ok) throw new Error('http ' + r.status);
         var d = await r.json();
-        serie.setData(d.candles || []);
+        // Velas pintadas pelo estado fuzzy só quando a camada está ligada; senão, verde/vermelho padrão.
+        var velas = (d.candles || []).map(function (c) {
+          if (mostrarScores) return c;
+          return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close };
+        });
+        serie.setData(velas);
         // S/R do motor como linhas de preço
         linhas.forEach(function (l) { serie.removePriceLine(l); });
         linhas = [];
@@ -192,7 +205,7 @@
           if (!seriesScore[tf]) seriesScore[tf] = criarScore(tf);
           seriesScore[tf].setData(mostrarScores ? sc[tf] : []);
         });
-        chart.priceScale('scores').applyOptions({ visible: mostrarScores });
+        aplicarEscalaScores();
         pintarSync(d.sync);
         var ult = (d.candles || [])[(d.candles || []).length - 1];
         // Precisão do eixo de preço = casas decimais do instrumento (5 forex, 3 JPY, 2 ouro).
@@ -229,6 +242,7 @@
       else if (w.requestFullscreen) w.requestFullscreen();
     });
 
+    document.getElementById('scores').classList.toggle('off', !mostrarScores);   // reflete estado inicial (OFF)
     carregar(false);
     setInterval(function () { carregar(true); }, 5000);    // atualiza sozinho a cada 5s (mantém o zoom)
   </script>
