@@ -154,6 +154,30 @@ def test_pivots_classicos():
     assert pv["r3"] > pv["r2"] and pv["s3"] < pv["s2"]
 
 
+def test_vwap_serie_acumula_e_reseta():
+    # Preço típico = close (H=L=C aqui); volume constante → VWAP = média acumulada dos closes.
+    H = L = C = [10.0, 12.0, 14.0, 20.0, 22.0]
+    vol = [1, 1, 1, 1, 1]
+    chaves = [0, 0, 0, 100, 100]          # 2 sessões: [0..2] e [3..4]
+    s = ind.vwap_serie(H, L, C, vol, chaves)
+    assert len(s) == 5
+    assert abs(s[0]["vwap"] - 10.0) < 1e-9, s[0]      # 1ª vela da sessão 1
+    assert abs(s[2]["vwap"] - 12.0) < 1e-9, s[2]      # média(10,12,14)
+    assert abs(s[3]["vwap"] - 20.0) < 1e-9, s[3]      # RESET: 1ª vela da sessão 2
+    assert abs(s[4]["vwap"] - 21.0) < 1e-9, s[4]      # média(20,22), não arrasta a sessão 1
+    # Bandas: σ>0 quando há dispersão, ordenadas sup2>sup1>vwap>inf1>inf2.
+    assert s[2]["sup1"] > s[2]["vwap"] > s[2]["inf1"], s[2]
+    assert s[2]["sup2"] > s[2]["sup1"] and s[2]["inf2"] < s[2]["inf1"], s[2]
+
+
+def test_vwap_serie_sem_volume_e_entradas_invalidas():
+    # Sem volume acumulado → None (protege divisão por zero, não quebra o gráfico).
+    s = ind.vwap_serie([10.0], [10.0], [10.0], [0], [0])
+    assert s == [None], s
+    assert ind.vwap_serie([], [], [], [], []) == []            # vazio
+    assert ind.vwap_serie([1.0], [1.0], [1.0], [1], []) == []  # tamanhos divergentes
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

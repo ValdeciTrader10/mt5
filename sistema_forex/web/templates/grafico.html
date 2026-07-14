@@ -80,6 +80,30 @@
       wickUpColor: '#3fb950', wickDownColor: '#f85149',
     });
 
+    // --- Volume (histograma no rodapé): B3 = volume financeiro REAL (contratos negociados);
+    // forex = tick_volume. Escala própria 'volume' confinada aos ~15% de baixo do gráfico.
+    var serieVolume = chart.addHistogramSeries({
+      priceScaleId: 'volume', priceFormat: { type: 'volume' },
+      lastValueVisible: false, priceLineVisible: false,
+    });
+    chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+
+    // --- VWAP como CURVA (não linha horizontal) + bandas ±1σ/±2σ, na régua de preço dos candles.
+    var serieVwap = chart.addLineSeries({
+      color: '#e3b341', lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
+      crosshairMarkerVisible: false, title: 'VWAP',
+    });
+    function bandaVwap(cor, estilo) {
+      return chart.addLineSeries({
+        color: cor, lineWidth: 1, lineStyle: estilo, priceLineVisible: false,
+        lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+    }
+    var serieVwapSup1 = bandaVwap('#c99a2e', LC.LineStyle.Dashed);
+    var serieVwapInf1 = bandaVwap('#c99a2e', LC.LineStyle.Dashed);
+    var serieVwapSup2 = bandaVwap('#8a6d1f', LC.LineStyle.Dotted);
+    var serieVwapInf2 = bandaVwap('#8a6d1f', LC.LineStyle.Dotted);
+
     var linhas = [];   // price lines de S/R (para limpar ao recarregar)
 
     // --- Painel de scores fuzzy (ETAPA 4): linhas de score 0-100 por TF, num sub-painel
@@ -186,6 +210,14 @@
           return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close };
         });
         serie.setData(velas);
+        // Volume (histograma) + VWAP evolutiva e bandas.
+        serieVolume.setData(d.volume || []);
+        var vw = d.vwap || {};
+        serieVwap.setData(vw.vwap || []);
+        serieVwapSup1.setData(vw.sup1 || []);
+        serieVwapInf1.setData(vw.inf1 || []);
+        serieVwapSup2.setData(vw.sup2 || []);
+        serieVwapInf2.setData(vw.inf2 || []);
         // S/R do motor como linhas de preço
         linhas.forEach(function (l) { serie.removePriceLine(l); });
         linhas = [];

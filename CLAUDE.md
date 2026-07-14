@@ -396,6 +396,17 @@ as **séries de score** por TF (`_series_scores` → {tf:[{time,value}]}) e a **
 (`estiloNivel`), **velas pintadas pelo estado fuzzy** (lima/verde/branco/fúcsia/vermelho, cor vinda do
 backend) e a **Sync Line no rodapé** (chips micro/macro/combinado verde/vermelho/amarelo). Botão
 **"Scores"** liga/desliga o sub-painel. Aceite (pendente): validação visual do dono em 3 dias distintos.
+**FIX de fidelidade ao manual fuzzy (14/07, dono: "não tem linha de vwap, não tem volume financeiro na
+B3"):** a VWAP e as bandas eram gravadas como `niveis` (UM valor) → o gráfico as desenhava como linha
+horizontal chapada, não a CURVA que o manual/Wyckoff lê. Agora `indicadores.vwap_serie` (PURA/testada)
+acumula VWAP+bandas candle-a-candle **resetando na âncora da sessão** (`analise._inicio_sessao_vwap`:
+meia-noite no forex, abertura do pregão na B3) e o `/api/candles` devolve `vwap` (curvas vwap/sup1/inf1/
+sup2/inf2) — a VWAP saiu do bloco `niveis` (não duplica). Além disso, **histograma de volume no rodapé**:
+`/api/candles` devolve `volume` por candle usando `COALESCE(real_volume, tick_volume)` → na **B3 é o
+volume financeiro/Wyckoff REAL (contratos)**, no forex é tick_volume; barras verde/vermelho por alta/baixa
+em escala própria `volume` (rodapé ~15%). `grafico.html`: `serieVolume` (histograma) + `serieVwap`+4 bandas
+(curvas na régua de preço). `_buscar_candles` agora traz tick_volume/real_volume. Testes: `vwap_serie`
+acumula/reseta por sessão + guardas (`test_indicadores`). **223 testes, todos passando.**
 
 **✅ ETAPA 5 — FEITO (14/07).** Variante B (Fuzzy Puro) — grupo PARALELO/aditivo (nada da Variante A
 foi tocado). `estrategias.avaliar_fuzzy_puro` (PURA) roda em SOMBRA marcada `variante=B_FUZZY_PURO`

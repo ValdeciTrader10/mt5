@@ -178,6 +178,42 @@ def vwap_bandas(highs, lows, closes, volumes, k1: float = 1.0, k2: float = 2.0):
     }
 
 
+def vwap_serie(highs, lows, closes, volumes, chaves, k1: float = 1.0, k2: float = 2.0):
+    """VWAP acumulada + bandas ±kσ candle-a-candle, RESETANDO a acumulação quando `chaves[i]`
+    muda (âncora de sessão: meia-noite no forex, abertura do pregão na B3). É a VWAP como uma
+    CURVA que se desenvolve ao longo do dia — o jeito que o manual fuzzy/Wyckoff a lê — e não
+    um único valor horizontal. Devolve lista alinhada aos candles: cada item é
+    {vwap, sup1, inf1, sup2, inf2} ou None enquanto ainda não houve volume na sessão. PURA."""
+    n = len(closes)
+    if not n or not (len(highs) == len(lows) == len(volumes) == len(chaves) == n):
+        return []
+    saida = []
+    chave_atual = object()   # sentinela: força reset no 1º candle
+    soma_pv = soma_v = soma_pv2 = 0.0
+    for i in range(n):
+        if chaves[i] != chave_atual:      # nova sessão → zera a acumulação
+            chave_atual = chaves[i]
+            soma_pv = soma_v = soma_pv2 = 0.0
+        vol = float(volumes[i] or 0)
+        if vol > 0:
+            tp = (highs[i] + lows[i] + closes[i]) / 3.0
+            soma_pv += tp * vol
+            soma_v += vol
+            soma_pv2 += tp * tp * vol
+        if soma_v <= 0:
+            saida.append(None)
+            continue
+        vwap = soma_pv / soma_v
+        var = max(soma_pv2 / soma_v - vwap * vwap, 0.0)
+        sigma = var ** 0.5
+        saida.append({
+            "vwap": vwap,
+            "sup1": vwap + k1 * sigma, "inf1": vwap - k1 * sigma,
+            "sup2": vwap + k2 * sigma, "inf2": vwap - k2 * sigma,
+        })
+    return saida
+
+
 # --------------------------------------------------------------------------- #
 # Pivots clássicos (PP/R1-3/S1-3) do período FECHADO anterior — função PURA.
 # --------------------------------------------------------------------------- #

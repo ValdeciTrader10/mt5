@@ -22,7 +22,8 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import analise, calibracao_b3, config, config_b3, db, fuzzy_score, mt5_bridge, mt5_bridge_b3
+from .. import (analise, calibracao_b3, config, config_b3, db, fuzzy_score, indicadores,
+                mt5_bridge, mt5_bridge_b3)
 from . import auth
 
 logging.basicConfig(
@@ -871,7 +872,9 @@ def api_candles(request: Request, par: str, tf: str, n: int = 500):
         scores = _series_scores(conn, par, lim)
         sync = _sync_atual(conn, par)
     # Cor da vela pelo estado fuzzy (lima/verde = alta; fúcsia/vermelho = baixa; branco = neutro).
-    candles = []
+    # Volume por candle (histograma no rodapé): usa o VOLUME REAL (contratos) quando existe — na
+    # B3 é o volume financeiro/Wyckoff de verdade; no forex real_volume é NULL e cai no tick_volume.
+    candles, volume = [], []
     for r in rows:
         c = {"time": r["time_utc"], "open": r["open"], "high": r["high"],
              "low": r["low"], "close": r["close"]}
@@ -881,15 +884,35 @@ def api_candles(request: Request, par: str, tf: str, n: int = 500):
             if cor:
                 c.update({"color": cor, "borderColor": cor, "wickColor": cor})
         candles.append(c)
-    # S/R do motor + liquidez por período (pivots, máx/mín ásia/semana/mês) + VWAP e bandas.
+        vol = r["real_volume"] or r["tick_volume"] or 0
+        if vol:
+            # Verde translúcido em candle de alta, vermelho em baixa (leitura de esforço Wyckoff).
+            cor_vol = "rgba(63,185,80,0.5)" if r["close"] >= r["open"] else "rgba(248,81,73,0.5)"
+            volume.append({"time": r["time_utc"], "value": vol, "color": cor_vol})
+    # VWAP como CURVA que se desenvolve na sessão (reset na âncora — meia-noite no forex, abertura
+    # do pregão na B3) + bandas ±1σ/±2σ, no lugar de uma única linha horizontal (item do manual fuzzy).
+    vwap = {}
+    if config.VWAP_HABILITADO and rows:
+        chaves = [analise._inicio_sessao_vwap(par, r["time_utc"]) for r in rows]
+        vols = [r["real_volume"] or r["tick_volume"] or 0 for r in rows]
+        serie = indicadores.vwap_serie(
+            [r["high"] for r in rows], [r["low"] for r in rows], [r["close"] for r in rows],
+            vols, chaves, config.VWAP_K1, config.VWAP_K2)
+        vwap = {k: [] for k in ("vwap", "sup1", "inf1", "sup2", "inf2")}
+        for r, v in zip(rows, serie):
+            if not v:
+                continue
+            for k in vwap:
+                vwap[k].append({"time": r["time_utc"], "value": v[k]})
+    # S/R do motor + liquidez por período (pivots, máx/mín ásia/semana/mês). A VWAP e bandas saem
+    # daqui (viram curvas, acima) para não duplicar como linha horizontal chapada.
     LINHAS = ("suporte", "resistencia", "pivot_pp", "pivot_r1", "pivot_r2", "pivot_r3",
               "pivot_s1", "pivot_s2", "pivot_s3", "max_asia", "min_asia", "max_semana",
-              "min_semana", "max_mes", "min_mes", "vwap", "vwap_sup1", "vwap_inf1",
-              "vwap_sup2", "vwap_inf2")
+              "min_semana", "max_mes", "min_mes")
     sr = [{"preco": nv["preco"], "tipo": nv["tipo"], "forca": nv.get("forca") or 1}
           for nv in niveis if nv["tipo"] in LINHAS]
     return JSONResponse({"par": par, "tf": tf, "candles": candles, "niveis": sr,
-                         "scores": scores, "sync": sync})
+                         "scores": scores, "sync": sync, "vwap": vwap, "volume": volume})
 
 
 @app.get("/grafico/{par}/{tf}", response_class=HTMLResponse)

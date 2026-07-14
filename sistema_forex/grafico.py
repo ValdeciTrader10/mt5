@@ -20,7 +20,7 @@ log = logging.getLogger("grafico")
 def _buscar_candles(conn, par: str, tf: str, limite: int):
     rows = conn.execute(
         """
-        SELECT time_utc, open, high, low, close
+        SELECT time_utc, open, high, low, close, tick_volume, real_volume
         FROM candles
         WHERE par = ? AND tf = ?
         ORDER BY time_utc DESC
