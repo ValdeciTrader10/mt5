@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import analise, config, config_b3, db, fuzzy_score, mt5_bridge
+from .. import analise, calibracao_b3, config, config_b3, db, fuzzy_score, mt5_bridge
 from . import auth
 
 logging.basicConfig(
@@ -524,6 +524,13 @@ def _dados_b3() -> dict:
             ph = ",".join("?" * len(pares))
             n_dec = conn.execute(f"SELECT COUNT(*) n FROM decisoes WHERE par IN ({ph})", pares).fetchone()["n"]
             n_trades = conn.execute(f"SELECT COUNT(*) n FROM trades WHERE par IN ({ph})", pares).fetchone()["n"]
+        # Calibração de escala (Etapa 8b): derivada dos candles já coletados. Guardada — se
+        # faltar dado/erro, o painel segue mostrando o resto (não quebra por causa da calibração).
+        calibracao = None
+        try:
+            calibracao = calibracao_b3.calibrar(conn, pares=pares)
+        except Exception:  # noqa: BLE001 - painel tolerante; a calibração é informativa
+            log.exception("Falha ao calibrar escala da B3 no painel")
     return {
         "habilitado": config_b3.B3_HABILITADO,
         "pares": pares,
@@ -531,6 +538,7 @@ def _dados_b3() -> dict:
         "n_decisoes": n_dec,
         "n_trades": n_trades,
         "estrategias_ligadas": n_dec > 0,   # motor já roda; estratégias/executor = Etapa 8b
+        "calibracao": calibracao,
     }
 
 

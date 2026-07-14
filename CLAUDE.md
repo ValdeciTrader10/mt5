@@ -154,7 +154,7 @@ Env `GESTAO_POR_VARIANTE` (default on), reusa `HIBRIDA_SAIDA_M5_MIN`/`HIBRIDA_ST
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`). **175 testes, todos passando.**
+  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **190 testes, todos passando.**
   Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
@@ -443,12 +443,24 @@ ligado na B3**: `analise.um_ciclo` agora itera `config.PARES + config_b3.pares_a
 `B3_HABILITADO=false`) → grava níveis/regime de WIN/WDO. É inócuo ao livro do forex porque o motor só grava
 `niveis`/`regime_log`/`estrutura` e o executor NÃO age sobre isso. Testes: `test_b3.pares_ativos` + render do
 painel verificado. **181 testes, todos passando.**
-⚠️ **AINDA NÃO LIGADO (próximo passo do 8b):** estrategista + executor de SOMBRA da B3 (= os "resultados das
-estratégias" que o dono quer). Bloqueios reais a resolver antes: (a) **calibração de escala** de WIN/WDO em
-`PARAMS_SIMBOLO`/`tamanho_pip` (lição GOLD: stop < vela → 100% insta-stop; derivar do banco já coletado, não
-chutar); (b) o executor usa a ponte do **forex** p/ tick/pip/lucro — a ponte B3 é **data-only** (sem
-`calc_lucro`/`tamanho_pip`), então o shadow da B3 precisa de P&L PURO (valor-por-ponto, em BRL) e tick via
-`mt5_bridge_b3` — fazer ISOLADO (novo caminho/serviço) p/ não tocar no executor do forex ao vivo. NÃO ligar
+**✅ Sub-etapa 8b.1 — CALIBRAÇÃO DE ESCALA (14/07, "comece a calibração analisando os candles que entrarem").**
+Resolvido o bloqueio (a): `calibracao_b3.py` DERIVA a escala de WIN/WDO DOS CANDLES já coletados (nunca chuta —
+lição GOLD). Funções PURAS testadas: `passo_preco` (TICK real via GCD da grade de preços → WIN=5, WDO=0,5),
+`estatisticas_tf` (por TF: range da vela med/p90/máx, ATR med/p90, spread — tudo em pontos), `sugerir_params`
+(piso/teto de SL + `tamanho_pip` p/ `PARAMS_SIMBOLO`, dimensionados pela REGRA DO OURO: SL nunca menor que uma
+vela p90, teto largo p/ o ATR×3 mandar). `valor_ponto` (BRL, fato de contrato em `config_b3.VALOR_PONTO_B3` —
+WIN R$0,20/pt, WDO R$10/pt — base do P&L da sombra) confirmável via `mt5_bridge_b3.info_simbolo` (novo leitor
+DATA-ONLY de `symbol_info`: tick_size/tick_value → valor-por-ponto). Entregue: **dossiê** (`dossie_texto`, o
+dono cola no chat), **CLI** (`python -m sistema_forex.calibracao_b3 [par] [--json] [--broker]`) e **seção no
+painel `/b3`** (`_dados_b3.calibracao`, guardada — não quebra o painel se faltar dado). Params `CALIB_*`.
+Testes em `test_b3.py` (9 casos: tick WIN/WDO, percentil, estatísticas, regra do ouro, sem-dados, do banco).
+**190 testes, todos passando.** ⚠️ **Falta rodar contra o banco REAL da VPS** (poucos candles de WIN/WDO ainda)
+→ conferir o dossiê no `/b3` conforme a coleta cresce e então fixar os valores em `PARAMS_SIMBOLO_B3`.
+
+⚠️ **AINDA NÃO LIGADO (próximo passo do 8b, bloqueio (b)):** estrategista + executor de SOMBRA da B3 (= os
+"resultados das estratégias" que o dono quer). O executor usa a ponte do **forex** p/ tick/pip/lucro — a ponte
+B3 é **data-only**, então o shadow da B3 precisa de P&L PURO (valor-por-ponto em BRL, já calibrado acima) e tick
+via `mt5_bridge_b3` — fazer ISOLADO (novo caminho/serviço) p/ não tocar no executor do forex ao vivo. NÃO ligar
 `decisao` na B3 antes disso (o executor pegaria as decisões e choraria na ponte errada). Painel já preparado:
 `_dados_b3` mostra `estrategias_ligadas`/`n_trades` e troca o aviso automaticamente quando começarem a existir.
 **Demais pendentes 8b+:** tabela `correlacao_b3`, painel MACRO, **veto de correlação SÓ no B3** (NUNCA no forex),

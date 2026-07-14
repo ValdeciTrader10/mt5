@@ -73,6 +73,46 @@
     </section>
 
     <section>
+      <h2>Calibração de escala (Etapa 8b)</h2>
+      <p class="muted">Derivada <b>dos candles já coletados</b> (não é chute). Objetivo: dimensionar o
+        SL para que o ATR mande <b>sem insta-estopar</b> — a lição do ouro (stop &lt; vela = −1R em 100%
+        dos trades). É o pré-requisito para ligar as estratégias/executor da B3. Também no
+        <a href="/api/b3" style="color:#d29922">JSON</a> e via <code>python -m sistema_forex.calibracao_b3</code>.</p>
+      {% if not dados.calibracao %}
+        <p class="muted">Calibração indisponível (sem candles ainda ou módulo desligado).</p>
+      {% else %}
+      <div class="cards">
+        {% for par, res in dados.calibracao.pares.items() %}
+        <div class="card">
+          <h3>{{ par }}</h3>
+          <div class="linha"><span>Valor-por-ponto (contrato)</span>
+            <span>{% if res.valor_ponto_contrato is not none %}R$ {{ '%.2f'|format(res.valor_ponto_contrato) }}{% else %}—{% endif %}</span></div>
+          <table>
+            <tr><th>TF</th><th class="num">n</th><th class="num">tick</th><th class="num">ATR med</th><th class="num">range p90</th><th class="num">spread p90</th></tr>
+            {% for tf, e in res.por_tf.items() %}
+            <tr><td>{{ tf }}</td><td class="num">{{ e.n }}</td>
+              <td class="num">{{ '%.4g'|format(e.tick) if e.tick is not none else '—' }}</td>
+              <td class="num">{{ '%.2f'|format(e.atr_med) if e.atr_med is not none else '—' }}</td>
+              <td class="num">{{ '%.2f'|format(e.range_p90) if e.range_p90 is not none else '—' }}</td>
+              <td class="num">{{ '%.0f'|format(e.spread_p90) if e.spread_p90 is not none else '—' }}</td></tr>
+            {% endfor %}
+          </table>
+          {% if res.sugestao.suficiente %}
+          <div class="aviso" style="margin-top:.7rem">
+            <b>Sugestão</b> (TF base {{ res.sugestao.tf_base }}, SL = ATR×{{ res.sugestao.mult_sl }}, n={{ res.sugestao.n }}):<br>
+            SL típico ≈ {{ '%.0f'|format(res.sugestao.sl_alvo_pts) }} pts · piso {{ '%.0f'|format(res.sugestao.sl_min_pts) }} · teto {{ '%.0f'|format(res.sugestao.sl_max_pts) }} pts<br>
+            <code style="font-size:.8rem">"{{ par }}": {"tamanho_pip": {{ res.sugestao.tamanho_pip }}, "sl_min_pips": {{ res.sugestao.sl_min_pips }}, "sl_max_pips": {{ res.sugestao.sl_max_pips }}, "spread_max_pontos": {{ res.sugestao.spread_max_pontos }}}</code>
+          </div>
+          {% else %}
+          <p class="muted" style="margin-top:.6rem">⚠️ Amostra insuficiente: {{ res.sugestao.motivo }}</p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </section>
+
+    <section>
       <h2>Instrumentos</h2>
       {% if not dados.simbolos %}
         <p class="muted">Nenhum par B3 configurado (<code>PARES_B3</code>).</p>

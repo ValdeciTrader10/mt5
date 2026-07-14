@@ -150,6 +150,32 @@ def tick_atual(simbolo: str):
         return {"time": int(t.time), "bid": float(t.bid), "ask": float(t.ask)}
 
 
+def info_simbolo(simbolo: str):
+    """Especificações de contrato do símbolo B3 (SÓ LEITURA — a verdade da escala).
+
+    Devolve tick de preço (`trade_tick_size`), valor em BRL do tick (`trade_tick_value`) e,
+    derivado, o valor-por-ponto (`valor_ponto` = tick_value/tick_size). É a fonte confiável
+    para o P&L em reais e para conferir o `tamanho_pip` que a calibração deriva dos candles.
+    None se o símbolo não existir. Continua data-only: apenas LÊ o contrato, nunca opera.
+    """
+    with _LOCK:
+        mt5 = _cliente()
+        info = mt5.symbol_info(simbolo)
+        if info is None:
+            return None
+        tick_size = float(getattr(info, "trade_tick_size", 0.0) or 0.0)
+        tick_value = float(getattr(info, "trade_tick_value", 0.0) or 0.0)
+        return {
+            "nome": str(getattr(info, "name", simbolo)),
+            "point": float(getattr(info, "point", 0.0) or 0.0),
+            "digits": int(getattr(info, "digits", 0) or 0),
+            "trade_tick_size": tick_size,
+            "trade_tick_value": tick_value,
+            "trade_contract_size": float(getattr(info, "trade_contract_size", 0.0) or 0.0),
+            "valor_ponto": (tick_value / tick_size) if tick_size else None,
+        }
+
+
 # --------------------------------------------------------------------------- #
 # Saúde
 # --------------------------------------------------------------------------- #
