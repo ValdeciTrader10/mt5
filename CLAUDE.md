@@ -177,7 +177,7 @@ pequeno" (stop estrutural apertado) é uma calibração SEPARADA (não confundir
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **230 testes, todos passando.**
+  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **231 testes, todos passando.**
   Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
@@ -236,7 +236,11 @@ movimento das linhas de score (D), lê a **FORÇA CONTÍNUA** — `fuzzy_score.f
 (média dos score−50 de M1/M5), `macro` (M15/H1), `forca` 0–100 (50 neutro) e `estado` verde/vermelho/
 **amarelo=divergência micro×macro** (o "ATENÇÃO"). Mostra a força construindo/divergindo ANTES da cor
 virar (nossa Sync antiga era só 3 estados). ⚠️ o PDF NÃO dá a fórmula numérica do Sentinela — esta é
-nossa versão fiel ao princípio, p/ VALIDAR por comparação na sombra. `leque_spread` = amplitude entre
+nossa versão fiel ao princípio, p/ VALIDAR por comparação na sombra. **A LINHA plotada é um ACUMULADOR**
+(`acc = acc*decay + (micro+macro)`, `forca = 50+50·softsign(acc/escala)` em `forca_serie`) — não a média
+estática (que ficava quase plana em ~50 e o dono reclamou que "não balança como a do criador"); assim a
+linha SOBE na alta e CAI na baixa, balançando 0–100 como o Sync Line do Sentinela. Envs `SENT_FORCA_DECAY`
+(memória) e `SENT_FORCA_ESCALA` (amplitude) p/ calibrar visualmente. `forca_inst` guarda o nível estático. `leque_spread` = amplitude entre
 as 4 linhas (fan; comprimido=mola, aberto=tendência). `forca_serie` (asof dos 4 TFs, sem look-ahead)
 alimenta o painel e as estratégias. **Linha no gráfico:** o `/api/candles` devolve `scores["FORCA"]`
 (0–100, no TF do gráfico) → 5ª linha BRANCA e mais grossa no sub-painel de scores, comparável às 4
@@ -479,7 +483,7 @@ sup2/inf2) — a VWAP saiu do bloco `niveis` (não duplica). Além disso, **hist
 volume financeiro/Wyckoff REAL (contratos)**, no forex é tick_volume; barras verde/vermelho por alta/baixa
 em escala própria `volume` (rodapé ~15%). `grafico.html`: `serieVolume` (histograma) + `serieVwap`+4 bandas
 (curvas na régua de preço). `_buscar_candles` agora traz tick_volume/real_volume. Testes: `vwap_serie`
-acumula/reseta por sessão + guardas (`test_indicadores`). **230 testes, todos passando.**
+acumula/reseta por sessão + guardas (`test_indicadores`). **231 testes, todos passando.**
 
 **✅ ETAPA 5 — FEITO (14/07).** Variante B (Fuzzy Puro) — grupo PARALELO/aditivo (nada da Variante A
 foi tocado). `estrategias.avaliar_fuzzy_puro` (PURA) roda em SOMBRA marcada `variante=B_FUZZY_PURO`

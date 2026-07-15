@@ -845,7 +845,8 @@ def _serie_forca_linha(conn, par: str, tf: str, lim: int) -> list:
         "SELECT time_utc FROM candles WHERE par=? AND tf=? ORDER BY time_utc DESC LIMIT ?",
         (par, tf, lim)).fetchall()
     tempos = [r["time_utc"] for r in reversed(rows)]
-    serie = fuzzy_score.forca_serie(conn, par, tempos) if tempos else []
+    serie = fuzzy_score.forca_serie(conn, par, tempos, decay=config.SENT_FORCA_DECAY,
+                                    escala=config.SENT_FORCA_ESCALA) if tempos else []
     return [{"time": s["time"], "value": s["forca"]} for s in serie]
 
 

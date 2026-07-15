@@ -180,6 +180,30 @@ def test_forca_serie_asof():
         os.remove(caminho)
 
 
+def test_forca_linha_acumulador_balanca():
+    """A LINHA de força é um ACUMULADOR (balança com a tendência), não a média estática (quase plana).
+    Numa alta sustentada ela SOBE bem acima de 50 e bem acima do nível instantâneo (forca_inst)."""
+    import os
+    import tempfile
+    from .. import db
+    fd, caminho = tempfile.mkstemp(suffix=".db"); os.close(fd)
+    try:
+        db.init_db(caminho); conn = db.conectar(caminho)
+        for tf in ("M1", "M5", "M15", "H1"):
+            for t in range(1, 13):        # 12 velas de consenso comprador (score 70)
+                conn.execute("INSERT INTO fuzzy_scores (par,tf,time_utc,score,estado,delta,rng,vol,"
+                             "corpo,seq,absorcao,exaustao,transicao,criado_em) VALUES "
+                             "('X',?,?,70,'',0,0,0,0,0,0,0,0,0)", (tf, t))
+        conn.commit()
+        serie = fz.forca_serie(conn, "X", list(range(1, 13)), decay=0.85, escala=40.0)
+        assert serie[-1]["forca"] > 85, serie[-1]           # acumulador subiu forte
+        assert serie[-1]["forca"] > serie[0]["forca"], (serie[0]["forca"], serie[-1]["forca"])  # balançou
+        assert serie[-1]["forca_inst"] == 70.0, serie[-1]   # o nível estático fica ~plano (70) — daí a média era chata
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

@@ -441,6 +441,10 @@ SENT_FORCA_MIN = float(os.environ.get("SENT_FORCA_MIN", "60"))       # limiar da
 SENT_LEQUE_ESTREITO = float(os.environ.get("SENT_LEQUE_ESTREITO", "15"))  # leque comprimido (mola)
 SENT_LEQUE_LARGO = float(os.environ.get("SENT_LEQUE_LARGO", "30"))   # leque expandido (estouro)
 SENT_FORCA_JANELA = int(os.environ.get("SENT_FORCA_JANELA", "40"))   # nº de velas da série de força/leque
+# Acumulador da LINHA de força (p/ ela BALANÇAR como a do Sentinela, não ficar plana na média): memória
+# (decay ↑ = linha mais longa/suave) e sensibilidade (escala ↓ = mais amplitude). Ajustar p/ bater visual.
+SENT_FORCA_DECAY = float(os.environ.get("SENT_FORCA_DECAY", "0.85"))
+SENT_FORCA_ESCALA = float(os.environ.get("SENT_FORCA_ESCALA", "40"))
 # Sub-flags por estratégia (todas ligadas por padrão; desligáveis individualmente).
 SENT_FORCA_HABILITADA = os.environ.get("SENT_FORCA_HABILITADA", "true").lower() in ("1", "true", "sim")
 SENT_DIVERG_HABILITADA = os.environ.get("SENT_DIVERG_HABILITADA", "true").lower() in ("1", "true", "sim")

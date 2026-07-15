@@ -188,7 +188,8 @@ def _forca_leque(conn, par: str, tf: str, n: int) -> list:
         "SELECT time_utc FROM candles WHERE par=? AND tf=? ORDER BY time_utc DESC LIMIT ?",
         (par, tf, n)).fetchall()
     tempos = [r["time_utc"] for r in reversed(rows)]
-    return fuzzy_score.forca_serie(conn, par, tempos) if tempos else []
+    return fuzzy_score.forca_serie(conn, par, tempos, decay=config.SENT_FORCA_DECAY,
+                                   escala=config.SENT_FORCA_ESCALA) if tempos else []
 
 
 def _vwap_bandas(conn, par: str) -> dict:

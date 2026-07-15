@@ -291,10 +291,21 @@ def leque_spread(scores_por_tf: dict, tfs=("M1", "M5", "M15", "H1")) -> float:
     return round(max(vals) - min(vals), 1) if len(vals) >= 2 else 0.0
 
 
-def forca_serie(conn, par: str, tempos, *, micro_tfs=("M1", "M5"), macro_tfs=("M15", "H1")) -> list:
+def _softsign(x: float) -> float:
+    """Squash suave p/ (−1, 1): x/(1+|x|). Sem dependência de math (determinístico)."""
+    return x / (1.0 + abs(x))
+
+
+def forca_serie(conn, par: str, tempos, *, micro_tfs=("M1", "M5"), macro_tfs=("M15", "H1"),
+                decay: float = 0.85, escala: float = 40.0) -> list:
     """Série de FORÇA/LEQUE alinhada (asof) aos instantes `tempos` (cronológicos): para cada t usa o
-    ÚLTIMO score ≤ t de cada TF (M1/M5/M15/H1) e aplica `forca_sync`/`leque_spread`. Base da linha do
-    painel e do histórico p/ as estratégias E_SENTINELA. Sem look-ahead (só scores já fechados ≤ t)."""
+    ÚLTIMO score ≤ t de cada TF e aplica `forca_sync`/`leque_spread`. Sem look-ahead (scores ≤ t).
+
+    A `forca` de cada ponto é um ACUMULADOR de esforço (não a média estática, que ficava quase plana):
+    `acc = acc*decay + (micro+macro)` e `forca = 50 + 50·softsign(acc/escala)`. Assim a linha BALANÇA
+    com a tendência (sobe enquanto compradores dominam, cai enquanto vendedores dominam) — fiel ao
+    Sentinela do criador, cujo Sync Line é um acumulador. `decay` = memória (↑ = linha mais longa/suave);
+    `escala` = sensibilidade (↓ = mais amplitude). `micro`/`macro`/`estado`/`divergencia` seguem instantâneos."""
     tfs = tuple(dict.fromkeys(list(micro_tfs) + list(macro_tfs)))
     sebe = {}
     for tf in tfs:
@@ -304,6 +315,7 @@ def forca_serie(conn, par: str, tempos, *, micro_tfs=("M1", "M5"), macro_tfs=("M
         sebe[tf] = [(r["time_utc"], r["score"]) for r in rows]
     ponteiro = {tf: 0 for tf in tfs}
     ult = {tf: None for tf in tfs}
+    acc = 0.0
     saida = []
     for t in tempos:
         for tf in tfs:
@@ -312,6 +324,10 @@ def forca_serie(conn, par: str, tempos, *, micro_tfs=("M1", "M5"), macro_tfs=("M
                 ult[tf] = serie[ponteiro[tf]][1]
                 ponteiro[tf] += 1
         f = forca_sync(ult, micro_tfs=micro_tfs, macro_tfs=macro_tfs)
+        acc = acc * decay + (f["micro"] + f["macro"])       # acumulador de esforço direcional
+        f["forca_inst"] = f["forca"]                          # o nível estático (p/ referência)
+        f["forca"] = round(50.0 + 50.0 * _softsign(acc / escala), 1)   # linha DINÂMICA 0–100
+        f["acc"] = round(acc, 1)
         f["time"] = t
         f["leque"] = leque_spread(ult, tfs=tfs)
         saida.append(f)
