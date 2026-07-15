@@ -838,6 +838,17 @@ def _series_scores(conn, par: str, lim: int) -> dict:
     return saida
 
 
+def _serie_forca_linha(conn, par: str, tf: str, lim: int) -> list:
+    """Linha de FORÇA contínua (E_SENTINELA) na régua de scores (0-100), no TF do gráfico — asof dos
+    scores M1/M5/M15/H1 (`fuzzy_score.forca_serie`). É a 5ª linha p/ comparar com as 4 linhas de TF."""
+    rows = conn.execute(
+        "SELECT time_utc FROM candles WHERE par=? AND tf=? ORDER BY time_utc DESC LIMIT ?",
+        (par, tf, lim)).fetchall()
+    tempos = [r["time_utc"] for r in reversed(rows)]
+    serie = fuzzy_score.forca_serie(conn, par, tempos) if tempos else []
+    return [{"time": s["time"], "value": s["forca"]} for s in serie]
+
+
 def _sync_atual(conn, par: str) -> dict:
     """Última Sync Line do par (micro/macro/estado + cores) para o rodapé do gráfico."""
     r = conn.execute(
@@ -878,6 +889,9 @@ def api_candles(request: Request, par: str, tf: str, n: int = 500):
         # Estado fuzzy por candle do TF do gráfico (para pintar as velas) + séries de score.
         fuzzy_tf = _fuzzy_por_candle(conn, par, tf)
         scores = _series_scores(conn, par, lim)
+        forca_linha = _serie_forca_linha(conn, par, tf, lim)   # 5ª linha: FORÇA contínua (E_SENTINELA)
+        if forca_linha:
+            scores["FORCA"] = forca_linha
         sync = _sync_atual(conn, par)
     # Cor da vela pelo estado fuzzy (lima/verde = alta; fúcsia/vermelho = baixa; branco = neutro).
     # Volume por candle (histograma no rodapé): usa o VOLUME REAL (contratos) quando existe — na

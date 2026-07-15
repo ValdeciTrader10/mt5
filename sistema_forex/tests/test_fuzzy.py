@@ -137,6 +137,49 @@ def test_componentes_ev():
     assert fz.componente_localizacao("venda", 1.0, 1.1) == 0.35
 
 
+def test_forca_sync_alinhada_e_divergente():
+    # Micro (M1/M5) e macro (M15/H1) ambos > 50 → verde; força > 50.
+    a = fz.forca_sync({"M1": 70, "M5": 66, "M15": 62, "H1": 60})
+    assert a["estado"] == "verde" and a["micro"] > 0 and a["macro"] > 0 and a["forca"] > 50, a
+    assert not a["divergencia"], a
+    # micro comprador, macro vendedor → amarelo + divergência (o "ATENÇÃO" do Sentinela).
+    d = fz.forca_sync({"M1": 70, "M5": 66, "M15": 35, "H1": 30})
+    assert d["estado"] == "amarelo" and d["divergencia"] and d["micro"] > 0 and d["macro"] < 0, d
+    # ambos vendedores → vermelho.
+    v = fz.forca_sync({"M1": 30, "M5": 34, "M15": 38, "H1": 40})
+    assert v["estado"] == "vermelho" and v["forca"] < 50, v
+
+
+def test_leque_spread():
+    assert fz.leque_spread({"M1": 70, "M5": 50, "M15": 40, "H1": 80}) == 40.0
+    assert fz.leque_spread({"M1": 55, "M5": 53, "M15": 52, "H1": 54}) == 3.0   # comprimido
+    assert fz.leque_spread({"M1": 60}) == 0.0                                   # < 2 TFs
+
+
+def test_forca_serie_asof():
+    """A série de força usa, em cada instante, o ÚLTIMO score ≤ t de cada TF (asof, sem look-ahead)."""
+    import os
+    import tempfile
+    from .. import db
+    fd, caminho = tempfile.mkstemp(suffix=".db"); os.close(fd)
+    try:
+        db.init_db(caminho); conn = db.conectar(caminho)
+        def ins(tf, t, score):
+            conn.execute("INSERT INTO fuzzy_scores (par,tf,time_utc,score,estado,delta,rng,vol,corpo,"
+                         "seq,absorcao,exaustao,transicao,criado_em) VALUES "
+                         "('X',?,?,?,'',0,0,0,0,0,0,0,0,0)", (tf, t, score))
+        for tf in ("M1", "M5", "M15", "H1"):
+            ins(tf, 100, 70)      # todos compradores em t=100
+        ins("M15", 200, 30); ins("H1", 200, 30)   # macro vira vendedor em t=200
+        conn.commit()
+        serie = fz.forca_serie(conn, "X", [100, 200])
+        assert serie[0]["estado"] == "verde", serie[0]      # em t=100 tudo alinhado
+        assert serie[1]["estado"] == "amarelo" and serie[1]["divergencia"], serie[1]  # macro virou
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

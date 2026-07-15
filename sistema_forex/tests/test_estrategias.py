@@ -851,6 +851,50 @@ def test_exaustao_entra_venda_no_climax():
     assert d2["resultado"] == "nao_entrou", d2
 
 
+# --------------------------------------------------------------------------- #
+# FAMÍLIA E_SENTINELA — força contínua (micro/macro) + leque
+# --------------------------------------------------------------------------- #
+def test_sentinela_forca_entra_no_cruzamento():
+    # Força alinhada (verde) cruzando de <60 p/ >=60, rompendo a VWAP p/ cima → COMPRA.
+    serie = [{"forca": 55, "estado": "verde", "micro": 5, "macro": 4, "leque": 12},
+             {"forca": 66, "estado": "verde", "micro": 16, "macro": 12, "leque": 34}]
+    snap = _base_linhas(close=101.0, forca=serie[-1], forca_serie=serie)
+    d = e.avaliar_sentinela_forca(snap, forca_min=60, **CFG_LINHAS)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["variante"] == "E_SENTINELA" and d["estrategia"] == "sentinela_forca_v1", d
+    # sem cruzamento (já estava acima) → não entra
+    serie2 = [{"forca": 66, "estado": "verde", "leque": 34}, {"forca": 68, "estado": "verde", "leque": 35}]
+    d2 = e.avaliar_sentinela_forca(_base_linhas(close=101.0, forca=serie2[-1], forca_serie=serie2),
+                                   forca_min=60, **CFG_LINHAS)
+    assert d2["resultado"] == "nao_entrou", d2
+
+
+def test_sentinela_divergencia_fade_no_extremo():
+    # Divergência micro(+)×macro(−) no topo da banda → segue a maré macro = VENDA.
+    f = {"micro": 15, "macro": -15, "forca": 50, "estado": "amarelo", "divergencia": True}
+    snap = _base_linhas(close=106.0, forca=f)   # close >= sup1 (105)
+    d = e.avaliar_sentinela_divergencia(snap, **CFG_LINHAS)
+    assert d["resultado"] == "entrou" and d["direcao"] == "venda", d
+    assert d["variante"] == "E_SENTINELA", d
+    # sem divergência → não entra
+    d2 = e.avaliar_sentinela_divergencia(_base_linhas(close=106.0,
+            forca={"micro": 10, "macro": 8, "estado": "verde", "divergencia": False}), **CFG_LINHAS)
+    assert d2["resultado"] == "nao_entrou", d2
+
+
+def test_sentinela_leque_compressao_expansao():
+    # Leque comprimido (10/12/14 <= 15) e agora expande (35 >= 30 e > 14), força verde, rompe VWAP → COMPRA.
+    serie = [{"leque": 10}, {"leque": 12}, {"leque": 14}, {"leque": 35}]
+    snap = _base_linhas(close=101.0, forca={"estado": "verde"}, forca_serie=serie)
+    d = e.avaliar_sentinela_leque(snap, estreito=15, largo=30, **CFG_LINHAS)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    # sem expansão (leque segue estreito) → não entra
+    serie2 = [{"leque": 10}, {"leque": 12}, {"leque": 14}, {"leque": 16}]
+    d2 = e.avaliar_sentinela_leque(_base_linhas(close=101.0, forca={"estado": "verde"}, forca_serie=serie2),
+                                   estreito=15, largo=30, **CFG_LINHAS)
+    assert d2["resultado"] == "nao_entrou", d2
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

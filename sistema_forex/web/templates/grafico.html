@@ -109,7 +109,9 @@
     // --- Painel de scores fuzzy (ETAPA 4): linhas de score 0-100 por TF, num sub-painel
     // ao pé do gráfico (escala própria 'scores'). Candles são pintados pelo estado fuzzy
     // (cor vem do backend por vela); a Sync Line vai no rodapé.
-    var CORES_TF = { M1: '#58a6ff', M5: '#e3b341', M15: '#db61a2', H1: '#a5d6ff' };
+    // 4 linhas de TF + FORÇA (5ª linha, contínua micro/macro — E_SENTINELA; branca e mais grossa
+    // para comparar visualmente com as 4 linhas de TF, a ideia do Sentinela).
+    var CORES_TF = { M1: '#58a6ff', M5: '#e3b341', M15: '#db61a2', H1: '#a5d6ff', FORCA: '#f0f6fc' };
     var seriesScore = {};   // tf -> lineSeries
     var refScore = null;    // linhas de referência (24/50/76) na escala de scores
     var mostrarScores = false;   // camada fuzzy (scores + velas pintadas) OFF por padrão: gráfico limpo
@@ -123,7 +125,7 @@
     }
     function criarScore(tf) {
       var s = chart.addLineSeries({
-        color: CORES_TF[tf] || '#8b949e', lineWidth: 1, priceScaleId: 'scores',
+        color: CORES_TF[tf] || '#8b949e', lineWidth: tf === 'FORCA' ? 2 : 1, priceScaleId: 'scores',
         lastValueVisible: true, priceLineVisible: false, crosshairMarkerVisible: false,
       });
       if (!refScore) {   // marca neutro (50) e as faixas forte (76) / fraco (24)

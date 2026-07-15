@@ -39,6 +39,10 @@ ESTRATEGIA_DIVERGENCIA = "fuzzy_divergencia_v1"        # A — esforço×resulta
 ESTRATEGIA_PULLBACK_LEQUE = "fuzzy_pullback_leque_v1"  # B — leque: rápida recua e reengata na maré
 ESTRATEGIA_SYNC_FLIP = "fuzzy_sync_flip_v1"            # C — convergência: sync alinha rompendo a VWAP
 ESTRATEGIA_EXAUSTAO = "fuzzy_exaustao_v1"              # D — clímax: score saturado rola na banda ±2σ
+# Família E_SENTINELA — critérios da FORÇA contínua (micro/macro) + LEQUE (inspirado no Sentinela do PDF).
+ESTRATEGIA_SENT_FORCA = "sentinela_forca_v1"          # força alinhada cruza o limiar rompendo a VWAP
+ESTRATEGIA_SENT_DIVERG = "sentinela_divergencia_v1"   # micro×macro divergem (ATENÇÃO) → fade a favor do macro
+ESTRATEGIA_SENT_LEQUE = "sentinela_leque_v1"          # leque comprime (mola) e expande na direção da força
 
 # Variante do laboratório multi-variante. As estratégias deste módulo são o GRUPO DE CONTROLE
 # (Variante A). B_FUZZY_PURO / C_HIBRIDA marcam a decisão via este campo (ETAPAS 5-6).
@@ -49,6 +53,7 @@ VARIANTE_C_CORRE = "C_CORRE"   # experimento: MESMAS entradas da C, mas saída "
                                # genérico: stop + giveback estrutural, SEM o corte fuzzy antecipado).
                                # Isola o EFEITO DA SAÍDA (C_HIBRIDA corta cedo × C_CORRE deixa andar).
 VARIANTE_LINHAS = "D_LINHAS"   # 4º cenário: estratégias pela dinâmica das linhas de score fuzzy
+VARIANTE_SENTINELA = "E_SENTINELA"   # 5º cenário: força contínua micro/macro + leque (ideia do Sentinela)
 
 # Estratégias da Variante A cujo gatilho é uma ZONA (S/R, order block, pivot): na Variante C, a
 # VIRADA de score do fuzzy na zona (transição de causa) confirma o giro do preço no nível.
@@ -1279,3 +1284,98 @@ def avaliar_exaustao_fuzzy(snap: dict, *, sessao_utc, spread_max_pips, sat_candl
         return _d("nao_entrou", direcao, regime, 0, [], "spread alto")
     conf = ["saturado", "rollover", "banda_2sigma"]
     return _d("entrou", direcao, regime, len(conf), conf, "exaustão|" + "+".join(conf))
+
+
+# =========================================================================== #
+# FAMÍLIA E_SENTINELA — FORÇA contínua (micro/macro) + LEQUE (5º cenário).
+#
+# Inspirada no "Sentinel_Sync_Line" do criador do PDF: em vez do score como nível estático (A/B/C) ou
+# do movimento das linhas de score (D), lê a FORÇA CONTÍNUA (fuzzy_score.forca_sync: micro=M1/M5,
+# macro=M15/H1) e o LEQUE (amplitude entre as linhas). Cada uma é um livro de sombra próprio
+# (variante=E_SENTINELA), comparável no /relatorio. Snapshot: snap["forca"] (dict atual) e
+# snap["forca_serie"] (histórico curto, cronológico). Funções PURAS/testáveis, sem look-ahead.
+# =========================================================================== #
+def avaliar_sentinela_forca(snap: dict, *, sessao_utc, spread_max_pips, forca_min) -> dict:
+    """E1 — FORÇA ALINHADA (o 'gain verde' do Sentinela). Micro E macro no mesmo lado (estado verde/
+    vermelho) e a LINHA de força CRUZA o limiar neste candle, rompendo a VWAP na direção → estouro."""
+    regime = snap.get("regime", "indefinido")
+    serie = snap.get("forca_serie") or []
+    vw = snap.get("vwap") or {}
+    vwap, close = vw.get("vwap"), snap["close"]
+    _d = lambda *a: _decisao(*a, estrategia=ESTRATEGIA_SENT_FORCA, variante=VARIANTE_SENTINELA)
+    if len(serie) < 2:
+        return _d("nao_entrou", None, regime, 0, [], "sem série de força")
+    ant, at = serie[-2], serie[-1]
+    direcao = None
+    if at.get("estado") == "verde" and ant.get("forca", 50) < forca_min <= at.get("forca", 0):
+        direcao = "compra"
+    elif at.get("estado") == "vermelho" and ant.get("forca", 50) > (100 - forca_min) >= at.get("forca", 100):
+        direcao = "venda"
+    if direcao is None:
+        return _d("nao_entrou", None, regime, 0, [], "sem cruzamento de força alinhada")
+    if vwap is not None and ((close <= vwap) if direcao == "compra" else (close >= vwap)):
+        return _d("nao_entrou", direcao, regime, 1, ["forca_alinhada"], "não rompeu a VWAP na direção")
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _d("nao_entrou", direcao, regime, 0, [], f"fora da sessão ({hora}h UTC)")
+    if snap.get("spread_pips", 0.0) > spread_max_pips:
+        return _d("nao_entrou", direcao, regime, 0, [], "spread alto")
+    conf = [f"forca_{at['estado']}", f"micro{at['micro']}", f"macro{at['macro']}", "rompe_vwap"]
+    return _d("entrou", direcao, regime, len(conf), conf, "sentinela_forca|" + "+".join(conf))
+
+
+def avaliar_sentinela_divergencia(snap: dict, *, sessao_utc, spread_max_pips) -> dict:
+    """E2 — DIVERGÊNCIA micro×macro (o 'ATENÇÃO' do Sentinela). O micro (rápido) puxa CONTRA a maré
+    macro; no extremo da banda VWAP, fade a favor do MACRO (a maré manda; o micro é repuxo)."""
+    regime = snap.get("regime", "indefinido")
+    f = snap.get("forca") or {}
+    vw = snap.get("vwap") or {}
+    close = snap["close"]
+    _d = lambda *a: _decisao(*a, estrategia=ESTRATEGIA_SENT_DIVERG, variante=VARIANTE_SENTINELA)
+    if not f or not f.get("divergencia"):
+        return _d("nao_entrou", None, regime, 0, [], "sem divergência micro×macro")
+    macro = f.get("macro", 0.0)
+    if macro == 0:
+        return _d("nao_entrou", None, regime, 0, [], "macro neutro")
+    direcao = "venda" if macro < 0 else "compra"   # segue a maré macro
+    sup1, inf1 = vw.get("sup1"), vw.get("inf1")
+    no_extremo = ((direcao == "venda" and (sup1 is None or close >= sup1)) or
+                  (direcao == "compra" and (inf1 is None or close <= inf1)))
+    if not no_extremo:
+        return _d("nao_entrou", direcao, regime, 1, ["divergencia"], "fora do extremo da banda")
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _d("nao_entrou", direcao, regime, 0, [], f"fora da sessão ({hora}h UTC)")
+    if snap.get("spread_pips", 0.0) > spread_max_pips:
+        return _d("nao_entrou", direcao, regime, 0, [], "spread alto")
+    conf = ["divergencia_micro_macro", "segue_macro", "banda_extremo"]
+    return _d("entrou", direcao, regime, len(conf), conf, "sentinela_diverg|" + "+".join(conf))
+
+
+def avaliar_sentinela_leque(snap: dict, *, sessao_utc, spread_max_pips, estreito, largo) -> dict:
+    """E3 — COMPRESSÃO→EXPANSÃO do LEQUE (mola). O leque esteve COMPRIMIDO (≤ estreito) e AGORA
+    EXPANDE (≥ largo e crescendo) com a força alinhada → estouro na direção da força, rompendo a VWAP."""
+    regime = snap.get("regime", "indefinido")
+    serie = snap.get("forca_serie") or []
+    f = snap.get("forca") or {}
+    vw = snap.get("vwap") or {}
+    vwap, close = vw.get("vwap"), snap["close"]
+    _d = lambda *a: _decisao(*a, estrategia=ESTRATEGIA_SENT_LEQUE, variante=VARIANTE_SENTINELA)
+    if len(serie) < 3:
+        return _d("nao_entrou", None, regime, 0, [], "sem série de leque")
+    leques = [s.get("leque", 0.0) for s in serie]
+    comprimiu = min(leques[-4:-1]) <= estreito       # esteve comprimido nas velas anteriores
+    expandiu = leques[-1] >= largo and leques[-1] > leques[-2]
+    estado = f.get("estado")
+    if not (comprimiu and expandiu and estado in ("verde", "vermelho")):
+        return _d("nao_entrou", None, regime, 0, [], "sem compressão→expansão do leque")
+    direcao = "compra" if estado == "verde" else "venda"
+    if vwap is not None and ((close <= vwap) if direcao == "compra" else (close >= vwap)):
+        return _d("nao_entrou", direcao, regime, 1, ["leque_expandiu"], "não rompeu a VWAP na direção")
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _d("nao_entrou", direcao, regime, 0, [], f"fora da sessão ({hora}h UTC)")
+    if snap.get("spread_pips", 0.0) > spread_max_pips:
+        return _d("nao_entrou", direcao, regime, 0, [], "spread alto")
+    conf = ["leque_comprimiu", "leque_expandiu", f"forca_{estado}", "rompe_vwap"]
+    return _d("entrou", direcao, regime, len(conf), conf, "sentinela_leque|" + "+".join(conf))

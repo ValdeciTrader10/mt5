@@ -181,6 +181,16 @@ def _sync_ult(conn, par: str, k: int = 2) -> list:
     return [r["estado"] for r in reversed(rows)]
 
 
+def _forca_leque(conn, par: str, tf: str, n: int) -> list:
+    """Série de FORÇA/LEQUE contínua (E_SENTINELA) nas últimas n velas do TF de operação — asof dos
+    scores M1/M5/M15/H1 em cada instante (`fuzzy_score.forca_serie`). Cronológica."""
+    rows = conn.execute(
+        "SELECT time_utc FROM candles WHERE par=? AND tf=? ORDER BY time_utc DESC LIMIT ?",
+        (par, tf, n)).fetchall()
+    tempos = [r["time_utc"] for r in reversed(rows)]
+    return fuzzy_score.forca_serie(conn, par, tempos) if tempos else []
+
+
 def _vwap_bandas(conn, par: str) -> dict:
     """VWAP + bandas do par (níveis do motor) como dict — contexto da Variante B."""
     mapa = {"vwap": "vwap", "vwap_sup1": "sup1", "vwap_inf1": "inf1",
@@ -238,6 +248,9 @@ def montar_snapshot(conn, par: str, tf: str, candle) -> dict:
         "serie_op": _serie_op(conn, par, tf, config.LINHAS_JANELA),
         "score_acima": _score_serie(conn, par, config.TF_ACIMA.get(tf, tf), config.LINHAS_JANELA),
         "sync_ult": _sync_ult(conn, par, 2),
+        # Família E_SENTINELA: FORÇA contínua (micro/macro) + LEQUE, atual e histórico curto.
+        "forca_serie": (_fl := _forca_leque(conn, par, tf, config.SENT_FORCA_JANELA)),
+        "forca": _fl[-1] if _fl else {},
     }
 
 
@@ -494,6 +507,19 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             snap, sessao_utc=sessao_utc, spread_max_pips=spread_max,
             sat_candles=config.EXAUSTAO_SAT_CANDLES, sat_alto=config.EXAUSTAO_SAT_ALTO,
             sat_baixo=config.EXAUSTAO_SAT_BAIXO))
+
+    # FAMÍLIA E_SENTINELA — força contínua (micro/macro) + leque (5º cenário, aditivo).
+    if config.SENTINELA_HABILITADA:
+        if config.SENT_FORCA_HABILITADA:
+            decs.append(estrategias.avaliar_sentinela_forca(
+                snap, sessao_utc=sessao_utc, spread_max_pips=spread_max, forca_min=config.SENT_FORCA_MIN))
+        if config.SENT_DIVERG_HABILITADA:
+            decs.append(estrategias.avaliar_sentinela_divergencia(
+                snap, sessao_utc=sessao_utc, spread_max_pips=spread_max))
+        if config.SENT_LEQUE_HABILITADA:
+            decs.append(estrategias.avaliar_sentinela_leque(
+                snap, sessao_utc=sessao_utc, spread_max_pips=spread_max,
+                estreito=config.SENT_LEQUE_ESTREITO, largo=config.SENT_LEQUE_LARGO))
 
     for dec in decs:
         dec["_close"] = candle["close"]     # p/ o componente de localização (VWAP) do EV

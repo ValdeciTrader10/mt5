@@ -109,9 +109,9 @@ DD_DIARIO_MAX_PCT = 5.0
 # (EXECUCAO_ATIVA=false) NÃO se aplica trava de correlação nem cap por livro; só um teto de
 # segurança amplo (MAX_POS_SOMBRA) para não crescer sem limite. As travas abaixo valem só
 # no modo REAL (proteção de conta), onde risco correlacionado importa de verdade.
-# Teto ampliado p/ 800: com a Variante C espelhando a A (ETAPA 6) e a família D_LINHAS (4 estratégias
-# novas), o catálogo cresceu — 800 evita truncar amostra. Ajustável por env no Dokploy.
-MAX_POS_SOMBRA = int(os.environ.get("MAX_POS_SOMBRA", "800"))
+# Teto ampliado p/ 1200: com C/C_CORRE + D_LINHAS (4) + E_SENTINELA (3) o catálogo cresceu — 1200
+# evita truncar a amostra dos grupos novos. Ajustável por env no Dokploy.
+MAX_POS_SOMBRA = int(os.environ.get("MAX_POS_SOMBRA", "1200"))
 # Caps do modo REAL, aplicados POR LIVRO DE TIMEFRAME: no máximo MAX_POS_POR_PAR posições
 # por (par, tf) e MAX_POS_TOTAL simultâneas dentro do mesmo TF.
 MAX_POS_POR_PAR = int(os.environ.get("MAX_POS_POR_PAR", "1"))
@@ -429,6 +429,22 @@ EXAUSTAO_HABILITADA = os.environ.get("EXAUSTAO_HABILITADA", "true").lower() in (
 EXAUSTAO_SAT_CANDLES = int(os.environ.get("EXAUSTAO_SAT_CANDLES", "4"))  # velas saturadas antes do rollover
 EXAUSTAO_SAT_ALTO = float(os.environ.get("EXAUSTAO_SAT_ALTO", "80"))     # saturação de compra (>=)
 EXAUSTAO_SAT_BAIXO = float(os.environ.get("EXAUSTAO_SAT_BAIXO", "20"))   # saturação de venda (<=)
+
+# --------------------------------------------------------------------------- #
+# FAMÍLIA E_SENTINELA — FORÇA contínua (micro/macro) + LEQUE (5º cenário, inspirado no Sentinela do PDF)
+# --------------------------------------------------------------------------- #
+# Linha de FORÇA contínua no painel (comparável às 4 linhas de TF) + 3 estratégias próprias. A "força"
+# é o esforço direcional micro(M1/M5)/macro(M15/H1) contínuo (fuzzy_score.forca_sync); o leque é a
+# amplitude entre as linhas. Grupo aditivo/desligável — 5º dado estatístico p/ comparar na sombra.
+SENTINELA_HABILITADA = os.environ.get("SENTINELA_HABILITADA", "true").lower() in ("1", "true", "sim")
+SENT_FORCA_MIN = float(os.environ.get("SENT_FORCA_MIN", "60"))       # limiar da linha de força p/ estouro
+SENT_LEQUE_ESTREITO = float(os.environ.get("SENT_LEQUE_ESTREITO", "15"))  # leque comprimido (mola)
+SENT_LEQUE_LARGO = float(os.environ.get("SENT_LEQUE_LARGO", "30"))   # leque expandido (estouro)
+SENT_FORCA_JANELA = int(os.environ.get("SENT_FORCA_JANELA", "40"))   # nº de velas da série de força/leque
+# Sub-flags por estratégia (todas ligadas por padrão; desligáveis individualmente).
+SENT_FORCA_HABILITADA = os.environ.get("SENT_FORCA_HABILITADA", "true").lower() in ("1", "true", "sim")
+SENT_DIVERG_HABILITADA = os.environ.get("SENT_DIVERG_HABILITADA", "true").lower() in ("1", "true", "sim")
+SENT_LEQUE_HABILITADA = os.environ.get("SENT_LEQUE_HABILITADA", "true").lower() in ("1", "true", "sim")
 
 # GESTÃO DE SAÍDA POR VARIANTE (liga as saídas próprias de B/C na sombra) — ADITIVO, a Variante A
 # (controle) NUNCA passa por aqui, segue no gestor genérico. Motivado pela auditoria (14/07): 100%

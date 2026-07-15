@@ -177,7 +177,7 @@ pequeno" (stop estrutural apertado) é uma calibração SEPARADA (não confundir
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **223 testes, todos passando.**
+  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **230 testes, todos passando.**
   Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.
@@ -228,6 +228,25 @@ p/ depois da amostra:** (1) stop estrutural por estratégia guiado por MAE/MFE; 
 = gêmeo de cada original filtrado pela DINÂMICA das linhas (como a C faz com o fuzzy estático) — só se
 as 4 linhas-puras mostrarem edge isolado (evita armadilha de múltiplos testes espalhando dezenas de
 livros novos). Ordem de auditoria: 4 linhas-puras primeiro → depois cruzar com as originais.
+
+## Família E_SENTINELA — FORÇA contínua (micro/macro) + LEQUE (15/07, ideia do "Sentinela" do PDF)
+5º cenário comparável (A · B · C · D_LINHAS · **E_SENTINELA**), ADITIVO/desligável. Inspirado no
+"Sentinel_Sync_Line" do criador do PDF (prints do WINQ26): em vez do score como nível (A/B/C) ou do
+movimento das linhas de score (D), lê a **FORÇA CONTÍNUA** — `fuzzy_score.forca_sync` devolve `micro`
+(média dos score−50 de M1/M5), `macro` (M15/H1), `forca` 0–100 (50 neutro) e `estado` verde/vermelho/
+**amarelo=divergência micro×macro** (o "ATENÇÃO"). Mostra a força construindo/divergindo ANTES da cor
+virar (nossa Sync antiga era só 3 estados). ⚠️ o PDF NÃO dá a fórmula numérica do Sentinela — esta é
+nossa versão fiel ao princípio, p/ VALIDAR por comparação na sombra. `leque_spread` = amplitude entre
+as 4 linhas (fan; comprimido=mola, aberto=tendência). `forca_serie` (asof dos 4 TFs, sem look-ahead)
+alimenta o painel e as estratégias. **Linha no gráfico:** o `/api/candles` devolve `scores["FORCA"]`
+(0–100, no TF do gráfico) → 5ª linha BRANCA e mais grossa no sub-painel de scores, comparável às 4
+linhas de TF (pedido do dono: validar por comparativo visual). **3 estratégias** (`variante=E_SENTINELA`):
+`sentinela_forca_v1` (força alinhada cruza o limiar rompendo a VWAP), `sentinela_divergencia_v1`
+(micro×macro divergem → fade a favor do macro no extremo da banda) e `sentinela_leque_v1` (leque
+comprime e EXPANDE na direção da força). Snapshot ganhou `forca`/`forca_serie`. Envs `SENTINELA_HABILITADA`,
+`SENT_FORCA_MIN`, `SENT_LEQUE_ESTREITO/LARGO`, `SENT_FORCA_JANELA`, `SENT_*_HABILITADA`. `MAX_POS_SOMBRA`
+800→1200. Testes em `test_fuzzy` (forca_sync/leque/asof) + `test_estrategias` (as 3). ⚠️ SL/saída segue o
+genérico; validar por expectância na sombra antes de concluir (skill §5) — é o "5º dado" p/ comparar.
 
 ## Forex enxugado — GOLD e M1 fora das operações (15/07, pós-auditoria de 1657 trades)
 A 1ª auditoria real do forex mostrou o forex MUITO mais fraco que a B3: exp **−0,114 R** (negativa!),
@@ -460,7 +479,7 @@ sup2/inf2) — a VWAP saiu do bloco `niveis` (não duplica). Além disso, **hist
 volume financeiro/Wyckoff REAL (contratos)**, no forex é tick_volume; barras verde/vermelho por alta/baixa
 em escala própria `volume` (rodapé ~15%). `grafico.html`: `serieVolume` (histograma) + `serieVwap`+4 bandas
 (curvas na régua de preço). `_buscar_candles` agora traz tick_volume/real_volume. Testes: `vwap_serie`
-acumula/reseta por sessão + guardas (`test_indicadores`). **223 testes, todos passando.**
+acumula/reseta por sessão + guardas (`test_indicadores`). **230 testes, todos passando.**
 
 **✅ ETAPA 5 — FEITO (14/07).** Variante B (Fuzzy Puro) — grupo PARALELO/aditivo (nada da Variante A
 foi tocado). `estrategias.avaliar_fuzzy_puro` (PURA) roda em SOMBRA marcada `variante=B_FUZZY_PURO`

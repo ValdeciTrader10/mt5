@@ -256,6 +256,68 @@ def sync_line(scores_por_tf: dict, *, micro_tfs=("M1", "M5"), macro_tfs=("M15", 
     return {"micro": micro, "macro": macro, "estado": estado}
 
 
+def forca_sync(scores_por_tf: dict, *, micro_tfs=("M1", "M5"), macro_tfs=("M15", "H1")) -> dict:
+    """FORÇA CONTÍNUA (inspirada no 'Sentinel_Sync_Line' do criador do PDF). Diferente da `sync_line`
+    (3 estados), devolve uma linha NUMÉRICA que mostra a força construindo/divergindo ANTES da cor virar.
+
+    - `micro` = média dos (score−50) dos TFs finos (M1/M5) → esforço direcional de curto prazo (−50..+50).
+    - `macro` = idem dos TFs altos (M15/H1) → a maré (oceano).
+    - `forca` = 50 + média(micro, macro), recentrada em 0..100 (50 neutro) → a linha p/ o painel (comparável
+      às 4 linhas de score).
+    - `estado` = verde (ambos +), vermelho (ambos −), amarelo = DIVERGÊNCIA micro×macro (o 'ATENÇÃO').
+    PURA/testável. A fórmula é fiel ao PRINCÍPIO do PDF (esforço micro/macro) — o PDF não dá a fórmula
+    numérica exata do Sentinela, então esta é a nossa versão para VALIDAR por comparação na sombra."""
+    def _media_desvio(tfs):
+        vals = [scores_por_tf.get(t) for t in tfs]
+        vals = [v for v in vals if v is not None]
+        return (sum(vals) / len(vals) - 50.0) if vals else 0.0
+    micro = _media_desvio(micro_tfs)
+    macro = _media_desvio(macro_tfs)
+    forca = max(0.0, min(100.0, 50.0 + 0.5 * (micro + macro)))
+    if micro > 0 and macro > 0:
+        estado = "verde"
+    elif micro < 0 and macro < 0:
+        estado = "vermelho"
+    else:
+        estado = "amarelo"
+    return {"micro": round(micro, 1), "macro": round(macro, 1), "forca": round(forca, 1),
+            "estado": estado, "divergencia": bool(micro * macro < 0)}
+
+
+def leque_spread(scores_por_tf: dict, tfs=("M1", "M5", "M15", "H1")) -> float:
+    """Abertura do LEQUE = amplitude (máx−mín) entre as linhas de score dos TFs. Grande = leque ABERTO
+    (tendência, linhas espalhadas); pequeno = COMPRIMIDO (mola, consenso). PURA."""
+    vals = [scores_por_tf.get(t) for t in tfs if scores_por_tf.get(t) is not None]
+    return round(max(vals) - min(vals), 1) if len(vals) >= 2 else 0.0
+
+
+def forca_serie(conn, par: str, tempos, *, micro_tfs=("M1", "M5"), macro_tfs=("M15", "H1")) -> list:
+    """Série de FORÇA/LEQUE alinhada (asof) aos instantes `tempos` (cronológicos): para cada t usa o
+    ÚLTIMO score ≤ t de cada TF (M1/M5/M15/H1) e aplica `forca_sync`/`leque_spread`. Base da linha do
+    painel e do histórico p/ as estratégias E_SENTINELA. Sem look-ahead (só scores já fechados ≤ t)."""
+    tfs = tuple(dict.fromkeys(list(micro_tfs) + list(macro_tfs)))
+    sebe = {}
+    for tf in tfs:
+        rows = conn.execute(
+            "SELECT time_utc, score FROM fuzzy_scores WHERE par=? AND tf=? ORDER BY time_utc ASC",
+            (par, tf)).fetchall()
+        sebe[tf] = [(r["time_utc"], r["score"]) for r in rows]
+    ponteiro = {tf: 0 for tf in tfs}
+    ult = {tf: None for tf in tfs}
+    saida = []
+    for t in tempos:
+        for tf in tfs:
+            serie = sebe[tf]
+            while ponteiro[tf] < len(serie) and serie[ponteiro[tf]][0] <= t:
+                ult[tf] = serie[ponteiro[tf]][1]
+                ponteiro[tf] += 1
+        f = forca_sync(ult, micro_tfs=micro_tfs, macro_tfs=macro_tfs)
+        f["time"] = t
+        f["leque"] = leque_spread(ult, tfs=tfs)
+        saida.append(f)
+    return saida
+
+
 # --------------------------------------------------------------------------- #
 # EV score — 4 componentes (PURA). NÃO bloqueia na v1: só carimba a decisão.
 # --------------------------------------------------------------------------- #
