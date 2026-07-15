@@ -19,17 +19,22 @@ DB_PATH = Path(os.environ.get("DB_PATH", DADOS_DIR / "mercado.db"))
 # Parâmetros de mercado (doc §9 — valores iniciais)
 # --------------------------------------------------------------------------- #
 # Pares monitorados (sombra). Ajustável por env (Dokploy) sem mexer no código. Majors de
-# spread razoável + OURO (GOLD) para catalogar — o ouro paga mais, mas é mais arriscado
-# (spread/volatilidade altos): tem parâmetros próprios em PARAMS_SIMBOLO.
+# spread razoável. GOLD REMOVIDO (15/07, pedido do dono): o ouro é outlier de USD (velas de
+# dezenas de dólares) que INFLAVA o lucro agregado sem edge real em R — a auditoria mostrou que
+# o "+USD" do forex vinha do GOLD, não de expectância. Os params de GOLD ficam em PARAMS_SIMBOLO
+# (inertes enquanto fora de PARES); reincluir é só voltar "GOLD" aqui ou no env PARES do Dokploy.
 PARES = [s.strip() for s in os.environ.get(
-    "PARES", "EURUSD#,GBPUSD#,USDCAD,USDJPY#,AUDUSD#,GBPJPY#,GOLD").split(",") if s.strip()]
+    "PARES", "EURUSD#,GBPUSD#,USDCAD,USDJPY#,AUDUSD#,GBPJPY#").split(",") if s.strip()]
 TF_OPERACAO = "M5"
 # Timeframes onde o estrategista roda OPERAÇÕES DE SOMBRA INDEPENDENTES (cada TF é um
 # "livro" próprio: abre/gerencia sua posição virtual e é comparado no /analitico "Por
-# timeframe"). M5 é a base; M1 e M15 entram para comparar qual TF tem melhor expectância.
-# ATENÇÃO (skill §0.1): no M1 o spread come o alvo — é observação de sombra para comparar,
-# NUNCA candidato a real sem auditar. Ajustável por env (ex.: TFS_OPERACAO="M5,M15").
-TFS_OPERACAO = [s.strip() for s in os.environ.get("TFS_OPERACAO", "M1,M5,M15").split(",") if s.strip()]
+# timeframe"). M1 REMOVIDO do FOREX (15/07, pedido do dono): a auditoria (1657 trades) provou que
+# o M1 é RALO — negativo/fino em todas as estratégias pelo custo/spread (skill §0.1), e as células
+# M1 estáveis no split-half eram todas NEGATIVAS. Ficam M5/M15 (onde vive o edge). O M1 SEGUE sendo
+# COLETADO (TFS_COLETA) e alimenta a pirâmide fuzzy/sync — só não gera mais operação no forex.
+# ⚠️ Consequência: a Variante B (fuzzy_puro, timing=M1) deixa de rodar no forex; a B3 usa
+# TFS_OPERACAO_B3 (próprio) e NÃO é afetada. Ajustável por env (Dokploy).
+TFS_OPERACAO = [s.strip() for s in os.environ.get("TFS_OPERACAO", "M5,M15").split(",") if s.strip()]
 # W1 (semanal) incluído: é onde estão os S/R mais fortes (junto de D1/H1). M1 coletado
 # para as operações de sombra do M1 (não gera S/R — é só a vela de operação/ATR).
 TFS_COLETA = ["M1", "M5", "M15", "H1", "D1", "W1"]

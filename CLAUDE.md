@@ -229,8 +229,20 @@ p/ depois da amostra:** (1) stop estrutural por estratégia guiado por MAE/MFE; 
 as 4 linhas-puras mostrarem edge isolado (evita armadilha de múltiplos testes espalhando dezenas de
 livros novos). Ordem de auditoria: 4 linhas-puras primeiro → depois cruzar com as originais.
 
-## Pares monitorados (sombra) — 13/07
-`config.PARES` (env-configurável no Dokploy): `EURUSD#, GBPUSD#, USDCAD, USDJPY#, AUDUSD#, GBPJPY#, GOLD`.
+## Forex enxugado — GOLD e M1 fora das operações (15/07, pós-auditoria de 1657 trades)
+A 1ª auditoria real do forex mostrou o forex MUITO mais fraco que a B3: exp **−0,114 R** (negativa!),
+0 células passando no gate da Etapa 9, e o "+224 USD" era **ilusão do GOLD** (A tinha exp −0,151 R mas
++1,12 USD/trade — dois vencedores gigantes de ouro puxavam o dólar). Além disso o **M1 é ralo** (as
+células M1 estáveis no split-half eram TODAS negativas — custo/spread come o alvo). Pedido do dono:
+- **GOLD REMOVIDO de `config.PARES`** (params ficam inertes em `PARAMS_SIMBOLO`; reincluir = voltar na lista/env).
+- **M1 REMOVIDO de `config.TFS_OPERACAO`** (agora `M5,M15`). O M1 SEGUE COLETADO (`TFS_COLETA`) e alimenta
+  a pirâmide fuzzy/sync — só não gera mais operação no forex. ⚠️ Consequência: a **Variante B** (fuzzy_puro,
+  timing=M1) deixa de rodar no forex. A **B3 usa `TFS_OPERACAO_B3` próprio e NÃO é afetada** (M1 segue lá).
+⚠️ `PARES`/`TFS_OPERACAO` são env-overridáveis: se o Dokploy setar esses envs com GOLD/M1, o default do
+código não vale — conferir/atualizar o Environment do Dokploy também.
+
+## Pares monitorados (sombra) — 13/07 (GOLD removido em 15/07, ver acima)
+`config.PARES` (env-configurável no Dokploy): `EURUSD#, GBPUSD#, USDCAD, USDJPY#, AUDUSD#, GBPJPY#`.
 - **GOLD** (ouro) adicionado a pedido do dono ("paga mais, maior risco, catalogar"). O ouro tem
   escala MUITO diferente do forex: pip≈0.01, move dólares por vela, spread ~20–50 pontos. Sem
   cuidado, o SL global (12–40 pips = só ~$0.40) insta-estoparia todo trade e o filtro de spread
