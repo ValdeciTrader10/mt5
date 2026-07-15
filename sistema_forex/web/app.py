@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
@@ -411,6 +411,28 @@ def _analitico(de: str = "", ate: str = "", mercado: str = "forex") -> dict:
 # --------------------------------------------------------------------------- #
 # Rotas
 # --------------------------------------------------------------------------- #
+@app.get("/export/candles")
+def export_candles(request: Request, tf: str = "H1", mercado: str = "forex"):
+    """Exporta os candles (OHLC + volume) em CSV para DOWNLOAD — p/ estudo histórico offline (ex.:
+    catalogar um padrão retroativamente). `tf` default H1 (com o H1 reconstrói-se o H4); `mercado`
+    forex (config.PARES) ou b3 (WIN/WDO). Só o dono logado; dado de mercado (OHLC), nada sensível."""
+    if not auth.esta_logado(request):
+        return auth.redirecionar_login()
+    pares = list(config_b3.PARES_B3) if mercado == "b3" else list(config.PARES)
+    cols = ("par", "tf", "time_utc", "open", "high", "low", "close",
+            "tick_volume", "real_volume", "spread")
+    linhas = [",".join(cols)]
+    with db.sessao() as conn:
+        ph = ",".join("?" * len(pares))
+        q = (f"SELECT {','.join(cols)} FROM candles WHERE tf=? AND par IN ({ph}) "
+             "ORDER BY par, time_utc")
+        for r in conn.execute(q, [tf, *pares]):
+            linhas.append(",".join("" if r[c] is None else str(r[c]) for c in cols))
+    csv = "\n".join(linhas)
+    return Response(csv, media_type="text/csv", headers={
+        "Content-Disposition": f'attachment; filename="candles_{mercado}_{tf}.csv"'})
+
+
 @app.get("/health")
 def health() -> JSONResponse:
     return JSONResponse({"status": "ok"})
