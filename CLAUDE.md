@@ -23,6 +23,51 @@ Sistema **rodando de ponta a ponta** em Docker na VPS Hostinger via **Dokploy**
 real é enviada; posições virtuais gerenciadas com ticks reais. Só ligar real após auditar
 a sombra (regra: demo/sombra primeiro).
 
+---
+
+# 🎯 PAINEL DE VALIDAÇÃO — O QUE AUDITAR (ler ISTO ao catalogar resultados)
+
+> **Handoff do dono:** quando ele pedir "audita/cataloga os resultados", este é o mapa do que cada
+> livro de sombra está TESTANDO e como julgar. **Regra-mãe (skill §5):** nada vira demo sem passar o
+> GATE da Etapa 9 → **N ≥ 50 · exp R > 0 · PF ≥ 1,3 · exp R positiva nas DUAS metades (split-half)**.
+> Winrate engana; a métrica honesta é **expectância em R**. Sempre olhar **N junto** (winrate de 5
+> trades não é winrate). **Nunca calibrar e validar no mesmo período.** Ferramentas: `/relatorio` (aba
+> "🎯 Aprovação para demo" roda o gate automático), `/analitico` (forex, USD), `/b3/analitico` (B3, BRL),
+> `/auditoria` (dossiê das perdedoras por padrão de falha) e `python -m sistema_forex.auditoria_estatistica`.
+
+**Como o laboratório está montado:** cada `(variante × estratégia × par × TF)` é um LIVRO de sombra
+independente sobre o preço real ao vivo. As variantes são grupos COMPARÁVEIS — a leitura é sempre
+"exp R de um livro vs. exp R do outro", isolando UMA coisa por comparação:
+
+| Grupo | O que testa | Como julgar (além do gate N≥50/PF≥1,3/split) |
+|---|---|---|
+| **A_ORIGINAL** (controle) | as 9 estratégias "cruas" | é a linha de base — todo resto se compara contra A |
+| **B_FUZZY_PURO** | Fuzzy Wyckoff fiel ao PDF (entrada) | exp R de B vs A por (estratégia×TF); `fuzzy_puro_v1` (maré 60) vs `fuzzy_puro_lima_v1` (maré 76 = mais seletiva) |
+| **C_HIBRIDA** | A + camada fuzzy que VETA/soma (entrada) + saída fuzzy | aba **A vs C** no /relatorio: dos setups que a C bloqueou, quantos eram perdedores (prejuízo EVITADO) vs vencedores (lucro PERDIDO) → benefício líquido USD |
+| **C_CORRE** | MESMAS entradas da C, mas SEM corte fuzzy ("deixa correr") | **C_CORRE vs C_HIBRIDA** isola SÓ a saída. Se C_CORRE > C_HIBRIDA → o corte fuzzy capa os vencedores cedo → aposentar a saída fuzzy |
+| **D_LINHAS** | dinâmica das curvas de score (divergência/pullback/flip/exaustão) | 4 estratégias-puras; ver se alguma tem edge ISOLADO antes de cruzar com as originais |
+| **E_SENTINELA** | força contínua micro/macro + leque (Sync Line do PDF) | 3 estratégias; validar por expectância como "5º dado" comparativo |
+| **F_BREAKOUT** | rompimento da abertura de Londres (1º edge validado OOS) | 2 saídas × M15/H1: `_v1` (deixa correr) vs `_prot_v1` (trava +2p após +10p). Comparar exp R (proteção deve suavizar a curva SEM comer o edge) e M15 vs H1 |
+| **B3 (WIN/WDO)** | mesma matriz, pregão 09:15–16:00, P&L em BRL | livro TOTALMENTE isolado (`mercado='b3'`); auditar em `/b3/analitico` e `/b3/auditoria` |
+
+**Perguntas abertas que a sombra vai responder (não concluir antes da amostra):**
+1. **Forex tem edge?** A 1ª auditoria deu exp **−0,114 R** (negativa) e 0 células no gate → GOLD e M1
+   foram removidos das operações. Reauditar se o forex enxuto vira positivo em ALGUMA célula.
+2. **F_BREAKOUT confirma OOS ao vivo?** Foi validado no histórico (+0,3–0,4 R); a sombra ao vivo é o
+   teste de fogo. É o candidato nº 1 a demo se o gate passar.
+3. **A saída inteligente (C) bate a saída crua (A/C_CORRE)?** Ver A vs C e C_CORRE vs C_HIBRIDA.
+4. **B/C melhoram a entrada sobre A?** Comparar exp R por (estratégia×TF).
+5. **B3 > forex?** A B3 vinha mais forte (PF 1,65 numa amostra); confirmar com N maior.
+
+**Armadilha de múltiplos testes (skill §5, Deflated Sharpe):** testamos CENTENAS de células → algumas
+passam por SORTE. O `auditoria_estatistica` já estima `falsos_esperados ≈ testadas × 0,05` e exige
+split-half como deflator. **Desconfiar de célula aprovada com N mínimo e confiança "média".**
+
+⚠️ **SL/saída de D_LINHAS e E_SENTINELA ainda é o ATR genérico** — o stop estrutural por estratégia
+(guiado por MAE/MFE) é calibração SEPARADA, só depois que a entrada mostrar edge (não chutar — skill §2).
+
+---
+
 ## Arquitetura (um único docker-compose no Dokploy)
 - **mt5**: imagem `gmag11/metatrader5_vnc:2.3` sob Wine + custom-init (`deploy/mt5/`).
   Expõe VNC (`:3100` no host, login VNC) e a API Python RPyC (`:8001`, interna).
@@ -381,6 +426,9 @@ nunca veto; rejeição é o gatilho nas de reversão/reteste; funções puras te
 Skill em `.claude/skills/trading-quant-expert/` (referências+roadmap).
 
 ## PRÓXIMOS PASSOS (priorizados)
+0. **AO CATALOGAR RESULTADOS: ler o "🎯 PAINEL DE VALIDAÇÃO" no topo deste arquivo** — ele diz, por
+   grupo (A/B/C/C_CORRE/D_LINHAS/E_SENTINELA/F_BREAKOUT + B3), o que cada livro testa e como julgar
+   (gate N≥50 · exp R>0 · PF≥1,3 · split-half). Rodar a aba "🎯 Aprovação para demo" do /relatorio.
 1. **Deixar a sombra rodar alguns dias** e auditar `/analitico` → especialmente
    **Por estratégia**, **Por timeframe** (M1 vs M5 vs M15 — espera-se M1 pior pelo custo) e
    **Por regime** (o `lateral`/fade de S/R estava negativo).
