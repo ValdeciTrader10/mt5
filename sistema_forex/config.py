@@ -445,6 +445,24 @@ SENT_FORCA_JANELA = int(os.environ.get("SENT_FORCA_JANELA", "40"))   # nº de ve
 # (decay ↑ = linha mais longa/suave) e sensibilidade (escala ↓ = mais amplitude). Ajustar p/ bater visual.
 SENT_FORCA_DECAY = float(os.environ.get("SENT_FORCA_DECAY", "0.85"))
 SENT_FORCA_ESCALA = float(os.environ.get("SENT_FORCA_ESCALA", "40"))
+
+# --------------------------------------------------------------------------- #
+# FAMÍLIA F_BREAKOUT — rompimento da faixa de abertura de Londres (6º cenário)
+# --------------------------------------------------------------------------- #
+# Achado do estudo histórico (9 meses H1+M15, validado FORA DA AMOSTRA): o movimento grande do forex
+# se concentra na abertura de Londres; um opening-range breakout rende +0,3–0,4R líquido de spread,
+# robusto em H1 e M15, em quase todos os pares (menos USDCAD), num platô de parâmetros. NÃO prevê
+# direção (o rompimento dá) e deixa correr. Dois livros: sem proteção (máx expectância) e com proteção
+# +2p após +10p (curva suave). O gate da Etapa 9 decide antes de qualquer demo.
+BREAKOUT_HABILITADA = os.environ.get("BREAKOUT_HABILITADA", "true").lower() in ("1", "true", "sim")
+BREAKOUT_TFS = [s.strip() for s in os.environ.get("BREAKOUT_TFS", "M15,H1").split(",") if s.strip()]
+BREAKOUT_EXCLUI = {s.strip() for s in os.environ.get("BREAKOUT_EXCLUI", "USDCAD").split(",") if s.strip()}
+BREAKOUT_OR_HORA = int(os.environ.get("BREAKOUT_OR_HORA", "10"))     # hora servidor (07:00 UTC, Londres)
+BREAKOUT_OR_MIN = int(os.environ.get("BREAKOUT_OR_MIN", "45"))       # duração da faixa de abertura (min)
+BREAKOUT_FIM_HORA = int(os.environ.get("BREAKOUT_FIM_HORA", "17"))   # fecha no fim da janela (hora servidor)
+BREAKOUT_OR_MIN_PIPS = float(os.environ.get("BREAKOUT_OR_MIN_PIPS", "3"))  # faixa mínima (evita degenerada)
+BREAKOUT_PROT_TRIGGER_PIPS = float(os.environ.get("BREAKOUT_PROT_TRIGGER_PIPS", "10"))  # +100 pipetes
+BREAKOUT_PROT_LOCK_PIPS = float(os.environ.get("BREAKOUT_PROT_LOCK_PIPS", "2"))         # trava +2 pips
 # Sub-flags por estratégia (todas ligadas por padrão; desligáveis individualmente).
 SENT_FORCA_HABILITADA = os.environ.get("SENT_FORCA_HABILITADA", "true").lower() in ("1", "true", "sim")
 SENT_DIVERG_HABILITADA = os.environ.get("SENT_DIVERG_HABILITADA", "true").lower() in ("1", "true", "sim")

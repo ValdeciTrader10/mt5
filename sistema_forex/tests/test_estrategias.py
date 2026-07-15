@@ -895,6 +895,57 @@ def test_sentinela_leque_compressao_expansao():
     assert d2["resultado"] == "nao_entrou", d2
 
 
+# --------------------------------------------------------------------------- #
+# FAMÍLIA F_BREAKOUT — rompimento da faixa de abertura de Londres
+# --------------------------------------------------------------------------- #
+def test_breakout_entra_na_direcao_do_rompimento():
+    # OR rompida p/ cima → COMPRA, carimba sl_pips (a OR oposta), variante F_BREAKOUT.
+    snap = {"regime": "tendencia_alta",
+            "or_londres": {"entrar": True, "direcao": "compra", "sl_pips": 12.0,
+                           "or_high": 1.1000, "or_low": 1.0988},
+            "spread_pips": 1.0}
+    d = e.avaliar_breakout_londres(snap, estrategia=e.ESTRATEGIA_BREAKOUT, spread_max_pips=2.0)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["variante"] == "F_BREAKOUT" and d["sl_pips"] == 12.0, d
+
+
+def test_breakout_nao_entra_sem_rompimento_ou_spread_alto():
+    # Sem rompimento (entrar=False) → não entra.
+    d = e.avaliar_breakout_londres({"or_londres": {"entrar": False}},
+                                   estrategia=e.ESTRATEGIA_BREAKOUT, spread_max_pips=2.0)
+    assert d["resultado"] == "nao_entrou", d
+    # Rompeu, mas spread acima do teto → não entra (edge morre no custo).
+    snap = {"or_londres": {"entrar": True, "direcao": "venda", "sl_pips": 10.0}, "spread_pips": 3.5}
+    d2 = e.avaliar_breakout_londres(snap, estrategia=e.ESTRATEGIA_BREAKOUT, spread_max_pips=2.0)
+    assert d2["resultado"] == "nao_entrou" and d2["motivo"] == "spread alto", d2
+
+
+def test_gerir_breakout_fecha_no_fim_da_janela():
+    # No fim da janela de Londres (hora >= fim_hora) fecha, qualquer estratégia.
+    d = e.gerir_breakout(e.ESTRATEGIA_BREAKOUT, "compra", 1.1050, 1.1000, 1.0988,
+                         hora=17, fim_hora=17, mfe_pips=30, trig_pips=10, lock_pips=2,
+                         pip=0.0001, prot_estrategia=e.ESTRATEGIA_BREAKOUT_PROT)
+    assert d["fechar"] and d["motivo"] == "fim da janela de Londres", d
+
+
+def test_gerir_breakout_protecao_trava_lucro_so_no_prot():
+    # Variante de PROTEÇÃO: MFE >= 10p → sobe o stop p/ entrada + 2p (só aperta a favor).
+    d = e.gerir_breakout(e.ESTRATEGIA_BREAKOUT_PROT, "compra", 1.1015, 1.1000, 1.0988,
+                         hora=12, fim_hora=17, mfe_pips=12, trig_pips=10, lock_pips=2,
+                         pip=0.0001, prot_estrategia=e.ESTRATEGIA_BREAKOUT_PROT)
+    assert not d["fechar"] and abs(d["novo_sl"] - 1.1002) < 1e-9, d
+    # Mesma situação, mas SEM proteção (livro _v1) → deixa correr, stop intocado.
+    d2 = e.gerir_breakout(e.ESTRATEGIA_BREAKOUT, "compra", 1.1015, 1.1000, 1.0988,
+                          hora=12, fim_hora=17, mfe_pips=12, trig_pips=10, lock_pips=2,
+                          pip=0.0001, prot_estrategia=e.ESTRATEGIA_BREAKOUT_PROT)
+    assert not d2["fechar"] and d2["novo_sl"] == 1.0988, d2
+    # Proteção ainda NÃO acionada (MFE < trigger) → stop intocado.
+    d3 = e.gerir_breakout(e.ESTRATEGIA_BREAKOUT_PROT, "compra", 1.1005, 1.1000, 1.0988,
+                          hora=12, fim_hora=17, mfe_pips=5, trig_pips=10, lock_pips=2,
+                          pip=0.0001, prot_estrategia=e.ESTRATEGIA_BREAKOUT_PROT)
+    assert not d3["fechar"] and d3["novo_sl"] == 1.0988, d3
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

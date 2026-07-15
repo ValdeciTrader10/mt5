@@ -304,6 +304,38 @@ def test_combo_real_so_curadas():
     assert config.combo_real("sweep_choch_v1", "M5") is False   # estratégia não-curada
 
 
+def test_or_londres_detecta_primeiro_rompimento():
+    """A faixa de abertura de Londres (10:00–10:45 servidor) é medida e o PRIMEIRO fechamento
+    que a rompe, dentro da janela, gera a entrada — com sl_pips = amplitude da OR."""
+    caminho = _tmp_db()
+    try:
+        conn = db.conectar(caminho)
+        dia0 = 100 * 86400
+        or_ini = dia0 + config.BREAKOUT_OR_HORA * 3600
+        def ins(t, o, h, l, c):
+            conn.execute("INSERT INTO candles (par, tf, time_utc, open, high, low, close, "
+                         "tick_volume, spread) VALUES ('EURUSD#','M15',?,?,?,?,?,100,8)",
+                         (t, o, h, l, c))
+        # 3 candles DENTRO da OR definem a faixa 1.0988–1.1000.
+        ins(or_ini,        1.0992, 1.1000, 1.0990, 1.0995)
+        ins(or_ini + 900,  1.0995, 1.0998, 1.0988, 1.0993)
+        ins(or_ini + 1800, 1.0993, 1.0999, 1.0991, 1.0996)
+        # 1º candle APÓS a OR fecha ACIMA do topo → rompimento de compra.
+        brk_t = or_ini + 2700
+        ins(brk_t, 1.0996, 1.1010, 1.0995, 1.1008)
+        conn.commit()
+        candle = conn.execute("SELECT * FROM candles WHERE time_utc=?", (brk_t,)).fetchone()
+        orl = decisao._or_londres(conn, "EURUSD#", "M15", candle)
+        assert orl.get("entrar") and orl["direcao"] == "compra", orl
+        assert abs(orl["sl_pips"] - 12.0) < 0.2, orl      # (1.1000-1.0988)/0.0001 ≈ 12 pips
+        # Um candle DENTRO da OR (ainda formando a faixa) não gera entrada.
+        dentro = conn.execute("SELECT * FROM candles WHERE time_utc=?", (or_ini,)).fetchone()
+        assert decisao._or_londres(conn, "EURUSD#", "M15", dentro) == {}, "dentro da OR não entra"
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

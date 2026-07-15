@@ -252,6 +252,33 @@ comprime e EXPANDE na direção da força). Snapshot ganhou `forca`/`forca_serie
 800→1200. Testes em `test_fuzzy` (forca_sync/leque/asof) + `test_estrategias` (as 3). ⚠️ SL/saída segue o
 genérico; validar por expectância na sombra antes de concluir (skill §5) — é o "5º dado" p/ comparar.
 
+## Família F_BREAKOUT — rompimento da abertura de Londres (15/07, 1º EDGE validado OOS)
+6º cenário comparável (A · B · C · D_LINHAS · E_SENTINELA · **F_BREAKOUT**), ADITIVO/desligável. É a
+PRIMEIRA estratégia que nasceu de um **estudo histórico validado FORA DA AMOSTRA** (não de teoria): a
+exploração cética dos candles coletados (H1+M15) mostrou que o movimento grande do forex nasce na
+**abertura de Londres** — um breakout da faixa de abertura (opening range) rende **+0,3–0,4 R líquido de
+spread**, com PLATÔ (não pico de overfit) e edge em vários pares. As teses do trader (candle H4 com
+abertura=fechamento anterior + reversão; nível como imã/S-R) NÃO se sustentaram nos dados; o breakout de
+Londres sim. **Como funciona** (`decisao._or_londres`, sem look-ahead): mede a FAIXA (máx/mín) das velas
+entre `BREAKOUT_OR_HORA` (10h servidor = 07:00 UTC/abertura de Londres) e +`BREAKOUT_OR_MIN` (45min); o
+**PRIMEIRO fechamento do dia** que rompe a faixa (dentro da janela até `BREAKOUT_FIM_HORA`=17h) entra na
+DIREÇÃO do rompimento. Não prevê direção (o rompimento dá) e **deixa correr**. **Stop ESTRUTURAL** = a OR
+oposta (`sl_pips` = amplitude da faixa, gravado no `dados_json` da decisão; o `executor._abrir` lê e usa no
+lugar do ATR genérico). **2 livros × 2 TFs (M15/H1) = 4 combinações**, `variante=F_BREAKOUT`, forex-only,
+**USDCAD excluído** (pedido do dono): `breakout_londres_v1` (sem proteção — corre até o fim da janela, máx
+expectância) e `breakout_londres_prot_v1` (mesma ENTRADA; a SAÍDA trava +`BREAKOUT_PROT_LOCK_PIPS` (+2p)
+depois que o MFE atinge +`BREAKOUT_PROT_TRIGGER_PIPS` (+10p = "100 pipetes"), deixando o resto correr — o
+estudo mostrou que o B/E cru é raspado pelo spread, +2p é a posição válida do stop de proteção; a proteção
+é ~neutra em expectância mas SUAVIZA a curva). **Executor:** `gerir_breakout` (PURA) fecha no fim da janela
+de Londres e aplica a proteção só no `_prot_v1`; o F_BREAKOUT **pula o gestor genérico** (giveback/BE/tempo
+cortariam o runner — "deixa correr"). O stop (OR/protegido) é emulado pelo bloco de emergência do executor.
+Envs `BREAKOUT_HABILITADA` (on), `BREAKOUT_TFS`=M15,H1, `BREAKOUT_EXCLUI`=USDCAD, `BREAKOUT_OR_HORA`/`_MIN`/
+`_FIM_HORA`, `BREAKOUT_OR_MIN_PIPS` (faixa degenerada), `BREAKOUT_PROT_TRIGGER_PIPS`/`_LOCK_PIPS`. Testes:
+`test_estrategias` (entrada/spread, gestão fim-de-janela + proteção só no prot) + `test_multitf`
+(`_or_londres` detecta o 1º rompimento + sl_pips). **236 testes, todos passando.** ⚠️ Assume que a hora do
+servidor XM (UTC+3) põe Londres às 10h — validar com os candles; ajustar `BREAKOUT_OR_HORA` se o fuso diferir.
+Comparar exp. na sombra (F com/sem proteção × M15/H1) antes de qualquer promoção (Etapa 9).
+
 ## Forex enxugado — GOLD e M1 fora das operações (15/07, pós-auditoria de 1657 trades)
 A 1ª auditoria real do forex mostrou o forex MUITO mais fraco que a B3: exp **−0,114 R** (negativa!),
 0 células passando no gate da Etapa 9, e o "+224 USD" era **ilusão do GOLD** (A tinha exp −0,151 R mas

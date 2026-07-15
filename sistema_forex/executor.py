@@ -16,6 +16,7 @@ verificada antes de abrir, contabilidade de pips por price_open/price_current, l
     python -m sistema_forex.executor
 """
 
+import json
 import logging
 import signal
 import time
@@ -136,7 +137,7 @@ def _decisoes_novas(conn, desde_id: int):
     # SÓ o mercado forex: as decisões `mercado='b3'` são do executor de sombra da B3 (ponte
     # data-only, P&L em BRL) — o executor do forex nunca as toca (símbolo WIN/WDO não existe no XM).
     return conn.execute(
-        "SELECT id, par, tf, direcao, estrategia, criada_utc, variante FROM decisoes "
+        "SELECT id, par, tf, direcao, estrategia, criada_utc, variante, dados_json FROM decisoes "
         "WHERE id > ? AND resultado='entrou' AND (mercado='forex' OR mercado IS NULL) ORDER BY id",
         (desde_id,),
     ).fetchall()
@@ -452,6 +453,25 @@ class Executor:
                 lucro_atual = (p["usd_por_pip"] * pips_atual) if p.get("usd_por_pip") else None
                 _persistir_ao_vivo(conn, p["trade_id"], round(r, 3),
                                    round(lucro_atual, 2) if lucro_atual is not None else None)
+
+            # Gestão F_BREAKOUT (só sombra): "deixa correr" — NÃO passa pelo gestor genérico
+            # (giveback/BE/tempo cortariam o runner). Saídas: (a) stop estrutural/protegido, emulado
+            # pelo bloco de emergência acima; (b) fim da janela de Londres; (c) na variante de
+            # PROTEÇÃO, trava +BREAKOUT_PROT_LOCK_PIPS após andar +BREAKOUT_PROT_TRIGGER_PIPS a favor.
+            if not p.get("real") and p.get("variante") == "F_BREAKOUT":
+                hora = int((_agora() % 86400) // 3600)
+                mfe_pips = p["mfe_r"] * p["risco"] / pip if pip else 0.0
+                dec = estrategias.gerir_breakout(
+                    p["estrategia"], p["direcao"], preco, p["preco_entrada"], p["sl"],
+                    hora=hora, fim_hora=config.BREAKOUT_FIM_HORA, mfe_pips=mfe_pips,
+                    trig_pips=config.BREAKOUT_PROT_TRIGGER_PIPS, lock_pips=config.BREAKOUT_PROT_LOCK_PIPS,
+                    pip=pip, prot_estrategia=estrategias.ESTRATEGIA_BREAKOUT_PROT)
+                if dec["novo_sl"] != p["sl"]:
+                    p["sl"] = dec["novo_sl"]        # proteção travou o lucro parcial
+                if dec["fechar"]:
+                    self._fechar(conn, p, preco, pip, dec["motivo"])
+                continue
+
             idade_h = (_agora() - p["abertura_utc"]) / 3600
             acao, motivo = gestao.avaliar_saida(
                 direcao=p["direcao"], r=r, r_max=p["r_max"], idade_h=idade_h,
@@ -547,6 +567,16 @@ class Executor:
         sl_max = config.param_simbolo(par, "sl_max_pips", config.SL_MAX_PIPS)
         sl = gestao.calcular_sl(direcao, assumido, atr, mult=config.SL_SERVIDOR_ATR_MULT,
                                 min_pips=sl_min, max_pips=sl_max, pip=pip)
+        # F_BREAKOUT: o stop é ESTRUTURAL (lado oposto da opening range), não ATR — o `sl_pips`
+        # vem gravado na decisão (`dados_json`). Sem isso o breakout usaria o ATR genérico.
+        if d and (d["variante"] == "F_BREAKOUT"):
+            try:
+                _dd = json.loads(d["dados_json"] or "{}")
+            except Exception:  # noqa: BLE001
+                _dd = {}
+            slp = _dd.get("sl_pips")
+            if slp:
+                sl = assumido - slp * pip if direcao == "compra" else assumido + slp * pip
         entrada, ticket, fill = assumido, None, {}
         if real:
             if not mt5_bridge.verificar_margem(simbolo, config.LOTE, direcao == "compra"):

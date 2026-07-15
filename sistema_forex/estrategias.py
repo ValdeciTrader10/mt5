@@ -43,6 +43,9 @@ ESTRATEGIA_EXAUSTAO = "fuzzy_exaustao_v1"              # D — clímax: score sa
 ESTRATEGIA_SENT_FORCA = "sentinela_forca_v1"          # força alinhada cruza o limiar rompendo a VWAP
 ESTRATEGIA_SENT_DIVERG = "sentinela_divergencia_v1"   # micro×macro divergem (ATENÇÃO) → fade a favor do macro
 ESTRATEGIA_SENT_LEQUE = "sentinela_leque_v1"          # leque comprime (mola) e expande na direção da força
+# Família F_BREAKOUT — rompimento da faixa de abertura de Londres (validado fora da amostra).
+ESTRATEGIA_BREAKOUT = "breakout_londres_v1"           # saída: corre até o fim da janela (máx expectância)
+ESTRATEGIA_BREAKOUT_PROT = "breakout_londres_prot_v1" # + proteção: trava +2p após +10p (curva suave)
 
 # Variante do laboratório multi-variante. As estratégias deste módulo são o GRUPO DE CONTROLE
 # (Variante A). B_FUZZY_PURO / C_HIBRIDA marcam a decisão via este campo (ETAPAS 5-6).
@@ -54,6 +57,7 @@ VARIANTE_C_CORRE = "C_CORRE"   # experimento: MESMAS entradas da C, mas saída "
                                # Isola o EFEITO DA SAÍDA (C_HIBRIDA corta cedo × C_CORRE deixa andar).
 VARIANTE_LINHAS = "D_LINHAS"   # 4º cenário: estratégias pela dinâmica das linhas de score fuzzy
 VARIANTE_SENTINELA = "E_SENTINELA"   # 5º cenário: força contínua micro/macro + leque (ideia do Sentinela)
+VARIANTE_BREAKOUT = "F_BREAKOUT"     # 6º cenário: rompimento da faixa de abertura de Londres
 
 # Estratégias da Variante A cujo gatilho é uma ZONA (S/R, order block, pivot): na Variante C, a
 # VIRADA de score do fuzzy na zona (transição de causa) confirma o giro do preço no nível.
@@ -1379,3 +1383,44 @@ def avaliar_sentinela_leque(snap: dict, *, sessao_utc, spread_max_pips, estreito
         return _d("nao_entrou", direcao, regime, 0, [], "spread alto")
     conf = ["leque_comprimiu", "leque_expandiu", f"forca_{estado}", "rompe_vwap"]
     return _d("entrou", direcao, regime, len(conf), conf, "sentinela_leque|" + "+".join(conf))
+
+
+# =========================================================================== #
+# FAMÍLIA F_BREAKOUT — rompimento da faixa de abertura de Londres (6º cenário).
+#
+# Achado do estudo histórico (validado FORA DA AMOSTRA em H1+M15): o movimento grande do forex nasce
+# na abertura de Londres. Não prevê direção (o rompimento dá) e deixa correr. A ENTRADA é a mesma para
+# os dois livros; eles diferem só na SAÍDA (o executor aplica a proteção só ao `_prot_v1`). O estado de
+# sessão (faixa de abertura + "primeiro rompimento do dia?") é calculado no snapshot (decisao._or_londres).
+# =========================================================================== #
+def avaliar_breakout_londres(snap: dict, *, estrategia, spread_max_pips) -> dict:
+    """Entra no PRIMEIRO fechamento que rompe a faixa de abertura de Londres, na direção do rompimento.
+    `snap['or_londres']` = {entrar, direcao, sl_pips, or_high, or_low} vindo do motor (sem look-ahead)."""
+    regime = snap.get("regime", "indefinido")
+    orl = snap.get("or_londres") or {}
+    _d = lambda *a: _decisao(*a, estrategia=estrategia, variante=VARIANTE_BREAKOUT)
+    if not orl or not orl.get("entrar"):
+        return _d("nao_entrou", (orl or {}).get("direcao"), regime, 0, [], "sem rompimento da OR de Londres")
+    if snap.get("spread_pips", 0.0) > spread_max_pips:
+        return _d("nao_entrou", orl["direcao"], regime, 0, [], "spread alto")
+    conf = ["rompeu_OR_londres", f"OR{orl['sl_pips']}p"]
+    dec = _d("entrou", orl["direcao"], regime, len(conf), conf,
+             f"rompimento OR Londres ({orl['direcao']})")
+    dec["sl_pips"] = orl["sl_pips"]        # o executor usa a OR oposta como stop (não o ATR)
+    return dec
+
+
+def gerir_breakout(estrategia, direcao, preco, entrada, sl, *, hora, fim_hora, mfe_pips,
+                   trig_pips, lock_pips, pip, prot_estrategia) -> dict:
+    """Gestão do F_BREAKOUT (o stop da OR é emulado pelo stop de emergência do executor; aqui só a
+    SAÍDA DE SESSÃO + a PROTEÇÃO). Devolve {novo_sl, fechar, motivo}. PURA/testável.
+      - fecha no FIM da janela de Londres (`hora >= fim_hora`);
+      - só o livro `_prot_v1`: quando o MFE atinge `trig_pips` (+100 pipetes), sobe o stop p/ entrada
+        + `lock_pips` (+2p) — só APROXIMA na direção do lucro, nunca afrouxa."""
+    if hora >= fim_hora:
+        return {"novo_sl": sl, "fechar": True, "motivo": "fim da janela de Londres"}
+    if estrategia == prot_estrategia and mfe_pips >= trig_pips:
+        alvo = entrada + lock_pips * pip if direcao == "compra" else entrada - lock_pips * pip
+        novo = max(sl, alvo) if direcao == "compra" else min(sl, alvo)   # só aperta p/ o lucro
+        return {"novo_sl": novo, "fechar": False, "motivo": ""}
+    return {"novo_sl": sl, "fechar": False, "motivo": ""}

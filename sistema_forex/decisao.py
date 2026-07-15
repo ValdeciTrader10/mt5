@@ -302,6 +302,8 @@ def _scores_ev(conn, par: str, tf: str, time_utc: int, dec: dict) -> dict:
 
 def _gravar_decisao(conn, par: str, tf: str, time_utc: int, dec: dict, mercado: str = "forex") -> None:
     dados = {"score": dec["score"], "confluencias": dec["confluencias"], "regime": dec["regime"]}
+    if dec.get("sl_pips") is not None:      # F_BREAKOUT: stop na OR (o executor lê e usa no lugar do ATR)
+        dados["sl_pips"] = dec["sl_pips"]
     if config.EV_HABILITADO:
         try:
             dados["ev"] = _scores_ev(conn, par, tf, time_utc, dec)
@@ -530,6 +532,70 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
 
 
 # --------------------------------------------------------------------------- #
+# FAMÍLIA F_BREAKOUT — rompimento da faixa de abertura de Londres (6º cenário, forex-only)
+# --------------------------------------------------------------------------- #
+def _pip_par(par: str) -> float:
+    return 0.01 if "JPY" in par else 0.0001
+
+
+def _or_londres(conn, par: str, tf: str, candle) -> dict:
+    """Estado de sessão do breakout de Londres p/ o candle atual (sem look-ahead): a FAIXA DE ABERTURA
+    (OR) do dia + se ESTE candle é o PRIMEIRO fechamento que a rompe, dentro da janela. Devolve
+    {entrar, direcao, sl_pips, or_high, or_low} ou {} (fora da janela / sem OR)."""
+    t = candle["time_utc"]
+    dia0 = t - (t % 86400)
+    or_ini = dia0 + config.BREAKOUT_OR_HORA * 3600
+    or_fim = or_ini + config.BREAKOUT_OR_MIN * 60
+    janela_fim = dia0 + config.BREAKOUT_FIM_HORA * 3600
+    if not (or_fim <= t < janela_fim):          # só na janela de entrada (após a OR, antes do fim)
+        return {}
+    r = conn.execute("SELECT MAX(high) hi, MIN(low) lo FROM candles WHERE par=? AND tf=? "
+                     "AND time_utc>=? AND time_utc<?", (par, tf, or_ini, or_fim)).fetchone()
+    if not r or r["hi"] is None:
+        return {}
+    hi, lo = r["hi"], r["lo"]
+    pip = _pip_par(par)
+    sl_pips = (hi - lo) / pip
+    if sl_pips < config.BREAKOUT_OR_MIN_PIPS:    # faixa degenerada
+        return {}
+    ja = conn.execute("SELECT close FROM candles WHERE par=? AND tf=? AND time_utc>=? AND time_utc<? "
+                      "ORDER BY time_utc", (par, tf, or_fim, t)).fetchall()
+    for x in ja:                                 # já houve rompimento hoje? (então não é o primeiro)
+        if x["close"] > hi or x["close"] < lo:
+            return {"entrar": False}
+    c = candle["close"]
+    if c > hi:
+        direcao = "compra"
+    elif c < lo:
+        direcao = "venda"
+    else:
+        return {"entrar": False}
+    return {"entrar": True, "direcao": direcao, "sl_pips": round(sl_pips, 1),
+            "or_high": hi, "or_low": lo}
+
+
+def avaliar_breakout_par(conn, par: str, tf: str, candle) -> list:
+    """Avalia o breakout de Londres (2 livros: sem proteção e com proteção) para o candle do TF.
+    Grava as decisões marcadas variante=F_BREAKOUT. Forex-only (a B3 tem pregão próprio)."""
+    if not config.BREAKOUT_HABILITADA or tf not in config.BREAKOUT_TFS or par in config.BREAKOUT_EXCLUI:
+        return []
+    orl = _or_londres(conn, par, tf, candle)
+    if not orl:
+        return []
+    snap = {"or_londres": orl, "regime": _regime(conn, par),
+            "spread_pips": (candle["spread"] or 0) / 10.0}
+    spread_max = config.param_simbolo(par, "spread_max_pips", config.SPREAD_MAX_PIPS)
+    decs = []
+    for est in (estrategias.ESTRATEGIA_BREAKOUT, estrategias.ESTRATEGIA_BREAKOUT_PROT):
+        dec = estrategias.avaliar_breakout_londres(snap, estrategia=est, spread_max_pips=spread_max)
+        dec["_close"] = candle["close"]
+        _gravar_decisao(conn, par, tf, candle["time_utc"], dec, mercado="forex")
+        decs.append(dec)
+    conn.commit()
+    return decs
+
+
+# --------------------------------------------------------------------------- #
 # Loop
 # --------------------------------------------------------------------------- #
 def um_ciclo(conn, ultimo_visto: dict) -> None:
@@ -553,6 +619,25 @@ def um_ciclo(conn, ultimo_visto: dict) -> None:
                     )
             except Exception:  # noqa: BLE001 - um (par,tf) não derruba o serviço
                 log.exception("Falha ao decidir %s %s", par, tf)
+
+    # FAMÍLIA F_BREAKOUT (6º cenário) — roda nos SEUS TFs (M15/H1), independente de TFS_OPERACAO
+    # (o H1 não é TF de operação, mas o breakout precisa dele). Livro próprio, forex-only.
+    if config.BREAKOUT_HABILITADA:
+        for par in config.PARES:
+            if par in config.BREAKOUT_EXCLUI:
+                continue
+            for tf in config.BREAKOUT_TFS:
+                candle = _ultimo(conn, par, tf)
+                if candle is None:
+                    continue
+                chave = ("BRK", par, tf)
+                if ultimo_visto.get(chave) == candle["time_utc"]:
+                    continue
+                ultimo_visto[chave] = candle["time_utc"]
+                try:
+                    avaliar_breakout_par(conn, par, tf, candle)
+                except Exception:  # noqa: BLE001
+                    log.exception("Falha no breakout %s %s", par, tf)
 
 
 def main() -> None:
