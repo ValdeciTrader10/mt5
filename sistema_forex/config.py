@@ -433,6 +433,13 @@ EXAUSTAO_SAT_BAIXO = float(os.environ.get("EXAUSTAO_SAT_BAIXO", "20"))   # satur
 # VWAP oposta) → o relatório A vs C mede se a saída inteligente melhora a expectância. Shadow-only.
 GESTAO_POR_VARIANTE = os.environ.get("GESTAO_POR_VARIANTE", "true").lower() in ("1", "true", "sim")
 
+# EXPERIMENTO "DEIXA CORRER" (motivado pela 1ª auditoria de dados reais da B3, 14/07): a saída
+# antecipada da Variante C domina os trades mas rende migalha (+1,91/trade) enquanto quem é deixado
+# correr (giveback estrutural) rende +16 a +56. Este livro C_CORRE espelha as MESMAS entradas da C
+# mas NÃO passa pela saída fuzzy (cai no gestor genérico = stop + giveback) → o /relatorio mede o Δ
+# de expectância C_HIBRIDA (corta cedo) × C_CORRE (deixa andar), isolando SÓ a saída. Aditivo/desligável.
+EXPERIMENTO_CORRE_HABILITADO = os.environ.get("EXPERIMENTO_CORRE_HABILITADO", "true").lower() in ("1", "true", "sim")
+
 # --------------------------------------------------------------------------- #
 # Relatório sombra multi-variante (ETAPA 7)
 # --------------------------------------------------------------------------- #

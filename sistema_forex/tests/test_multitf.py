@@ -131,6 +131,12 @@ def test_variante_c_espelha_a_quando_entra():
         # persistiu no banco com a variante certa
         n_c = conn.execute("SELECT COUNT(*) c FROM decisoes WHERE variante='C_HIBRIDA'").fetchone()["c"]
         assert n_c == len(cs), (n_c, len(cs))
+        # EXPERIMENTO "deixa correr": cada C_HIBRIDA tem um gêmeo C_CORRE (mesma entrada), p/ isolar
+        # o efeito da SAÍDA no /relatorio.
+        ccorre = [d for d in decs if d["variante"] == "C_CORRE"]
+        assert len(ccorre) == len(cs), (len(ccorre), len(cs))
+        assert {(d["estrategia"], d["direcao"], d["resultado"]) for d in ccorre} == \
+               {(d["estrategia"], d["direcao"], d["resultado"]) for d in cs}, "C_CORRE espelha a entrada da C"
         conn.close()
     finally:
         os.remove(caminho)

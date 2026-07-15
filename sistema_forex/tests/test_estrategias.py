@@ -772,6 +772,14 @@ def test_gestao_saida_variante_a_controle_nunca_mexe():
     assert d == {"novo_sl": 1.0990, "fechar": False, "motivo": ""}, d
 
 
+def test_gestao_saida_variante_c_corre_deixa_andar():
+    # EXPERIMENTO: C_CORRE NÃO tem saída fuzzy (só o gestor genérico) — no-op mesmo com M5 contra e
+    # exaustão. Prova que o livro "deixa correr" não é cortado cedo pela camada fuzzy.
+    d = e.gestao_saida_variante("C_CORRE", "compra", 1.1000, 1.0990, fuzzy_m5=10,
+                                exausto=True, vwap=1.2000, m5_min=60, aperto=0.5)
+    assert d == {"novo_sl": 1.0990, "fechar": False, "motivo": ""}, d
+
+
 # --------------------------------------------------------------------------- #
 # FAMÍLIA D_LINHAS — dinâmica das curvas de score fuzzy
 # --------------------------------------------------------------------------- #

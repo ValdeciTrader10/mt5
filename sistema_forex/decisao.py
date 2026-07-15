@@ -469,6 +469,13 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             )
             if dc is not None:
                 decs.append(dc)
+                # Experimento "deixa correr": gêmeo com a MESMA entrada, marcado C_CORRE — no executor
+                # ele NÃO passa pela saída fuzzy (cai no gestor genérico = stop + giveback estrutural),
+                # isolando o efeito da SAÍDA (C_HIBRIDA corta cedo × C_CORRE deixa andar).
+                if config.EXPERIMENTO_CORRE_HABILITADO:
+                    gemeo = dict(dc)
+                    gemeo["variante"] = estrategias.VARIANTE_C_CORRE
+                    decs.append(gemeo)
 
     # FAMÍLIA D_LINHAS — estratégias pela DINÂMICA das linhas de score (4º cenário, aditivo). Cada
     # uma é um livro de sombra próprio (variante=D_LINHAS), comparável no /relatorio.

@@ -45,6 +45,9 @@ ESTRATEGIA_EXAUSTAO = "fuzzy_exaustao_v1"              # D — clímax: score sa
 VARIANTE_A = "A_ORIGINAL"
 VARIANTE_B = "B_FUZZY_PURO"
 VARIANTE_C = "C_HIBRIDA"
+VARIANTE_C_CORRE = "C_CORRE"   # experimento: MESMAS entradas da C, mas saída "deixa correr" (gestor
+                               # genérico: stop + giveback estrutural, SEM o corte fuzzy antecipado).
+                               # Isola o EFEITO DA SAÍDA (C_HIBRIDA corta cedo × C_CORRE deixa andar).
 VARIANTE_LINHAS = "D_LINHAS"   # 4º cenário: estratégias pela dinâmica das linhas de score fuzzy
 
 # Estratégias da Variante A cujo gatilho é uma ZONA (S/R, order block, pivot): na Variante C, a

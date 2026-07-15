@@ -156,6 +156,21 @@ Agora `gestao_saida_variante` só FECHA depois que a posição viveu ≥ `HIBRID
 velas do SEU TF (`idade_candles` calculado nos dois executores via `config.MINUTOS_TF`); o aperto de stop
 na exaustão (só aproxima) continua valendo desde o início. Aditivo, Variante A intocada, forex + B3.
 Sem a carência a comparação A×C era inútil (C sempre raspava −1 pip). Env `HIBRIDA_SAIDA_MIN_CANDLES`.
+
+## Experimento C_CORRE — "deixa correr" × corte fuzzy (15/07, motivado pela 1ª auditoria real da B3)
+A auditoria de 180 trades reais (B3, 14/07: PF 1,65, +R$1052) revelou o vazamento da SAÍDA: a **saída
+antecipada da Variante C dominou (132/180 trades) mas rendeu só +1,91/trade**, enquanto quem foi
+DEIXADO CORRER (giveback estrutural "reversão cedeu R do pico") rendeu **+56,75** (n=8, 100% wr) e o
+fechamento do pregão +16,73 (n=26) — ou seja, o corte fuzzy CAPA os vencedores cedo. (2º achado: **M1
+é ralo** — negativo/fino em TODAS as estratégias pelo custo/spread; M5/M15 carregam o edge. M1 segue
+só observação.) Para MEDIR isso limpo (sem contaminar a C que roda), `decisao.avaliar_par` agora gera,
+p/ cada decisão da C, um GÊMEO `variante=C_CORRE` com a MESMA entrada; no executor o C_CORRE **não** está
+no set `("B_FUZZY_PURO","C_HIBRIDA")` da `gestao_saida_variante` → cai no gestor genérico (stop + giveback,
+SEM corte fuzzy). Assim o /relatorio compara `C_HIBRIDA` (corta cedo) × `C_CORRE` (deixa andar) isolando
+SÓ a saída (mesmas entradas). Env `EXPERIMENTO_CORRE_HABILITADO` (default on). Testes: gêmeo gerado
+(`test_multitf`) + `gestao_saida_variante("C_CORRE")` é no-op (`test_estrategias`). ⚠️ Depois de dias de
+amostra: se C_CORRE > C_HIBRIDA, aposentar a saída fuzzy e deixar os vencedores correrem; a "prejuízo
+pequeno" (stop estrutural apertado) é uma calibração SEPARADA (não confundir com este teste de saída).
 ⚠️ Aperto de stop da exaustão é in-memory (não persiste em `sl_servidor`); some num restart do executor
 (aceitável na sombra). Próximo passo de auditoria: comparar exp. de C (com saída nova) vs A no /relatorio.
 
