@@ -134,8 +134,13 @@ def _janela(conn, par: str, tf: str, n: int) -> dict:
 
 
 def _ultimo_evento(conn, par: str):
+    # M1 FORA: com o M1 coletado, o "último evento" era quase sempre um micro-BOS/CHoCH de M1
+    # (swing a cada poucos minutos) — o contexto de estrutura das estratégias virava ruído,
+    # contra a metodologia (estrutura de contexto = TFs maiores). M5+ preserva a intenção
+    # original (antes do M1 entrar na coleta, o TF mais fino era o M5).
     r = conn.execute(
-        "SELECT evento, direcao, tf FROM estrutura WHERE par=? ORDER BY time_utc DESC LIMIT 1",
+        "SELECT evento, direcao, tf FROM estrutura WHERE par=? AND tf != 'M1' "
+        "ORDER BY time_utc DESC LIMIT 1",
         (par,),
     ).fetchone()
     return {"evento": r["evento"], "direcao": r["direcao"], "tf": r["tf"]} if r else None
@@ -157,13 +162,41 @@ def _serie_op(conn, par: str, tf: str, n: int) -> dict:
     """Série ALINHADA candle-a-candle do TF de operação: high/low/close + score fuzzy (JOIN por
     time_utc), últimos n candles cronológicos. Base das estratégias D_LINHAS (divergência/exaustão)."""
     rows = conn.execute(
-        "SELECT c.high, c.low, c.close, f.score FROM candles c "
+        "SELECT c.time_utc, c.high, c.low, c.close, f.score FROM candles c "
         "JOIN fuzzy_scores f ON f.par=c.par AND f.tf=c.tf AND f.time_utc=c.time_utc "
         "WHERE c.par=? AND c.tf=? ORDER BY c.time_utc DESC LIMIT ?",
         (par, tf, n)).fetchall()
     rows = list(reversed(rows))
     return {"high": [r["high"] for r in rows], "low": [r["low"] for r in rows],
-            "close": [r["close"] for r in rows], "score": [r["score"] for r in rows]}
+            "close": [r["close"] for r in rows], "score": [r["score"] for r in rows],
+            "time": [r["time_utc"] for r in rows]}
+
+
+def _score_acima_alinhado(conn, par: str, tf_op: str, tf_acima: str, tempos: list) -> list:
+    """Scores do TF ACIMA alinhados (asof pelo FECHAMENTO) aos candles do TF de operação.
+
+    O `score_acima` antigo era só "os últimos N scores do TF acima", comparado POSICIONALMENTE
+    com a série do TF de operação no pullback do leque — misturava instantes diferentes (M5 de
+    5min atrás vs M15 de 15min atrás; o "reengate" disparava pelo movimento da LENTA). Aqui
+    lenta[j] = último score do TF acima cujo candle já FECHOU quando o candle rápido j fechou
+    (sem look-ahead; None no início da janela, antes do 1º fechamento do TF acima)."""
+    if not tempos:
+        return []
+    passo_op = config.MINUTOS_TF.get(tf_op, 5) * 60
+    passo_ac = config.MINUTOS_TF.get(tf_acima, 15) * 60
+    rows = conn.execute(
+        "SELECT time_utc, score FROM fuzzy_scores WHERE par=? AND tf=? AND time_utc>=? "
+        "ORDER BY time_utc",
+        (par, tf_acima, tempos[0] - 48 * 3600)).fetchall()
+    serie = [(r["time_utc"] + passo_ac, r["score"]) for r in rows]   # (fechamento, score)
+    out, j, ult = [], 0, None
+    for t in tempos:
+        ref = t + passo_op            # quando o candle rápido fecha (= quando a decisão o vê)
+        while j < len(serie) and serie[j][0] <= ref:
+            ult = serie[j][1]
+            j += 1
+        out.append(ult)
+    return out
 
 
 def _score_serie(conn, par: str, tf: str, n: int) -> list:
@@ -246,8 +279,9 @@ def montar_snapshot(conn, par: str, tf: str, candle) -> dict:
         "m5_janela": _janela(conn, par, tf, config.SWEEP_JANELA),
         # Família D_LINHAS (dinâmica das curvas de score): série alinhada preço×score do TF de
         # operação, a linha do TF ACIMA (leque) e o histórico da Sync (flip de alinhamento).
-        "serie_op": _serie_op(conn, par, tf, config.LINHAS_JANELA),
-        "score_acima": _score_serie(conn, par, config.TF_ACIMA.get(tf, tf), config.LINHAS_JANELA),
+        "serie_op": (_so := _serie_op(conn, par, tf, config.LINHAS_JANELA)),
+        "score_acima": _score_acima_alinhado(conn, par, tf, config.TF_ACIMA.get(tf, tf),
+                                             _so.get("time") or []),
         "sync_ult": _sync_ult(conn, par, 2),
         # Família E_SENTINELA: FORÇA contínua (micro/macro) + LEQUE, atual e histórico curto.
         "forca_serie": (_fl := _forca_leque(conn, par, tf, config.SENT_FORCA_JANELA)),
@@ -541,13 +575,22 @@ def _pip_par(par: str) -> float:
 def _or_londres(conn, par: str, tf: str, candle) -> dict:
     """Estado de sessão do breakout de Londres p/ o candle atual (sem look-ahead): a FAIXA DE ABERTURA
     (OR) do dia + se ESTE candle é o PRIMEIRO fechamento que a rompe, dentro da janela. Devolve
-    {entrar, direcao, sl_pips, or_high, or_low} ou {} (fora da janela / sem OR)."""
+    {entrar, direcao, sl_pips, or_high, or_low} ou {} (fora da janela / sem OR).
+
+    ⚠️ No H1 a "OR de 45min" é na prática a 1ª VELA INTEIRA (60min — o high/low do candle das 10h
+    cobre 10:00–11:00): igual ao estudo histórico que validou o edge, mas os livros M15 e H1 NÃO
+    testam a mesma OR (a do H1 é maior) — lembrar disso ao comparar M15×H1 no relatório."""
     t = candle["time_utc"]
     dia0 = t - (t % 86400)
     or_ini = dia0 + config.BREAKOUT_OR_HORA * 3600
     or_fim = or_ini + config.BREAKOUT_OR_MIN * 60
     janela_fim = dia0 + config.BREAKOUT_FIM_HORA * 3600
-    if not (or_fim <= t < janela_fim):          # só na janela de entrada (após a OR, antes do fim)
+    passo = config.MINUTOS_TF.get(tf, 15) * 60
+    # Janela de entrada: após a OR e com o candle FECHANDO antes do fim da janela. Sem o
+    # `t+passo`, o candle que abre antes das 17h mas FECHA às 17h (H1 das 16h, M15 das 16:45)
+    # gerava decisão ~17:00 → o executor abria e fechava em segundos ("fim da janela") =
+    # trade-lixo de −spread sistematicamente no livro.
+    if not (or_fim <= t and t + passo < janela_fim):
         return {}
     r = conn.execute("SELECT MAX(high) hi, MIN(low) lo FROM candles WHERE par=? AND tf=? "
                      "AND time_utc>=? AND time_utc<?", (par, tf, or_ini, or_fim)).fetchone()
@@ -640,6 +683,30 @@ def um_ciclo(conn, ultimo_visto: dict) -> None:
                     log.exception("Falha no breakout %s %s", par, tf)
 
 
+def watermark_inicial(conn, mercado: str = "forex") -> dict:
+    """Semeia `ultimo_visto` do BANCO no arranque: o último candle já DECIDIDO por (par, tf).
+
+    Sem isso, todo restart (Dokploy redeploya a cada push) reavaliava o candle corrente — que o
+    processo anterior já tinha avaliado — e gravava ~20 decisões DUPLICADAS por livro (N inflado
+    no /relatorio e no gate; e, se a posição original já tivesse fechado, o executor reabria o
+    mesmo sinal atrasado). Também bloqueia decidir sobre um candle VELHO após downtime longo
+    (fim de semana): se ele já foi decidido, não é redecidido.
+    """
+    marca = {}
+    filtro = "mercado='b3'" if mercado == "b3" else "(mercado IS NULL OR mercado='forex')"
+    for r in conn.execute(
+        f"SELECT par, tf, MAX(time_utc) t FROM decisoes "
+        f"WHERE {filtro} AND variante != 'F_BREAKOUT' GROUP BY par, tf"
+    ):
+        marca[(r["par"], r["tf"])] = r["t"]
+    for r in conn.execute(
+        f"SELECT par, tf, MAX(time_utc) t FROM decisoes "
+        f"WHERE {filtro} AND variante = 'F_BREAKOUT' GROUP BY par, tf"
+    ):
+        marca[("BRK", r["par"], r["tf"])] = r["t"]
+    return marca
+
+
 def main() -> None:
     logging.basicConfig(
         level=config.LOG_LEVEL,
@@ -653,12 +720,13 @@ def main() -> None:
     log.info("Estrategista (modo sombra) iniciado. Pares: %s | TFs de operação: %s",
              ", ".join(config.PARES), ", ".join(config.TFS_OPERACAO))
 
-    ultimo_visto = {}
+    ultimo_visto = None
     with db.sessao() as conn:
         if uma_vez:
             # Em debug, força avaliar o candle atual mesmo que já visto.
             um_ciclo(conn, {})
             return
+        ultimo_visto = watermark_inicial(conn)   # não redecide candle já decidido (restart)
         while not _parar:
             um_ciclo(conn, ultimo_visto)
             for _ in range(config.DECISAO_POLL_S):

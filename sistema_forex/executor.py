@@ -41,11 +41,25 @@ def _tratar_sinal(signum, frame):  # pragma: no cover
 _OFFSET_SERVIDOR = 0
 
 
+_OFFSET_DEFINIDO = False
+
+
 def _atualizar_offset(hora_servidor: int) -> None:
     """Recalcula o offset servidor↔UTC a partir de um tick (arredondado à HORA cheia, que é o
-    formato de um fuso de broker — evita ruído de latência do tick)."""
-    global _OFFSET_SERVIDOR
-    _OFFSET_SERVIDOR = int(round((hora_servidor - int(time.time())) / 3600.0) * 3600)
+    formato de um fuso de broker — evita ruído de latência do tick).
+
+    Guardas contra TICK VELHO (fim de semana/feriado o symbol_info_tick devolve o último tick
+    de sexta): sem elas o offset derivava −1h por hora parada e `_agora()` congelava no passado.
+    (1) offset de broker plausível é ±12h; (2) depois de definido, só aceita variação de ±1h
+    (cobre a troca de DST do broker; um tick muito velho produz salto maior e é ignorado)."""
+    global _OFFSET_SERVIDOR, _OFFSET_DEFINIDO
+    novo = int(round((hora_servidor - int(time.time())) / 3600.0) * 3600)
+    if abs(novo) > 12 * 3600:
+        return
+    if _OFFSET_DEFINIDO and abs(novo - _OFFSET_SERVIDOR) > 3600:
+        return
+    _OFFSET_SERVIDOR = novo
+    _OFFSET_DEFINIDO = True
 
 
 def _agora() -> int:
@@ -227,6 +241,7 @@ class Executor:
         self.simbolos = {}         # par -> símbolo real
         self._tick_cache = {}      # símbolo -> tick, reusado dentro do MESMO ciclo (fan-out)
         self._ctx_cache = {}       # par -> (scores_fuzzy, vwap), reusado no MESMO ciclo (gestão por variante)
+        self._pip_conhecido = {}   # símbolo -> pip (cache duradouro; ver _pip)
         self.ultima_decisao_id = 0
         self.saldo_inicial_dia = None
         self.dia = None
@@ -239,11 +254,16 @@ class Executor:
             self.simbolos[par] = mt5_bridge.resolver_simbolo(par)
         return self.simbolos[par]
 
-    def _pip(self, simbolo: str) -> float:
+    def _pip(self, simbolo: str):
+        """Pip do símbolo, CACHEADO no sucesso; na falha devolve o último conhecido ou None.
+        O fallback antigo (0.0001 em qualquer exceção) errava 100× num par JPY durante uma
+        falha transitória da ponte — melhor pular o ciclo do que degradar em silêncio."""
         try:
-            return mt5_bridge.tamanho_pip(simbolo)
+            pip = mt5_bridge.tamanho_pip(simbolo)
+            self._pip_conhecido[simbolo] = pip
+            return pip
         except Exception:  # noqa: BLE001
-            return 0.0001
+            return self._pip_conhecido.get(simbolo)
 
     def _tick(self, simbolo):
         """Tick do símbolo, cacheado por CICLO: com dezenas de posições simuladas de vários
@@ -318,7 +338,8 @@ class Executor:
         # Meia-noite do SERVIDOR (fechamento_utc é hora de servidor — mesmo relógio do MetaTrader).
         hoje0 = _agora() - (_agora() % 86400)
         realizado = conn.execute(
-            "SELECT COALESCE(SUM(lucro_usd),0) s FROM trades WHERE simulado=1 AND fechamento_utc>=?", (hoje0,)
+            "SELECT COALESCE(SUM(lucro_usd),0) s FROM trades WHERE simulado=1 AND fechamento_utc>=? "
+            "AND (mercado IS NULL OR mercado='forex')", (hoje0,)
         ).fetchone()["s"]
         nao_real = 0.0
         for p in self.abertas.values():
@@ -332,8 +353,12 @@ class Executor:
         # Dia do SERVIDOR (MetaTrader), consistente com abertura/fechamento_utc e os candles.
         dia = datetime.utcfromtimestamp(_agora()).date().isoformat()
         if dia != self.dia:
+            # Equity ANTES de marcar o dia: se a ponte falhar aqui, o dia NÃO é marcado e o
+            # reset re-tenta no próximo ciclo (marcar antes deixava o DD diário sem referência
+            # — e portanto desligado — o dia inteiro).
+            saldo = self._equity(conn) or config.SALDO_SIMULADO
             self.dia = dia
-            self.saldo_inicial_dia = self._equity(conn) or config.SALDO_SIMULADO
+            self.saldo_inicial_dia = saldo
             self.dd_avisado = False
             log.info("Novo dia %s (servidor) — saldo inicial de referência: %.2f",
                      dia, self.saldo_inicial_dia)
@@ -366,8 +391,19 @@ class Executor:
             if not p.get("real"):
                 continue  # posições virtuais têm ticket sintético — não reconciliar
             if p["ticket"] not in vivos:
-                preco = self._preco_saida(p["simbolo"], p["direcao"]) or p["preco_entrada"]
+                # Preço honesto = o do DEAL de saída no broker (o tick de agora pode já ter
+                # voltado); sem deal (histórico ainda não sincronizado), tick como fallback.
+                preco = None
+                try:
+                    preco = mt5_bridge.preco_saida_deal(p["ticket"])
+                except Exception:  # noqa: BLE001
+                    pass
+                if preco is None:
+                    log.warning("Reconciliação %s: deal de saída não encontrado — usando tick", p["par"])
+                    preco = self._preco_saida(p["simbolo"], p["direcao"]) or p["preco_entrada"]
                 pip = self._pip(p["simbolo"])
+                if pip is None:
+                    continue   # sem pip confiável neste ciclo — reconcilia no próximo
                 pips = gestao.pips(p["direcao"], p["preco_entrada"], preco, pip)
                 lucro = mt5_bridge.calc_lucro(p["direcao"], p["simbolo"], p["lote"], p["preco_entrada"], preco)
                 _fechar_trade(conn, trade_id, preco, round(pips, 1), lucro, "fechada no servidor (SL/manual)",
@@ -396,11 +432,13 @@ class Executor:
             if preco is None:
                 continue
             pip = self._pip(p["simbolo"])
+            if pip is None:
+                continue   # falha transitória da ponte sem pip conhecido — pula o ciclo
 
-            # Gestão de saída POR VARIANTE (só sombra B/C; a Variante A controle nunca passa aqui).
-            # Liga as saídas desenhadas de cada variante (roadmap Etapas 5/6, antes só catalogadas
-            # pela saída genérica) — motivado pela auditoria: perdedoras saíam 100% no stop cheio.
-            if (not p.get("real") and config.GESTAO_POR_VARIANTE
+            # Gestão de saída POR VARIANTE (B/C; a Variante A controle nunca passa aqui). Vale
+            # p/ sombra E real: se um livro B/C um dia rodar real, a saída tem de ser a MESMA
+            # validada na sombra (cair no gestor genérico mediria outra estratégia).
+            if (config.GESTAO_POR_VARIANTE
                     and p.get("variante") in ("B_FUZZY_PURO", "C_HIBRIDA")):
                 scores, vwap = self._ctx_variante(conn, p["par"])
                 idade_candles = ((_agora() - p["abertura_utc"])
@@ -412,7 +450,7 @@ class Executor:
                     vwap=vwap, m5_min=config.HIBRIDA_SAIDA_M5_MIN, aperto=config.HIBRIDA_STOP_APERTO,
                     idade_candles=idade_candles, min_candles=config.HIBRIDA_SAIDA_MIN_CANDLES)
                 if dec["novo_sl"] != p["sl"]:
-                    p["sl"] = dec["novo_sl"]       # exaustão apertou o stop virtual (só aproxima)
+                    self._mover_sl(conn, p, dec["novo_sl"])   # aperto persiste (sobrevive restart)
                 if dec["fechar"]:
                     self._fechar(conn, p, preco, pip, dec["motivo"])
                     continue
@@ -423,6 +461,11 @@ class Executor:
                 bateu = (p["direcao"] == "compra" and preco <= p["sl"]) or \
                         (p["direcao"] == "venda" and preco >= p["sl"])
                 if bateu:
+                    # MAE honesto: registra a excursão até o PREÇO DO STOP (sem isso o trade
+                    # estopado gravava o MAE do tick anterior, ~−0,8R num stop de −1R, e a
+                    # auditoria por MAE/MFE lia um número que não bate com a saída).
+                    r_stop = gestao.r_por_risco(p["direcao"], p["preco_entrada"], p["sl"], p["risco"])
+                    p["mae_r"] = min(p["mae_r"], r_stop)
                     self._fechar(conn, p, p["sl"], pip, "stop no servidor")
                     continue
 
@@ -454,11 +497,11 @@ class Executor:
                 _persistir_ao_vivo(conn, p["trade_id"], round(r, 3),
                                    round(lucro_atual, 2) if lucro_atual is not None else None)
 
-            # Gestão F_BREAKOUT (só sombra): "deixa correr" — NÃO passa pelo gestor genérico
-            # (giveback/BE/tempo cortariam o runner). Saídas: (a) stop estrutural/protegido, emulado
-            # pelo bloco de emergência acima; (b) fim da janela de Londres; (c) na variante de
-            # PROTEÇÃO, trava +BREAKOUT_PROT_LOCK_PIPS após andar +BREAKOUT_PROT_TRIGGER_PIPS a favor.
-            if not p.get("real") and p.get("variante") == "F_BREAKOUT":
+            # Gestão F_BREAKOUT (sombra E real): "deixa correr" — NÃO passa pelo gestor genérico
+            # (giveback/BE/tempo cortariam o runner). Saídas: (a) stop estrutural/protegido (virtual:
+            # emulado pela emergência acima; real: SL de servidor); (b) fim da janela de Londres;
+            # (c) na variante de PROTEÇÃO, trava +BREAKOUT_PROT_LOCK_PIPS após +BREAKOUT_PROT_TRIGGER_PIPS.
+            if p.get("variante") == "F_BREAKOUT":
                 hora = int((_agora() % 86400) // 3600)
                 mfe_pips = p["mfe_r"] * p["risco"] / pip if pip else 0.0
                 dec = estrategias.gerir_breakout(
@@ -467,7 +510,7 @@ class Executor:
                     trig_pips=config.BREAKOUT_PROT_TRIGGER_PIPS, lock_pips=config.BREAKOUT_PROT_LOCK_PIPS,
                     pip=pip, prot_estrategia=estrategias.ESTRATEGIA_BREAKOUT_PROT)
                 if dec["novo_sl"] != p["sl"]:
-                    p["sl"] = dec["novo_sl"]        # proteção travou o lucro parcial
+                    self._mover_sl(conn, p, dec["novo_sl"])   # trava persiste (sobrevive restart)
                 if dec["fechar"]:
                     self._fechar(conn, p, preco, pip, dec["motivo"])
                 continue
@@ -502,15 +545,21 @@ class Executor:
         log.info(msg)
         telegram_notif.enviar(msg)
 
-    def _mover_be(self, conn, p):
-        p["sl"] = p["preco_entrada"]
-        p["be_movido"] = True
+    def _mover_sl(self, conn, p, novo_sl):
+        """Move o stop de uma posição (proteção do breakout / aperto de exaustão): atualiza o
+        estado em memória, PERSISTE em `sl_servidor` (painel/raio-X certos + sobrevive restart)
+        e, se a posição é real, move o SL no broker."""
+        p["sl"] = novo_sl
         if p.get("real"):
             try:
-                mt5_bridge.mover_sl(p["ticket"], p["preco_entrada"])
+                mt5_bridge.mover_sl(p["ticket"], novo_sl)
             except Exception:  # noqa: BLE001
-                log.exception("Falha ao mover SL p/ BE em %s", p["par"])
-        _atualizar_sl(conn, p["trade_id"], p["preco_entrada"])
+                log.exception("Falha ao mover SL em %s — banco/memória seguem no novo valor", p["par"])
+        _atualizar_sl(conn, p["trade_id"], novo_sl)
+
+    def _mover_be(self, conn, p):
+        self._mover_sl(conn, p, p["preco_entrada"])
+        p["be_movido"] = True
         log.info("↔ %s %s → break-even", p["par"], p["direcao"])
 
     # -- novas entradas --
@@ -523,6 +572,14 @@ class Executor:
             estrategia = d["estrategia"]
             variante = d["variante"] or "A_ORIGINAL"
 
+            # Decisão VELHA nunca abre (downtime/fila): o tick de agora não é o contexto do
+            # sinal — abrir atrasado registraria uma simulação desonesta no catálogo.
+            if d["criada_utc"] and (time.time() - d["criada_utc"]) > config.ENTRADA_MAX_ATRASO_S:
+                log.warning("Decisão %d (%s %s %s) descartada: %.0fs de atraso (> %ds)",
+                            d["id"], par, tf, estrategia,
+                            time.time() - d["criada_utc"], config.ENTRADA_MAX_ATRASO_S)
+                continue
+
             # LIVRO SOMBRA (virtual): cataloga TODAS as combinações (incl. cada variante como livro
             # próprio) — salvo no full-real, em que só existe o livro real.
             if not self.ativa and pode_abrir(self.abertas.values(), par, tf, estrategia,
@@ -530,8 +587,14 @@ class Executor:
                                              variante=variante):
                 self._abrir_seguro(conn, par, tf, direcao, estrategia, real=False, d=d)
 
-            # LIVRO REAL (demo): full-real abre tudo; curado abre só as combinações positivas.
-            quer_real = self.ativa or (self.real_curada and config.combo_real(estrategia, tf))
+            # LIVRO REAL (demo). C_HIBRIDA/C_CORRE são ESPELHOS da entrada da A (mesma
+            # estratégia/candle) — executá-los em real junto com a A abriria até 3 ordens
+            # idênticas do mesmo setup (risco triplicado). Full-real abre tudo MENOS os
+            # espelhos; o curado abre só as combinações positivas e SÓ a Variante A
+            # (promover B/C/D/E/F exige aprovação da Etapa 9 por variante).
+            espelho = variante in ("C_HIBRIDA", "C_CORRE")
+            quer_real = (self.ativa and not espelho) or \
+                (self.real_curada and variante == "A_ORIGINAL" and config.combo_real(estrategia, tf))
             if quer_real and self._pode_abrir_real(par, tf, direcao, estrategia, variante):
                 self._abrir_seguro(conn, par, tf, direcao, estrategia, real=True, d=d)
 
@@ -558,6 +621,9 @@ class Executor:
     def _abrir(self, conn, par, tf, direcao, estrategia, *, real, d):
         simbolo = self._simbolo(par)
         pip = self._pip(simbolo)
+        if pip is None:
+            log.warning("Sem pip confiável p/ %s (ponte instável) — decisão não abre", par)
+            return
         atr = _atr(conn, par, tf)
         assumido = self._preco_entrada(simbolo, direcao)   # preço-sinal (o que a sombra assume)
         if assumido is None:
@@ -577,6 +643,9 @@ class Executor:
             slp = _dd.get("sl_pips")
             if slp:
                 sl = assumido - slp * pip if direcao == "compra" else assumido + slp * pip
+            else:  # nunca deve acontecer (a decisão 'entrou' sempre grava sl_pips) — não silenciar
+                log.warning("F_BREAKOUT %s %s sem sl_pips na decisão %s — caindo no stop ATR",
+                            par, tf, d["id"])
         entrada, ticket, fill = assumido, None, {}
         if real:
             if not mt5_bridge.verificar_margem(simbolo, config.LOTE, direcao == "compra"):
@@ -648,6 +717,11 @@ def main() -> None:
                 ex.ciclo(conn)
             except mt5_bridge.MT5Erro as e:
                 log.error("Ponte MT5 indisponível: %s", e)
+            except (EOFError, ConnectionError, OSError) as e:
+                # Proxy RPyC morto (container mt5 redeployado): resetar p/ reconectar no próximo
+                # ciclo — sem isso o executor loga erro para sempre e o catálogo para em silêncio.
+                log.error("Conexão com a ponte MT5 caiu (%s) — agendando reconexão", e)
+                mt5_bridge.reconectar()
             except Exception:  # noqa: BLE001
                 log.exception("Erro inesperado no ciclo do executor")
             for _ in range(config.GESTOR_POLL_S):

@@ -90,16 +90,18 @@ def _normalizar_motivo(motivo: str) -> str:
     return m.strip() or "—"
 
 
-def _sessao(hora_utc: int) -> str:
-    if 7 <= hora_utc <= 11:
-        return "Londres (07–11)"
-    if 12 <= hora_utc <= 15:
-        return "Londres/NY (12–15)"
-    if 16 <= hora_utc <= 20:
-        return "Nova York (16–20)"
-    if 0 <= hora_utc <= 6:
-        return "Ásia (00–06)"
-    return "Fora de sessão (21–23)"
+def _sessao(hora_srv: int) -> str:
+    # Hora do SERVIDOR (UTC+3) — mesmos buckets do painel (app._sessao); os rótulos antigos em
+    # UTC deslocavam a análise por sessão em 3h.
+    if 10 <= hora_srv <= 14:
+        return "Londres (10–14 srv)"
+    if 15 <= hora_srv <= 18:
+        return "Londres/NY (15–18 srv)"
+    if 19 <= hora_srv <= 23:
+        return "Nova York (19–23 srv)"
+    if 3 <= hora_srv <= 9:
+        return "Ásia (03–09 srv)"
+    return "Fora de sessão (00–02 srv)"
 
 
 def _epoch(data_iso: str, fim: bool = False):
@@ -192,8 +194,10 @@ def _veredito(kpi: dict, flags: dict) -> str:
 def _buscar_perdedores(conn, de_e, ate_e, limite_detalhe, mercado="forex"):
     """Lê trades fechados no intervalo e devolve (todos_dict, perdedores_enriquecidos).
 
-    `mercado` isola os livros: 'forex' (default) exclui a B3 (legado NULL = forex); 'b3' só WIN/WDO."""
-    cond, args = ["fechamento_utc IS NOT NULL"], []
+    `mercado` isola os livros: 'forex' (default) exclui a B3 (legado NULL = forex); 'b3' só WIN/WDO.
+    Só o livro SOMBRA (simulado=1): com o paralelo curado ligado, o gêmeo real duplicaria cada
+    perdedora curada e distorceria flags/vereditos do dossiê."""
+    cond, args = ["fechamento_utc IS NOT NULL", "simulado=1"], []
     if mercado == "b3":
         cond.append("mercado='b3'")
     else:

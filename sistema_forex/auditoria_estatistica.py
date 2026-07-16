@@ -78,7 +78,10 @@ def avaliar_celula(trades: list, *, min_sinais: int, pf_min: float, exige_split:
     kpi = _agg(trades)
     split = _split_half_celula(trades, min_por_metade)
 
-    c_amostra = kpi["n"] >= min_sinais
+    # N honesto = trades COM r calculável (n_com_r): a exp_r é a média só deles — contar
+    # trades sem r no critério de amostra deixaria uma célula passar o N≥50 com a expectância
+    # calculada sobre menos observações do que o gate exige.
+    c_amostra = kpi["n_com_r"] >= min_sinais
     c_exp = kpi["exp_r"] is not None and kpi["exp_r"] > 0
     c_pf = _pf_ok(kpi["profit_factor"], kpi["exp_r"], pf_min)
     c_split = split["estavel"] if exige_split else True
@@ -88,7 +91,7 @@ def avaliar_celula(trades: list, *, min_sinais: int, pf_min: float, exige_split:
 
     motivos = []
     if not c_amostra:
-        motivos.append(f"amostra {kpi['n']} < {min_sinais}")
+        motivos.append(f"amostra {kpi['n_com_r']} < {min_sinais}")
     if not c_exp:
         motivos.append("expectância R ≤ 0")
     if not c_pf:
@@ -130,14 +133,16 @@ def _config_sugerida(aprovadas: list) -> dict:
 # Auditoria completa do intervalo
 # --------------------------------------------------------------------------- #
 def auditar(conn, de: str = "", ate: str = "", *, min_sinais: int = None, pf_min: float = None,
-            exige_split: bool = None) -> dict:
+            exige_split: bool = None, mercado: str = "forex") -> dict:
     """Roda o gate sobre TODAS as células do livro sombra fechado no intervalo e monta o veredito
-    (aprovadas, testadas, nota de múltiplos testes, config sugerida)."""
+    (aprovadas, testadas, nota de múltiplos testes, config sugerida). SÓ um mercado por vez:
+    a config sugerida alimenta o executor curado do FOREX — uma célula da B3 (BRL, pregão
+    próprio) jamais pode promover estratégia/TF para o livro real do forex."""
     min_sinais = config.APROVACAO_MIN_SINAIS if min_sinais is None else min_sinais
     pf_min = config.APROVACAO_PF_MIN if pf_min is None else pf_min
     exige_split = config.APROVACAO_EXIGE_SPLIT_HALF if exige_split is None else exige_split
     de_e, ate_e = _epoch(de), _epoch(ate, fim=True)
-    trades = _carregar_trades(conn, de_e, ate_e, simulado=1)
+    trades = _carregar_trades(conn, de_e, ate_e, simulado=1, mercado=mercado)
 
     grupos: dict = {}
     for t in trades:

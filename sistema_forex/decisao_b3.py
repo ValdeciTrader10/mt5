@@ -86,11 +86,12 @@ def main() -> None:
     log.info("Estrategista B3 (sombra) iniciado. Pares: %s | TFs de operação: %s",
              ", ".join(config_b3.sombra_pares()), ", ".join(config_b3.TFS_OPERACAO_B3))
 
-    ultimo_visto = {}
     with db.sessao() as conn:
         if "--uma-vez" in sys.argv:
             um_ciclo(conn, {})
             return
+        # Não redecide candle já decidido (restart) — mesma marca-d'água do forex, livro b3.
+        ultimo_visto = decisao.watermark_inicial(conn, mercado="b3")
         while not _parar:
             um_ciclo(conn, ultimo_visto)
             for _ in range(config_b3.DECISAO_B3_POLL_S):

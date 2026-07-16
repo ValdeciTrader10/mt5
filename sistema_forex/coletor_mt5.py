@@ -36,13 +36,20 @@ def _tratar_sinal(signum, frame):  # pragma: no cover - sinal do SO
 # --------------------------------------------------------------------------- #
 # Persistência
 # --------------------------------------------------------------------------- #
-def gravar_candles(conn, par: str, tf: str, candles: list) -> int:
-    """Insere candles com INSERT OR IGNORE. Retorna quantos foram efetivamente novos."""
+def gravar_candles(conn, par: str, tf: str, candles: list, substituir: bool = False) -> int:
+    """Insere candles com INSERT OR IGNORE. Retorna quantos foram efetivamente novos.
+
+    `substituir=True` (usado no BACKFILL) grava com INSERT OR REPLACE: o histórico do broker
+    é a fonte da verdade e SOBRESCREVE qualquer candle divergente já gravado — é o saneamento
+    dos candles parciais que versões antigas do backfill congelaram no banco (o backfill
+    gravava a barra em formação e o OR IGNORE do incremental nunca a corrigia).
+    """
     if not candles:
         return 0
+    verbo = "REPLACE" if substituir else "IGNORE"
     cur = conn.executemany(
-        """
-        INSERT OR IGNORE INTO candles
+        f"""
+        INSERT OR {verbo} INTO candles
             (par, tf, time_utc, open, high, low, close, tick_volume, real_volume, spread)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
@@ -118,10 +125,13 @@ def backfill(conn, simbolos: dict) -> None:
         for tf in config.TFS_COLETA:
             alvo = _alvo_barras(tf)
             candles = _backfill_tf(simbolo, tf, alvo)
-            novos = gravar_candles(conn, par, tf, candles)
+            # A ÚLTIMA barra de copy_rates_from_pos(pos=0) está EM FORMAÇÃO — nunca persistir
+            # (senão o OR IGNORE do incremental congela o snapshot parcial para sempre).
+            # `substituir=True` também SANEIA parciais congelados por versões antigas.
+            novos = gravar_candles(conn, par, tf, candles[:-1], substituir=True)
             conn.commit()
             log.info(
-                "Backfill %s %s: %d candles recebidos (alvo %d), %d novos, total no banco %d",
+                "Backfill %s %s: %d candles recebidos (alvo %d), %d gravados/saneados, total no banco %d",
                 par, tf, len(candles), alvo, novos, contar(conn, par, tf),
             )
 
@@ -192,6 +202,9 @@ def loop(conn, simbolos: dict) -> None:
                 log.debug("Nenhum candle novo. Latência do ciclo: %.2fs", time.monotonic() - t0)
         except mt5_bridge.MT5Erro as e:
             log.error("Erro de ponte MT5: %s — tentando de novo em %ss", e, config.COLETOR_POLL_S)
+        except (EOFError, ConnectionError, OSError) as e:
+            log.error("Conexão com a ponte MT5 caiu (%s) — agendando reconexão", e)
+            mt5_bridge.reconectar()
         except Exception:  # noqa: BLE001 - loop resiliente
             log.exception("Erro inesperado no loop do coletor")
         # Espera interrompível.

@@ -158,8 +158,16 @@ def pontuar(carac: dict) -> dict:
     w_imp = min(medio, max(corpo_cheio, v_alto))       # impulso comum      → 0.7
     w_norm = min(medio, v_baixo)                       # movimento sem lastro→ 0.45
     w_fraco = fraco                                    # quase parado        → 0.15
-    num = w_rally * 1.0 + w_imp * 0.7 + w_norm * 0.45 + w_fraco * 0.15
-    den = w_rally + w_imp + w_norm + w_fraco
+    # Regras COMPLEMENTARES (auditoria 16/07): sem elas o eixo tinha BURACOS — um impulso
+    # forte (mov>1.3) com volume mediano zerava TODAS as regras (score 50 = doji) e, cruzando
+    # vol=1.2, saltava a 100 (única regra ativa domina a média). São complementares (1−v_alto
+    # etc.) para NÃO alterar os casos já cobertos e manter o score CONTÍNUO nas fronteiras.
+    w_imp2 = min(forte, corpo_cheio, 1 - v_alto)       # forte+corpo cheio SEM volume alto → 0.8
+    w_forte_solto = min(forte, 1 - corpo_cheio)        # forte mas pavioso                 → 0.5
+    w_medio_solto = min(medio, 1 - corpo_cheio, 1 - v_alto, 1 - v_baixo)  # médio comum    → 0.5
+    num = (w_rally * 1.0 + w_imp2 * 0.8 + w_imp * 0.7 + w_forte_solto * 0.5
+           + w_medio_solto * 0.5 + w_norm * 0.45 + w_fraco * 0.15)
+    den = w_rally + w_imp2 + w_imp + w_forte_solto + w_medio_solto + w_norm + w_fraco
     conviccao = (num / den) if den > 0 else 0.0        # 0..1
 
     # ABSORÇÃO: volume alto + corpo fraco (esforço sem resultado). Some com a convicção.
@@ -181,7 +189,9 @@ def pontuar(carac: dict) -> dict:
 
     return {
         "score": round(score, 1),
-        "estado": estado_por_score(score),
+        # Estado do score ARREDONDADO (o que é gravado): senão um 75.96 gravava score=76.0
+        # com estado 'verde' — inconsistência exatamente nas fronteiras de banda.
+        "estado": estado_por_score(round(score, 1)),
         "absorcao": absorcao_g >= 0.4,
         "exaustao": exaustao_g >= 0.35,
         "transicao": transicao,
@@ -299,20 +309,33 @@ def _softsign(x: float) -> float:
 def forca_serie(conn, par: str, tempos, *, micro_tfs=("M1", "M5"), macro_tfs=("M15", "H1"),
                 decay: float = 0.85, escala: float = 40.0) -> list:
     """Série de FORÇA/LEQUE alinhada (asof) aos instantes `tempos` (cronológicos): para cada t usa o
-    ÚLTIMO score ≤ t de cada TF e aplica `forca_sync`/`leque_spread`. Sem look-ahead (scores ≤ t).
+    último score de candle que já FECHOU em t (time_utc + minutos do TF ≤ t) de cada TF.
+
+    O asof antigo casava por time_utc (= ABERTURA do candle): num ponto histórico t=10:05 o
+    score do H1 aberto às 10:00 — computado com dados até 11:00 — era atribuído a 10:05
+    (look-ahead de até 59min no replay, e a série redesenhada não era a que existia ao vivo).
+    Casar pelo FECHAMENTO alinha o histórico com o que o processo ao vivo realmente via.
 
     A `forca` de cada ponto é um ACUMULADOR de esforço (não a média estática, que ficava quase plana):
     `acc = acc*decay + (micro+macro)` e `forca = 50 + 50·softsign(acc/escala)`. Assim a linha BALANÇA
     com a tendência (sobe enquanto compradores dominam, cai enquanto vendedores dominam) — fiel ao
     Sentinela do criador, cujo Sync Line é um acumulador. `decay` = memória (↑ = linha mais longa/suave);
     `escala` = sensibilidade (↓ = mais amplitude). `micro`/`macro`/`estado`/`divergencia` seguem instantâneos."""
+    from . import config as _cfg
     tfs = tuple(dict.fromkeys(list(micro_tfs) + list(macro_tfs)))
+    tempos = list(tempos)
+    # Janela LIMITADA: a tabela fuzzy_scores cresce sem poda (~2k linhas/par/dia) e a query
+    # sem filtro varria a tabela INTEIRA a cada snapshot — margem de 48h antes do 1º instante
+    # cobre o último H1 fechado antes da janela com folga (fim de semana incluso).
+    t_min = (tempos[0] - 48 * 3600) if tempos else 0
     sebe = {}
     for tf in tfs:
+        fecho = _cfg.MINUTOS_TF.get(tf, 5) * 60   # asof pelo FECHAMENTO do candle (sem look-ahead)
         rows = conn.execute(
-            "SELECT time_utc, score FROM fuzzy_scores WHERE par=? AND tf=? ORDER BY time_utc ASC",
-            (par, tf)).fetchall()
-        sebe[tf] = [(r["time_utc"], r["score"]) for r in rows]
+            "SELECT time_utc, score FROM fuzzy_scores WHERE par=? AND tf=? AND time_utc>=? "
+            "ORDER BY time_utc ASC",
+            (par, tf, t_min)).fetchall()
+        sebe[tf] = [(r["time_utc"] + fecho, r["score"]) for r in rows]
     ponteiro = {tf: 0 for tf in tfs}
     ult = {tf: None for tf in tfs}
     acc = 0.0

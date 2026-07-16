@@ -104,11 +104,15 @@ def _marcar_confluencia(conn, par: str, atr_ref: float) -> int:
     reforcados = 0
     for tipo in ("suporte", "resistencia"):
         rows = conn.execute(
-            "SELECT id, preco, forca, meta_json FROM niveis WHERE par=? AND tipo=? AND ativo=1",
+            "SELECT id, preco, forca, tf_origem, meta_json FROM niveis WHERE par=? AND tipo=? AND ativo=1",
             (par, tipo),
         ).fetchall()
         for r in rows:
-            vizinhos = sum(1 for x in rows if x["id"] != r["id"] and abs(x["preco"] - r["preco"]) <= tol)
+            # Vizinho tem de vir de OUTRO TF (é isso que faz "confluência" — topos/fundos de TFs
+            # distintos alinhados); dois clusters do MESMO TF colados não podem se reforçar.
+            vizinhos = sum(1 for x in rows if x["id"] != r["id"]
+                           and x["tf_origem"] != r["tf_origem"]
+                           and abs(x["preco"] - r["preco"]) <= tol)
             if not vizinhos:
                 continue
             nova_forca = round(r["forca"] * (1 + config.SR_CONFLUENCIA_BONUS * vizinhos), 1)
@@ -318,10 +322,16 @@ def analisar_par(conn, par: str) -> dict:
                 adx_v, pdi, mdi, config.ADX_TENDENCIA, config.ADX_LATERAL
             )
             resumo["regime"], resumo["adx"] = regime, round(adx_v, 1)
-            conn.execute(
-                "INSERT INTO regime_log (par, time_utc, regime, adx, atr) VALUES (?, ?, ?, ?, ?)",
-                (par, agora, regime, adx_v, atr_ref),
-            )
+            # Grava só quando o REGIME muda (as leituras usam sempre a última linha) — inserir
+            # a cada ciclo de 15s inflava o banco em ~46k linhas/dia sem informação nova.
+            ult_reg = conn.execute(
+                "SELECT regime FROM regime_log WHERE par=? ORDER BY time_utc DESC LIMIT 1", (par,)
+            ).fetchone()
+            if ult_reg is None or ult_reg["regime"] != regime:
+                conn.execute(
+                    "INSERT INTO regime_log (par, time_utc, regime, adx, atr) VALUES (?, ?, ?, ?, ?)",
+                    (par, agora, regime, adx_v, atr_ref),
+                )
 
     # Níveis de liquidez por período (pivots diários + máx/mín asiática/semana/mês). Usa a hora
     # do SERVIDOR (último candle do par), pois os candles vêm em hora de servidor.
@@ -419,6 +429,12 @@ def um_ciclo(conn) -> None:
             )
         except Exception:  # noqa: BLE001 - um par não pode derrubar o motor
             log.exception("Falha ao analisar %s", par)
+            # Sem rollback, o DELETE do _limpar_par do par que falhou ficava pendente e era
+            # PUBLICADO pelo commit do próximo par → par sem níveis por um ciclo inteiro.
+            try:
+                conn.rollback()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 # --------------------------------------------------------------------------- #

@@ -68,6 +68,77 @@ split-half como deflator. **Desconfiar de célula aprovada com N mínimo e confi
 
 ---
 
+# 🔎 AUDITORIA COMPLETA DO CÓDIGO (16/07) — ~25 bugs achados e CORRIGIDOS
+
+Auditoria adversarial de TODO o sistema (5 revisões paralelas por área + verificação manual de cada
+achado + testes de regressão). **244 testes passando.** O que foi corrigido (ordem de gravidade):
+
+**Corrompiam DADOS (afetavam a sombra em curso):**
+1. **Backfill gravava o candle EM FORMAÇÃO** e o OR IGNORE o congelava p/ sempre (a cada push/redeploy!)
+   → pivots/PDH-PDL/S-R de D1-W1/fuzzy cacheado contaminados. Fix: backfill descarta a última barra e usa
+   **INSERT OR REPLACE** → o próximo deploy SANEIA os parciais antigos dentro da profundidade do backfill.
+2. **Restart duplicava decisões** (~20/livro por push; N inflado no gate, executor podia reabrir sinal
+   atrasado) → `decisao.watermark_inicial` semeia `ultimo_visto` do banco; executores descartam decisão
+   com atraso > `ENTRADA_MAX_ATRASO_S` (300s) — também mata o trade-fantasma com tick velho pós-downtime.
+3. **/relatorio e o GATE da Etapa 9 misturavam B3 (BRL) com forex (USD)** — podiam até sugerir célula da
+   B3 p/ o `EXEC_REAL_*` do forex → filtro de `mercado` em `_carregar_trades`/`a_vs_c`/`distribuicao_
+   bloqueio`/`auditar`. Dashboard `/` e `executor._equity` idem; dossiê filtra `simulado=1`.
+4. **F_BREAKOUT: trade-lixo na borda das 17h** (candle que FECHA às 17:00 entrava e era fechado em
+   segundos, −spread sistemático na célula candidata nº 1) → o candle precisa fechar ANTES do fim da janela.
+5. **Análise "por sessão" deslocada 3h** (rótulos UTC com hora do servidor) → buckets no relógio do servidor.
+6. **MAE do trade estopado** subestimado (gravava o do tick anterior) → registra a excursão até o stop.
+
+**Mudaram a SEMÂNTICA de estratégia (bugs de lógica — livros medem agora a tese declarada):**
+7. **Motor fuzzy tinha BURACO**: impulso forte com volume mediano → score 50 (= doji) e saltava a ~100
+   cruzando vol=1.2 → regras complementares (contínuo; rally/absorção/exaustão preservados nos testes).
+8. **`forca_serie`/`score_acima` asof pela ABERTURA** do candle (score do H1 das 10h — com dados até 11h —
+   atribuído às 10:05 no replay/linha FORCA) → asof pelo **FECHAMENTO** (histórico = o que o vivo via).
+9. **`qualidade_sr` inflava rejeição**: consolidação raspando a BORDA da banda contava N toques + N
+   "rejeições" sem nunca alcançar o nível → visita contínua = 1 toque; rejeição exige FURAR o nível.
+10. **Leque (D)**: rápida×lenta comparadas por POSIÇÃO de array (instantes diferentes — o "reengate"
+    disparava pelo movimento da LENTA) → `score_acima` alinhado asof aos candles do TF de operação.
+11. **Exaustão (D)**: o OR com a VWAP fazia "banda ±2σ" aceitar qualquer preço acima da VWAP → banda de
+    verdade (VWAP só fallback). **Divergência (D)**: re-entrada serial no mesmo padrão → só entra no
+    candle em que o swing novo é confirmado. **`_ultimo_evento` sem M1** (contexto de estrutura era
+    micro-BOS de M1 = ruído). Confluência S/R exige TF distinto. `fecha_gap`: conf renomeada
+    `pavio_contrario` (o que ela realmente mede).
+
+**Robustez/modo real (latentes, corrigidos antes de ligar demo):**
+12. `positions_get` None (erro) tratado como carteira vazia → reconciliação fabricava fechamentos de TODAS
+    as posições reais → agora levanta MT5Erro. Reconciliação usa o preço do **DEAL de saída** (não o tick).
+13. **Sem reconexão da ponte** (proxy RPyC morto após redeploy do mt5 → catálogo parava em silêncio) →
+    `reconectar()` nas duas pontes + handlers nos 4 loops + retry no arranque do executor_b3.
+14. **Curado abriria até 3 ordens reais do mesmo setup** (A + espelhos C_HIBRIDA/C_CORRE, mesma estratégia)
+    → real só Variante A no curado; full-real exclui os espelhos.
+15. **Offset servidor↔UTC derivava com tick velho** (fim de semana congelava `_agora()`) → só aceita
+    variação ±1h após definido (±12h de sanidade), forex e B3. `_checar_dia` só marca o dia com equity ok.
+16. F_BREAKOUT e saídas B/C valem também p/ posição REAL (senão o livro real mediria OUTRA estratégia);
+    `novo_sl` (proteção/aperto) agora É persistido (`_mover_sl` + `mover_sl` no broker quando real).
+17. `_pip` com fallback 0.0001 em falha → cache por símbolo (JPY não fica 100× errado); pula o ciclo sem pip.
+18. `valor_ponto` B3 por PREFIXO (WIN*/WDO* — env com outro sufixo zerava o P&L BRL em silêncio).
+19. CLI `manutencao reset` apagava forex+B3 → agora `reset` = SÓ forex (igual ao botão); `reset-tudo`
+    explícito. `_backup` fecha conexões; `restaurar` tolera .bak pré-migração.
+20. Métricas: gate usa `n_com_r` (N honesto da exp R); split-half "estável" agora exige POSITIVA nas duas
+    metades (antes ✅ até p/ célula consistentemente perdedora); `max_dd_pct` sobre o pico vigente no DD;
+    `regime_log` só grava na mudança (era +46k linhas/dia); `forca_serie` com janela limitada (não varre a
+    tabela inteira); índice redundante de `candles` dropado; alarme CRÍTICO se `SECRET_KEY` for o default.
+
+**⚠️ CONSEQUÊNCIA METODOLÓGICA (ler antes de auditar resultados):** os fixes 7–11 mudam o comportamento
+das entradas/scores → a amostra de sombra PRÉ-fix não é comparável à PÓS-fix (e a pré-fix estava
+contaminada pelos bugs 1–4). **Recomendado: zerar os livros de sombra (🧹 no painel, forex e B3) após o
+deploy desta auditoria e recomeçar a contagem do gate do zero.** Os `candles` são preservados e o backfill
+do deploy já saneia os parciais congelados.
+
+**Pendências CONHECIDAS e aceitas (não são bugs abertos):** rollover de série da B3 (WIN$N muda de
+contrato ~1×/mês → gap artificial contamina fecha_gap/extremos/ATR por ~1 dia; descartar o dia da virada é
+melhoria futura); `fecha_gap_v1` na B3 é N=0 estrutural (a escala de "pip" do gap é forex — precisa de
+calibração própria, não chutar); OR do H1 no F_BREAKOUT = 1ª vela inteira (60min, igual ao estudo validado
+— M15 e H1 não testam a MESMA OR); Telegram síncrono no loop de gestão (até 10s de atraso se indisponível);
+scores fuzzy do 1º ciclo de um par têm referência curta (cache); B3: último candle do pregão só entra no
+banco na manhã seguinte (design do coletor).
+
+---
+
 ## Arquitetura (um único docker-compose no Dokploy)
 - **mt5**: imagem `gmag11/metatrader5_vnc:2.3` sob Wine + custom-init (`deploy/mt5/`).
   Expõe VNC (`:3100` no host, login VNC) e a API Python RPyC (`:8001`, interna).
@@ -222,7 +293,7 @@ pequeno" (stop estrutural apertado) é uma calibração SEPARADA (não confundir
 ## Como rodar / testar / publicar
 - Testes (sem pytest): `python -m sistema_forex.tests.test_gestao` (idem `test_estrategias`,
   `test_indicadores`, `test_multitf`, `test_grafico`, `test_auditoria`, `test_manutencao`,
-  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **231 testes, todos passando.**
+  `test_fuzzy`, `test_relatorio`, `test_auditoria_estatistica`, `test_b3`). **244 testes, todos passando.**
   Rodar sempre antes de commitar.
 - Compilar: `python -m py_compile sistema_forex/*.py sistema_forex/web/*.py`.
 - Publicar = commit + `git push -u origin <branch>` → Dokploy redeploya sozinho.

@@ -330,24 +330,32 @@ def qualidade_sr(preco, tipo, highs, lows, closes, tol) -> dict:
     """Mede o quanto o preço RESPEITA um nível — a prova de que é S/R de verdade.
 
     tipo: 'suporte' | 'resistencia'. `tol` = meia-banda (em preço) do nível.
-      - toque: candle cujo range [low, high] entra na banda [preco−tol, preco+tol].
-      - rejeição: toque em que o preço furou o nível mas FECHOU de volta do lado certo
-        (resistência: pavio acima e close abaixo; suporte: pavio abaixo e close acima).
-        Rejeição é o sinal forte — mostra o mercado defendendo o nível.
+      - VISITA: sequência CONTÍNUA de candles tocando a banda conta como UM toque — 30 velas de
+        consolidação raspando a borda não são 30 evidências independentes (antes inflavam a
+        força e fabricavam "S/R forte" onde o preço nunca testou o nível de verdade).
+      - rejeição: visita em que o preço FUROU O NÍVEL em si (não só a borda da banda) e FECHOU
+        de volta do lado certo (resistência: pavio ≥ preço e close abaixo da banda; suporte:
+        pavio ≤ preço e close acima). No máx. 1 rejeição por visita.
     Retorna {toques, rejeicoes, respeito (=rejeicoes/toques), ult_idx (recência)}.
     """
     lo, hi = preco - tol, preco + tol
     toques = rejeicoes = 0
     ult_idx = -1
+    em_visita = visita_rejeitou = False
     for i in range(len(closes)):
         h, l, c = highs[i], lows[i], closes[i]
         if l <= hi and h >= lo:                      # o candle tocou a banda do nível
-            toques += 1
+            if not em_visita:
+                em_visita, visita_rejeitou = True, False
+                toques += 1
             ult_idx = i
-            if tipo == "resistencia" and h >= lo and c < lo:
+            rejeitou = (tipo == "resistencia" and h >= preco and c < lo) or \
+                       (tipo == "suporte" and l <= preco and c > hi)
+            if rejeitou and not visita_rejeitou:
+                visita_rejeitou = True
                 rejeicoes += 1
-            elif tipo == "suporte" and l <= hi and c > hi:
-                rejeicoes += 1
+        else:
+            em_visita = False
     respeito = round(rejeicoes / toques, 2) if toques else 0.0
     return {"toques": toques, "rejeicoes": rejeicoes, "respeito": respeito, "ult_idx": ult_idx}
 

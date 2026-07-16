@@ -246,7 +246,9 @@ def posicoes(simbolo: str = None, magic: int = None) -> list:
         mt5 = _cliente()
         pos = mt5.positions_get(symbol=simbolo) if simbolo else mt5.positions_get()
         if pos is None:
-            return []
+            # None = ERRO do terminal (desconectado/timeout), NÃO carteira vazia — devolver []
+            # aqui fazia a reconciliação achar que o broker fechou TUDO e fabricar fechamentos.
+            raise MT5Erro(f"positions_get devolveu None: {mt5.last_error()}")
         out = []
         for p in pos:
             if magic is not None and int(getattr(p, "magic", 0)) != magic:
@@ -272,6 +274,24 @@ def preco_fill(simbolo: str, ticket: int, magic: int = None):
         if p["ticket"] == int(ticket):
             return p["preco_entrada"]
     return None
+
+
+def preco_saida_deal(ticket: int):
+    """Preço do DEAL de SAÍDA de uma posição já fechada no broker (histórico de deals).
+
+    Usado pela reconciliação: quando o broker fecha a posição (SL de servidor/manual), o preço
+    honesto é o do deal — não o tick de agora (regra-mãe: pips por price do deal). Devolve
+    None se não encontrado (o chamador cai no fallback do tick, com log)."""
+    import datetime as _dt
+    with _LOCK:
+        mt5 = _cliente()
+        # position=ticket filtra os deals da posição; o de saída tem entry != DEAL_ENTRY_IN.
+        deals = mt5.history_deals_get(_dt.datetime(2000, 1, 1), _dt.datetime(2100, 1, 1),
+                                      position=int(ticket))
+        if not deals:
+            return None
+        saida = [d for d in deals if int(getattr(d, "entry", 0)) != int(mt5.DEAL_ENTRY_IN)]
+        return float(saida[-1].price) if saida else None
 
 
 def _filling(mt5, simbolo):
@@ -435,6 +455,25 @@ def esta_ok() -> bool:
     except Exception as e:  # noqa: BLE001 - health check tolerante
         log.debug("esta_ok() falhou: %s", e)
         return False
+
+
+def reconectar() -> None:
+    """Derruba a conexão atual para a PRÓXIMA chamada refazer o connect do zero.
+
+    Usar quando o proxy RPyC morre (redeploy/restart do container mt5): as chamadas passam a
+    levantar EOFError/ConnectionError — que NÃO são MT5Erro — e, sem este reset, o singleton
+    `_mt5` aponta para um proxy morto para sempre (o executor/coletor ficariam em loop de erro
+    até alguém reiniciar o serviço à mão)."""
+    global _mt5, _conn
+    with _LOCK:
+        _mt5 = None
+        if _conn is not None:
+            try:
+                _conn.close()
+            except Exception:  # noqa: BLE001 - conexão já morta
+                pass
+            _conn = None
+    log.warning("Ponte MT5 resetada — reconecta na próxima chamada.")
 
 
 def desligar() -> None:

@@ -258,7 +258,9 @@ def test_pode_abrir_livros_sombra_e_real_sao_independentes():
 
 
 def test_agora_carimba_hora_do_servidor():
-    """`_agora()` devolve a hora do SERVIDOR (candles/MetaTrader): offset arredondado à hora."""
+    """`_agora()` devolve a hora do SERVIDOR (candles/MetaTrader): offset arredondado à hora.
+    Guarda de tick VELHO: depois de definido, um salto > 1h (tick de sexta no sábado) é
+    IGNORADO — o offset não deriva nem congela o relógio no fim de semana."""
     import time as _t
     from ..executor import _atualizar_offset, _agora
     from .. import executor as ex
@@ -266,9 +268,13 @@ def test_agora_carimba_hora_do_servidor():
         _atualizar_offset(int(_t.time()) + 3 * 3600 + 41)   # servidor +3h (com 41s de latência)
         assert ex._OFFSET_SERVIDOR == 3 * 3600
         assert abs((_agora() - int(_t.time())) - 3 * 3600) <= 1
+        _atualizar_offset(int(_t.time()) + 3 * 3600 - 30 * 3600)  # tick 30h velho → rejeitado
+        assert ex._OFFSET_SERVIDOR == 3 * 3600, "tick velho não pode mover o offset"
+        _atualizar_offset(int(_t.time()) + 2 * 3600)        # DST do broker (−1h) → aceito
+        assert ex._OFFSET_SERVIDOR == 2 * 3600
     finally:
-        _atualizar_offset(int(_t.time()))                   # reset p/ não afetar outros testes
-        assert ex._OFFSET_SERVIDOR == 0
+        ex._OFFSET_SERVIDOR = 0                              # reset p/ não afetar outros testes
+        ex._OFFSET_DEFINIDO = False
 
 
 def test_confluencia_reforca_zonas_alinhadas():
@@ -302,6 +308,82 @@ def test_combo_real_so_curadas():
     assert config.combo_real("fecha_gap_v1", "M15") is True
     assert config.combo_real("confluencia_v1", "M1") is False   # M1 fora
     assert config.combo_real("sweep_choch_v1", "M5") is False   # estratégia não-curada
+
+
+def test_watermark_inicial_nao_redecide_candle_ja_decidido():
+    """Regressão: todo restart reavaliava o candle corrente e gravava ~20 decisões DUPLICADAS
+    por livro. A marca-d'água semeia ultimo_visto do banco (por par/tf, F_BREAKOUT à parte)."""
+    caminho = _tmp_db()
+    try:
+        conn = db.conectar(caminho)
+        conn.execute("INSERT INTO decisoes (par, tf, time_utc, estrategia, resultado, direcao, "
+                     "variante, mercado) VALUES ('EURUSD#','M5',5000,'confluencia_v1','nao_entrou',"
+                     "NULL,'A_ORIGINAL','forex')")
+        conn.execute("INSERT INTO decisoes (par, tf, time_utc, estrategia, resultado, direcao, "
+                     "variante, mercado) VALUES ('EURUSD#','M15',9000,'breakout_londres_v1','entrou',"
+                     "'compra','F_BREAKOUT','forex')")
+        conn.execute("INSERT INTO decisoes (par, tf, time_utc, estrategia, resultado, direcao, "
+                     "variante, mercado) VALUES ('WIN$N','M5',7000,'confluencia_v1','nao_entrou',"
+                     "NULL,'A_ORIGINAL','b3')")
+        conn.commit()
+        m = decisao.watermark_inicial(conn)                    # forex (default)
+        assert m[("EURUSD#", "M5")] == 5000, m
+        assert m[("BRK", "EURUSD#", "M15")] == 9000, m         # livro breakout tem chave própria
+        assert ("WIN$N", "M5") not in m, m                     # b3 não vaza no forex
+        mb = decisao.watermark_inicial(conn, mercado="b3")
+        assert mb[("WIN$N", "M5")] == 7000, mb
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
+def test_or_londres_nao_entra_em_candle_que_fecha_no_fim_da_janela():
+    """Regressão do trade-lixo: candle M15 das 16:45 (fecha 17:00) passava no gate e o executor
+    abria/fechava em segundos ("fim da janela"). Agora o candle tem de FECHAR antes das 17h."""
+    caminho = _tmp_db()
+    try:
+        conn = db.conectar(caminho)
+        dia0 = 300 * 86400
+        or_ini = dia0 + config.BREAKOUT_OR_HORA * 3600
+        def ins(t, o, h, l, c):
+            conn.execute("INSERT INTO candles (par, tf, time_utc, open, high, low, close, "
+                         "tick_volume, spread) VALUES ('EURUSD#','M15',?,?,?,?,?,100,8)",
+                         (t, o, h, l, c))
+        ins(or_ini,        1.0992, 1.1000, 1.0990, 1.0995)
+        ins(or_ini + 900,  1.0995, 1.0998, 1.0988, 1.0993)
+        ins(or_ini + 1800, 1.0993, 1.0999, 1.0991, 1.0996)
+        # 1º rompimento do dia SÓ às 16:45 (fecha 17:00 = fim da janela) → NÃO entra.
+        t_borda = dia0 + 16 * 3600 + 45 * 60
+        ins(t_borda, 1.0996, 1.1012, 1.0995, 1.1010)
+        conn.commit()
+        candle = conn.execute("SELECT * FROM candles WHERE time_utc=?", (t_borda,)).fetchone()
+        assert decisao._or_londres(conn, "EURUSD#", "M15", candle) == {}, "borda das 17h não entra"
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
+def test_gravar_candles_backfill_saneia_parcial_congelado():
+    """Regressão: o backfill gravava a barra em formação e o OR IGNORE a congelava p/ sempre.
+    Com substituir=True (backfill), o histórico do broker SOBRESCREVE o parcial."""
+    from ..coletor_mt5 import gravar_candles
+    caminho = _tmp_db()
+    try:
+        conn = db.conectar(caminho)
+        parcial = [{"time": 1000, "open": 1.0, "high": 1.1, "low": 0.9, "close": 1.05,
+                    "tick_volume": 10, "spread": 8}]
+        gravar_candles(conn, "X", "M5", parcial)               # snapshot parcial (bug antigo)
+        cheio = [{"time": 1000, "open": 1.0, "high": 1.5, "low": 0.8, "close": 1.4,
+                  "tick_volume": 99, "spread": 8}]
+        gravar_candles(conn, "X", "M5", cheio)                 # OR IGNORE não conserta…
+        r = conn.execute("SELECT high, close FROM candles WHERE par='X'").fetchone()
+        assert r["high"] == 1.1, "sem substituir, o parcial fica congelado (comportamento antigo)"
+        gravar_candles(conn, "X", "M5", cheio, substituir=True)  # …o backfill novo conserta
+        r = conn.execute("SELECT high, close FROM candles WHERE par='X'").fetchone()
+        assert r["high"] == 1.5 and r["close"] == 1.4, dict(r)
+        conn.close()
+    finally:
+        os.remove(caminho)
 
 
 def test_or_londres_detecta_primeiro_rompimento():

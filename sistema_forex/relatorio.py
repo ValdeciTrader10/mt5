@@ -39,9 +39,17 @@ log = logging.getLogger("relatorio")
 # --------------------------------------------------------------------------- #
 # Carga e agregação
 # --------------------------------------------------------------------------- #
-def _carregar_trades(conn, de_e, ate_e, simulado=1) -> list:
-    """Trades FECHADOS do livro `simulado` (1=sombra, 0=real) no intervalo, já com R por trade."""
-    cond, args = ["fechamento_utc IS NOT NULL", "simulado=?"], [simulado]
+def _filtro_mercado(mercado: str, alias: str = "") -> str:
+    """Fragmento WHERE que isola o livro de UM mercado (legado NULL = forex). Sem ele o
+    relatório/gate somava BRL da B3 com USD do forex e podia promover célula da B3 p/ o
+    executor do forex — nunca misturar mercados numa métrica."""
+    p = f"{alias}." if alias else ""
+    return f"{p}mercado='b3'" if mercado == "b3" else f"({p}mercado IS NULL OR {p}mercado='forex')"
+
+
+def _carregar_trades(conn, de_e, ate_e, simulado=1, mercado="forex") -> list:
+    """Trades FECHADOS do livro `simulado` (1=sombra, 0=real) de UM mercado, já com R por trade."""
+    cond, args = ["fechamento_utc IS NOT NULL", "simulado=?", _filtro_mercado(mercado)], [simulado]
     if de_e:
         cond.append("fechamento_utc >= ?"); args.append(de_e)
     if ate_e:
@@ -74,6 +82,7 @@ def _agg(trades: list) -> dict:
     rs = [t["r"] for t in trades if t["r"] is not None]
     return {
         "n": n,
+        "n_com_r": len(rs),   # trades que ENTRAM na exp_r (r calculável) — o N honesto do gate
         "winrate": round(100 * len(ganhos) / n, 1) if n else 0.0,
         "usd": round(usd, 2),
         "exp_usd": round(usd / n, 2) if n else 0.0,
@@ -159,14 +168,15 @@ def heatmap_estrategia_tf(trades: list) -> dict:
 # --------------------------------------------------------------------------- #
 # A vs C — o efeito do filtro fuzzy (trades ruins evitados vs bons perdidos)
 # --------------------------------------------------------------------------- #
-def a_vs_c(conn, de_e, ate_e) -> dict:
+def a_vs_c(conn, de_e, ate_e, mercado="forex") -> dict:
     """Mede o impacto do filtro fuzzy da Variante C. Dos setups que a A tomou (cada decisão A
     'entrou' que virou trade), a C ou os MANTEVE ('entrou') ou os BLOQUEOU ('nao_entrou'). Para os
     bloqueados, olhamos o DESFECHO do trade A correspondente: se foi PERDA → prejuízo EVITADO (bom
     veto); se foi GANHO → lucro PERDIDO (veto ruim). Casamento por (par, tf, estratégia, time_utc)
     entre as decisões A e C (mesmo setup, mesmo candle)."""
     # Desfecho do trade A por (par, tf, estrategia, time_utc) da sua decisão de origem.
-    cond, args = ["t.simulado=1", "t.variante='A_ORIGINAL'", "t.fechamento_utc IS NOT NULL"], []
+    cond, args = ["t.simulado=1", "t.variante='A_ORIGINAL'", "t.fechamento_utc IS NOT NULL",
+                  _filtro_mercado(mercado, "t")], []
     if de_e:
         cond.append("t.fechamento_utc >= ?"); args.append(de_e)
     if ate_e:
@@ -179,7 +189,7 @@ def a_vs_c(conn, de_e, ate_e) -> dict:
         desfecho[(r["par"], r["tf"] or "M5", r["est"], r["t"])] = r["usd"] or 0.0
 
     # Decisões da Variante C no período (por time_utc do candle = hora do servidor).
-    dcond, dargs = ["variante='C_HIBRIDA'"], []
+    dcond, dargs = ["variante='C_HIBRIDA'", _filtro_mercado(mercado)], []
     if de_e:
         dcond.append("time_utc >= ?"); dargs.append(de_e)
     if ate_e:
@@ -220,10 +230,10 @@ def a_vs_c(conn, de_e, ate_e) -> dict:
     }
 
 
-def distribuicao_bloqueio(conn, de_e, ate_e) -> list:
+def distribuicao_bloqueio(conn, de_e, ate_e, mercado="forex") -> list:
     """Por que a Variante C bloqueou: contagem dos motivos (vetos fuzzy) das decisões C
     'nao_entrou' no período, normalizados e ordenados por frequência."""
-    dcond, dargs = ["variante='C_HIBRIDA'", "resultado='nao_entrou'"], []
+    dcond, dargs = ["variante='C_HIBRIDA'", "resultado='nao_entrou'", _filtro_mercado(mercado)], []
     if de_e:
         dcond.append("time_utc >= ?"); dargs.append(de_e)
     if ate_e:
@@ -258,8 +268,10 @@ def split_half(trades: list, min_sinais: int) -> list:
     for (var, est, tf), (h1, h2) in grupos.items():
         a1, a2 = _agg(h1), _agg(h2)
         e1, e2 = a1["exp_r"], a2["exp_r"]
+        # "Estável" = EDGE estável: positiva nas DUAS metades (mesmo critério do gate). O
+        # "mesmo sinal" antigo marcava ✅ até célula consistentemente PERDEDORA (ambas < 0).
         estavel = (e1 is not None and e2 is not None and a1["n"] >= meia and a2["n"] >= meia
-                   and (e1 > 0) == (e2 > 0))
+                   and e1 > 0 and e2 > 0)
         linhas.append({
             "variante": var, "variante_nome": config.nome_variante(var),
             "estrategia_nome": config.nome_estrategia(est), "tf": tf,
@@ -274,20 +286,23 @@ def split_half(trades: list, min_sinais: int) -> list:
 # --------------------------------------------------------------------------- #
 # Montagem
 # --------------------------------------------------------------------------- #
-def montar_relatorio(conn, de: str = "", ate: str = "", min_sinais: int = None) -> dict:
-    """Relatório sombra multi-variante completo do intervalo [de, ate]."""
+def montar_relatorio(conn, de: str = "", ate: str = "", min_sinais: int = None,
+                     mercado: str = "forex") -> dict:
+    """Relatório sombra multi-variante completo do intervalo [de, ate], de UM mercado
+    (default forex — B3 tem P&L em BRL e nunca se mistura ao livro USD)."""
     min_sinais = min_sinais if min_sinais is not None else config.RELATORIO_MIN_SINAIS
     de_e, ate_e = _epoch(de), _epoch(ate, fim=True)
-    trades = _carregar_trades(conn, de_e, ate_e, simulado=1)
+    trades = _carregar_trades(conn, de_e, ate_e, simulado=1, mercado=mercado)
     return {
         "periodo": {"de": de or "início", "ate": ate or "hoje"},
         "min_sinais": min_sinais,
+        "mercado": mercado,
         "geral": _agg(trades),
         "por_variante": por_variante(trades),
         "ranking": ranking_celulas(trades, min_sinais),
         "heatmap": heatmap_estrategia_tf(trades),
-        "a_vs_c": a_vs_c(conn, de_e, ate_e),
-        "distribuicao_bloqueio": distribuicao_bloqueio(conn, de_e, ate_e),
+        "a_vs_c": a_vs_c(conn, de_e, ate_e, mercado=mercado),
+        "distribuicao_bloqueio": distribuicao_bloqueio(conn, de_e, ate_e, mercado=mercado),
         "split_half": split_half(trades, min_sinais),
     }
 

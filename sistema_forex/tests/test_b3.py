@@ -232,6 +232,15 @@ def test_lucro_brl_sem_valor_ponto_none():
     assert config_b3.lucro_brl("compra", 1, 2, "XPTO") is None   # símbolo sem fato de contrato
 
 
+def test_valor_ponto_casa_por_prefixo():
+    """Regressão: PARES_B3 é env-overridável — um sufixo diferente (WIN$, WINV26) devolvia None
+    e TODO o P&L da B3 sumia em silêncio. O fato de contrato vale para a família WIN*/WDO*."""
+    assert config_b3.valor_ponto("WINV26") == 0.20
+    assert config_b3.valor_ponto("WIN$") == 0.20
+    assert config_b3.valor_ponto("WDOF27") == 10.0
+    assert config_b3.valor_ponto("XPTO") is None                 # desconhecido segue None
+
+
 def test_param_simbolo_b3_override_e_default():
     orig = config_b3.PARAMS_SIMBOLO_B3
     try:

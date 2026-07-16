@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS candles (
     spread      INTEGER,
     PRIMARY KEY (par, tf, time_utc)
 );
-CREATE INDEX IF NOT EXISTS idx_candles_par_tf_time ON candles (par, tf, time_utc);
+-- (sem índice extra: a PK composta já indexa (par, tf, time_utc) — o índice antigo idêntico
+--  dobrava o custo de escrita da tabela mais quente; é dropado na migração)
 
 -- Níveis calculados pelo motor (a "memória") — Fase 2
 CREATE TABLE IF NOT EXISTS niveis (
@@ -166,6 +167,9 @@ CREATE TABLE IF NOT EXISTS sync_line (
 
 def _migrar(conn) -> None:
     """Migrações idempotentes para bancos criados antes de colunas novas."""
+    # Índice 100% redundante com a PK (par, tf, time_utc) — dobrava o custo de escrita da
+    # tabela mais quente do sistema. DROP idempotente.
+    conn.execute("DROP INDEX IF EXISTS idx_candles_par_tf_time")
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(trades)").fetchall()}
     if "simulado" not in cols:
         conn.execute("ALTER TABLE trades ADD COLUMN simulado INTEGER DEFAULT 0")

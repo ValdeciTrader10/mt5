@@ -51,8 +51,14 @@ def _backup(db_path) -> str:
     escrevendo). Retorna o caminho do arquivo de backup."""
     src = str(db_path)
     dst = f"{src}.bak-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    with sqlite3.connect(src) as origem, sqlite3.connect(dst) as destino:
+    # `with sqlite3.connect(...)` NÃO fecha a conexão (o context manager do sqlite3 é
+    # transação, não close) — sem o close explícito, cada backup vazava 2 file handles.
+    origem, destino = sqlite3.connect(src), sqlite3.connect(dst)
+    try:
         origem.backup(destino)
+    finally:
+        origem.close()
+        destino.close()
     return dst
 
 
@@ -132,8 +138,17 @@ def restaurar_de_backup(conn, caminho_backup, mercado="forex") -> dict:
             live = [r["name"] for r in conn.execute(f"PRAGMA table_info({t})").fetchall()]
             bakc = {r["name"] for r in conn.execute(f"PRAGMA bak.table_info({t})").fetchall()}
             cols = ",".join(c for c in live if c in bakc)
+            if "mercado" not in bakc:
+                # Backup de antes da migração `mercado`: tudo nele é forex (a B3 nasceu junto
+                # com a coluna) — restaurar sem o WHERE p/ forex; p/ b3 não há nada a restaurar.
+                if mercado == "b3":
+                    restaurados[t] = 0
+                    continue
+                cond_t = "1=1"
+            else:
+                cond_t = cond
             cur = conn.execute(
-                f"INSERT OR IGNORE INTO {t} ({cols}) SELECT {cols} FROM bak.{t} WHERE {cond}")
+                f"INSERT OR IGNORE INTO {t} ({cols}) SELECT {cols} FROM bak.{t} WHERE {cond_t}")
             restaurados[t] = cur.rowcount
         conn.commit()
     finally:
@@ -162,7 +177,10 @@ def main() -> int:
                 print(f"  {t:12} {n}")
         return 0
 
-    if cmd == "reset":
+    if cmd in ("reset", "reset-tudo"):
+        # `reset` agora é SÓ O FOREX (simétrico ao botão do painel — antes apagava a B3 junto,
+        # sem avisar); apagar os DOIS livros exige o comando explícito `reset-tudo`.
+        tudo = cmd == "reset-tudo"
         print("Fechando posições do robô no broker (magic %d)…" % config.MAGIC)
         n_fechadas = fechar_posicoes_robo()
         print(f"Posições fechadas: {n_fechadas}")
@@ -170,9 +188,10 @@ def main() -> int:
         print(f"Backup criado: {bak}")
         with db.sessao() as conn:
             antes = contar(conn)
-            apagados = resetar(conn)
+            apagados = resetar(conn) if tudo else resetar_forex(conn)
             depois = contar(conn)
-        print("Apagados:", {k: v for k, v in apagados.items() if v})
+        rotulo = "TUDO (forex + B3 + derivadas)" if tudo else "só mercado='forex' (B3 preservada)"
+        print(f"Apagados ({rotulo}):", {k: v for k, v in apagados.items() if v})
         print(f"trades {antes['trades']}→{depois['trades']} · "
               f"decisoes {antes['decisoes']}→{depois['decisoes']} · "
               f"candles PRESERVADOS: {depois['candles']}")
@@ -196,7 +215,8 @@ def main() -> int:
               "de leilão corrigido).")
         return 0
 
-    print("uso: python -m sistema_forex.manutencao [status|reset|reset-b3]")
+    print("uso: python -m sistema_forex.manutencao "
+          "[status|reset (só forex)|reset-b3|reset-tudo|restaurar-forex|restaurar-b3]")
     return 1
 
 

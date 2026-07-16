@@ -56,6 +56,40 @@ def test_por_variante_separa_livros():
     assert linhas[0]["usd"] == 10 and linhas[1]["usd"] == -5, linhas
 
 
+def test_carregar_trades_isola_mercado():
+    """Regressão CRÍTICA (auditoria 16/07): o relatório e o GATE liam forex+B3 juntos —
+    somavam BRL como USD e uma célula da B3 podia ser sugerida p/ o executor real do forex."""
+    caminho = _tmp_db()
+    try:
+        conn = db.conectar(caminho)
+        def ins(par, mercado, usd):
+            conn.execute(
+                "INSERT INTO trades (par, tf, estrategia, direcao, lucro_usd, preco_entrada, "
+                "preco_saida, risco_inicial, abertura_utc, fechamento_utc, simulado, variante, mercado) "
+                "VALUES (?,?,?,?,?,1.0,1.1,0.01,100,200,1,'A_ORIGINAL',?)",
+                (par, "M5", "confluencia_v1", "compra", usd, mercado))
+        ins("EURUSD#", "forex", 10.0)
+        ins("GBPUSD#", None, 5.0)        # legado NULL = forex
+        ins("WIN$N", "b3", 1000.0)       # BRL — jamais pode somar no livro USD
+        conn.commit()
+        fx = rel._carregar_trades(conn, None, None, simulado=1)              # default forex
+        assert {t["par"] for t in fx} == {"EURUSD#", "GBPUSD#"}, fx
+        b3 = rel._carregar_trades(conn, None, None, simulado=1, mercado="b3")
+        assert {t["par"] for t in b3} == {"WIN$N"}, b3
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
+def test_split_half_estavel_exige_positiva_nas_duas():
+    """'Estável' = EDGE estável (ambas > 0). Célula consistentemente PERDEDORA (ambas < 0)
+    não pode aparecer com ✅ na aba split-half."""
+    trades = ([_trade("A_ORIGINAL", "x_v1", "M5", "EURUSD#", -5, -0.5, i) for i in range(6)]
+              + [_trade("A_ORIGINAL", "x_v1", "M5", "EURUSD#", -5, -0.5, 100 + i) for i in range(6)])
+    linhas = rel.split_half(trades, min_sinais=10)
+    assert linhas and linhas[0]["estavel"] is False, linhas
+
+
 def test_split_half_detecta_estavel():
     # Mesma célula positiva nas duas metades (>= meia amostra) → estável.
     trades = [_trade("A_ORIGINAL", "confluencia_v1", "M5", "EURUSD#", 5, 0.5, t)

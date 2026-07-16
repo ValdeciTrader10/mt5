@@ -112,6 +112,10 @@ DD_DIARIO_MAX_PCT = 5.0
 # Teto ampliado p/ 1200: com C/C_CORRE + D_LINHAS (4) + E_SENTINELA (3) o catálogo cresceu — 1200
 # evita truncar a amostra dos grupos novos. Ajustável por env no Dokploy.
 MAX_POS_SOMBRA = int(os.environ.get("MAX_POS_SOMBRA", "1200"))
+# Idade máxima de uma decisão para virar posição (segundos, medida em UTC contra criada_utc).
+# Guarda contra abrir sinal VELHO após downtime (redeploy/fim de semana): sem preço vivo da
+# hora do sinal, a simulação seria desonesta (tick atual ≠ contexto da decisão).
+ENTRADA_MAX_ATRASO_S = int(os.environ.get("ENTRADA_MAX_ATRASO_S", "300"))
 # Caps do modo REAL, aplicados POR LIVRO DE TIMEFRAME: no máximo MAX_POS_POR_PAR posições
 # por (par, tf) e MAX_POS_TOTAL simultâneas dentro do mesmo TF.
 MAX_POS_POR_PAR = int(os.environ.get("MAX_POS_POR_PAR", "1"))

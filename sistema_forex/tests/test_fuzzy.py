@@ -98,6 +98,20 @@ def test_estado_por_score():
     assert fz.estado_por_score(10) == "vermelho"
 
 
+def test_impulso_forte_sem_volume_alto_nao_degenera():
+    """Regressão (auditoria 16/07): impulso FORTE (corpo 1.5× o range médio, marubozu) com volume
+    apenas mediano (1.15×) caía num BURACO das regras → score 50 (igual a um doji) e, cruzando
+    vol=1.2, saltava a ~100. Agora as regras complementares dão convicção alta e CONTÍNUA."""
+    def vela(vol):
+        o, h, l, c, v = _dojis(20)
+        o.append(100.0); c.append(101.5); h.append(101.55); l.append(99.98); v.append(vol)
+        return fz.avaliar_candle(o, h, l, c, v)
+    sem_vol = vela(115)     # vol 1.15× (abaixo do gatilho de v_alto)
+    com_vol = vela(125)     # vol 1.25× (v_alto começa a ativar)
+    assert sem_vol["score"] > 76, sem_vol            # impulso forte NÃO é neutro
+    assert abs(com_vol["score"] - sem_vol["score"]) < 10, (sem_vol["score"], com_vol["score"])
+
+
 def test_pontuar_baixa_score_menor_que_50():
     o, h, l, c, v = _dojis(20)
     o.append(100.0); c.append(98.2); h.append(100.05); l.append(98.1); v.append(250)  # queda forte
@@ -157,7 +171,9 @@ def test_leque_spread():
 
 
 def test_forca_serie_asof():
-    """A série de força usa, em cada instante, o ÚLTIMO score ≤ t de cada TF (asof, sem look-ahead)."""
+    """A série de força usa, em cada instante, o último score de candle que já FECHOU em t
+    (time_utc + minutos do TF ≤ t) — asof pelo FECHAMENTO, sem look-ahead: o candle H1 das
+    10h (dados até 11h) só entra na série a partir das 11h."""
     import os
     import tempfile
     from .. import db
@@ -168,13 +184,17 @@ def test_forca_serie_asof():
             conn.execute("INSERT INTO fuzzy_scores (par,tf,time_utc,score,estado,delta,rng,vol,corpo,"
                          "seq,absorcao,exaustao,transicao,criado_em) VALUES "
                          "('X',?,?,?,'',0,0,0,0,0,0,0,0,0)", (tf, t, score))
+        base = 100 * 86400
         for tf in ("M1", "M5", "M15", "H1"):
-            ins(tf, 100, 70)      # todos compradores em t=100
-        ins("M15", 200, 30); ins("H1", 200, 30)   # macro vira vendedor em t=200
+            ins(tf, base, 70)                       # candles abrem em t=base (H1 fecha base+3600)
+        ins("M15", base + 7200, 30); ins("H1", base + 7200, 30)   # macro vira vendedor depois
         conn.commit()
-        serie = fz.forca_serie(conn, "X", [100, 200])
-        assert serie[0]["estado"] == "verde", serie[0]      # em t=100 tudo alinhado
+        serie = fz.forca_serie(conn, "X", [base + 3600, base + 10800])
+        assert serie[0]["estado"] == "verde", serie[0]      # 1º instante: tudo alinhado (fechado)
         assert serie[1]["estado"] == "amarelo" and serie[1]["divergencia"], serie[1]  # macro virou
+        # LOOK-AHEAD: em t = base+60 o H1 de `base` ainda NÃO fechou → macro indisponível.
+        cedo = fz.forca_serie(conn, "X", [base + 60])
+        assert cedo[0]["macro"] == 0.0, cedo[0]             # score do H1 aberto não vaza p/ trás
         conn.close()
     finally:
         os.remove(caminho)
@@ -189,13 +209,16 @@ def test_forca_linha_acumulador_balanca():
     fd, caminho = tempfile.mkstemp(suffix=".db"); os.close(fd)
     try:
         db.init_db(caminho); conn = db.conectar(caminho)
+        base = 100 * 86400
         for tf in ("M1", "M5", "M15", "H1"):
-            for t in range(1, 13):        # 12 velas de consenso comprador (score 70)
+            for k in range(1, 13):        # 12 velas de consenso comprador (score 70), 1/h
                 conn.execute("INSERT INTO fuzzy_scores (par,tf,time_utc,score,estado,delta,rng,vol,"
                              "corpo,seq,absorcao,exaustao,transicao,criado_em) VALUES "
-                             "('X',?,?,70,'',0,0,0,0,0,0,0,0,0)", (tf, t))
+                             "('X',?,?,70,'',0,0,0,0,0,0,0,0,0)", (tf, base + k * 3600))
         conn.commit()
-        serie = fz.forca_serie(conn, "X", list(range(1, 13)), decay=0.85, escala=40.0)
+        # Instantes APÓS o fechamento de cada rodada (H1 do instante k fecha em k+1h).
+        serie = fz.forca_serie(conn, "X", [base + (k + 1) * 3600 + 1 for k in range(1, 13)],
+                               decay=0.85, escala=40.0)
         assert serie[-1]["forca"] > 85, serie[-1]           # acumulador subiu forte
         assert serie[-1]["forca"] > serie[0]["forca"], (serie[0]["forca"], serie[-1]["forca"])  # balançou
         assert serie[-1]["forca_inst"] == 70.0, serie[-1]   # o nível estático fica ~plano (70) — daí a média era chata

@@ -796,11 +796,12 @@ CFG_LINHAS = dict(sessao_utc=(7, 20), spread_max_pips=2.0)
 
 
 def test_divergencia_baixa_entra_venda():
-    # 2 topos de preço ASCENDENTES (i=2:15, i=6:18) + score DESCENDENTE neles (70→60), preço no topo
-    # de valor (>= sup1) → divergência de baixa = VENDA. (n_swing=2 p/ série curta.)
-    highs = [10, 11, 15, 11, 10, 12, 18, 12, 11, 10, 10]
+    # 2 topos de preço ASCENDENTES (i=2:15, i=8:18) + score DESCENDENTE neles (70→60), preço no topo
+    # de valor (>= sup1) → divergência de baixa = VENDA. O 2º topo (i=8) é RECÉM-confirmado
+    # (i == len-1-n_swing) — a entrada só vale no candle da confirmação. (n_swing=2.)
+    highs = [10, 11, 15, 11, 10, 10, 11, 12, 18, 12, 11]
     lows = [9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9]
-    score = [50, 50, 70, 50, 50, 50, 60, 50, 50, 50, 50]
+    score = [50, 50, 70, 50, 50, 50, 50, 50, 60, 50, 50]
     snap = _base_linhas(close=106.0, serie_op={"high": highs, "low": lows,
                         "close": [100.0] * 11, "score": score})
     d = e.avaliar_divergencia_fuzzy(snap, n_swing=2, **CFG_LINHAS)
@@ -808,9 +809,14 @@ def test_divergencia_baixa_entra_venda():
     assert d["variante"] == "D_LINHAS" and d["estrategia"] == "fuzzy_divergencia_v1", d
     # sem divergência (score sobe junto com o preço) → não entra
     d2 = e.avaliar_divergencia_fuzzy(_base_linhas(close=106.0, serie_op={"high": highs, "low": lows,
-                        "close": [100.0] * 11, "score": [50, 50, 60, 50, 50, 50, 70, 50, 50, 50, 50]}),
+                        "close": [100.0] * 11, "score": [50, 50, 60, 50, 50, 50, 50, 50, 70, 50, 50]}),
                         n_swing=2, **CFG_LINHAS)
     assert d2["resultado"] == "nao_entrou", d2
+    # FRESCOR: 2 candles depois (mesma divergência, swing antigo) → NÃO re-entra (anti re-entrada serial)
+    velho = {"high": highs + [10, 10], "low": lows + [9, 9], "close": [100.0] * 13,
+             "score": score + [50, 50]}
+    d3 = e.avaliar_divergencia_fuzzy(_base_linhas(close=106.0, serie_op=velho), n_swing=2, **CFG_LINHAS)
+    assert d3["resultado"] == "nao_entrou", d3
 
 
 def test_pullback_leque_entra_compra():

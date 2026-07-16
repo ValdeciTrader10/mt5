@@ -36,6 +36,12 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 app = FastAPI(title="Painel Forex M5", docs_url=None, redoc_url=None)
+if config.SECRET_KEY == "troque-esta-chave-em-producao":
+    # O fallback está no GitHub: com ele, qualquer um FORJA o cookie de sessão e passa por todas
+    # as rotas (inclusive o reset). O compose do Dokploy exige a env; este alarme cobre os
+    # outros caminhos de subida.
+    log.critical("SECRET_KEY é o valor DEFAULT (público no repositório) — defina a env "
+                 "SECRET_KEY já; qualquer pessoa consegue forjar o login do painel!")
 app.add_middleware(
     SessionMiddleware,
     secret_key=config.SECRET_KEY,
@@ -87,9 +93,12 @@ def _status_dados() -> dict:
                         "spread_medio": round(row["spread_medio"], 1) if row["spread_medio"] else 0,
                     }
                 )
-        decisoes = conn.execute("SELECT COUNT(*) AS n FROM decisoes").fetchone()["n"]
+        # Dashboard do FOREX: isola o livro forex (legado NULL=forex) — a B3 tem página própria
+        # (/b3, BRL) e vazar WIN/WDO aqui somava BRL no "flutuante USD" e inflava contadores.
+        _FX = "(mercado IS NULL OR mercado='forex')"
+        decisoes = conn.execute(f"SELECT COUNT(*) AS n FROM decisoes WHERE {_FX}").fetchone()["n"]
         trades = conn.execute(
-            "SELECT COUNT(*) AS n FROM trades WHERE fechamento_utc IS NOT NULL"
+            f"SELECT COUNT(*) AS n FROM trades WHERE fechamento_utc IS NOT NULL AND {_FX}"
         ).fetchone()["n"]
         analise_pares = [analise.resumo_par(conn, par) for par in config.PARES]
         posicoes_abertas = [
@@ -103,9 +112,9 @@ def _status_dados() -> dict:
                 "r_atual": r["r_atual"], "lucro_atual": r["lucro_atual"],  # P&L flutuante ao vivo
             }
             for r in conn.execute(
-                "SELECT par, direcao, estrategia, preco_entrada, sl_servidor, abertura_utc, simulado, "
-                "r_atual, lucro_atual "
-                "FROM trades WHERE fechamento_utc IS NULL ORDER BY abertura_utc DESC"
+                f"SELECT par, direcao, estrategia, preco_entrada, sl_servidor, abertura_utc, simulado, "
+                f"r_atual, lucro_atual "
+                f"FROM trades WHERE fechamento_utc IS NULL AND {_FX} ORDER BY abertura_utc DESC"
             ).fetchall()
         ]
         flutuante_usd = round(sum(p["lucro_atual"] or 0 for p in posicoes_abertas), 2)
@@ -117,8 +126,9 @@ def _status_dados() -> dict:
                 "simulado": bool(r["simulado"]),
             }
             for r in conn.execute(
-                "SELECT par, direcao, pips, lucro_usd, motivo_saida, fechamento_utc, simulado "
-                "FROM trades WHERE fechamento_utc IS NOT NULL ORDER BY fechamento_utc DESC LIMIT 15"
+                f"SELECT par, direcao, pips, lucro_usd, motivo_saida, fechamento_utc, simulado "
+                f"FROM trades WHERE fechamento_utc IS NOT NULL AND {_FX} "
+                f"ORDER BY fechamento_utc DESC LIMIT 15"
             ).fetchall()
         ]
         decisoes_recentes = [
@@ -131,8 +141,8 @@ def _status_dados() -> dict:
                 "motivo": r["motivo"],
             }
             for r in conn.execute(
-                "SELECT par, time_utc, estrategia, direcao, resultado, motivo "
-                "FROM decisoes ORDER BY time_utc DESC, id DESC LIMIT 15"
+                f"SELECT par, time_utc, estrategia, direcao, resultado, motivo "
+                f"FROM decisoes WHERE {_FX} ORDER BY time_utc DESC, id DESC LIMIT 15"
             ).fetchall()
         ]
 
@@ -290,17 +300,21 @@ def _normalizar_motivo(motivo: str) -> str:
     return m.strip() or "—"
 
 
-def _sessao(hora_utc: int) -> str:
-    """Sessão de mercado pela hora UTC de abertura (foco Londres/NY, onde há liquidez)."""
-    if 7 <= hora_utc <= 11:
-        return "Londres (07–11)"
-    if 12 <= hora_utc <= 15:
-        return "Londres/NY (12–15)"
-    if 16 <= hora_utc <= 20:
-        return "Nova York (16–20)"
-    if 0 <= hora_utc <= 6:
-        return "Ásia (00–06)"
-    return "Fora de sessão (21–23)"
+def _sessao(hora_srv: int) -> str:
+    """Sessão de mercado pela hora do SERVIDOR (UTC+3) da abertura do trade.
+
+    Desde o fix de fuso, `abertura_utc` é hora do servidor — os buckets antigos rotulados em
+    UTC deslocavam a análise "por sessão" em 3h (trade do coração de Londres caía no bucket
+    errado). Limites = UTC clássicos + 3 (Londres 07–11 UTC = 10–14 servidor)."""
+    if 10 <= hora_srv <= 14:
+        return "Londres (10–14 srv)"
+    if 15 <= hora_srv <= 18:
+        return "Londres/NY (15–18 srv)"
+    if 19 <= hora_srv <= 23:
+        return "Nova York (19–23 srv)"
+    if 3 <= hora_srv <= 9:
+        return "Ásia (03–09 srv)"
+    return "Fora de sessão (00–02 srv)"
 
 
 def _curva_capital(trades: list, base: float) -> dict:
@@ -314,12 +328,15 @@ def _curva_capital(trades: list, base: float) -> dict:
     eq = base
     pico = base
     max_dd = 0.0
+    pico_no_dd = pico   # pico VIGENTE no momento do pior DD (não o pico final da série)
     serie = []
     for t in ordenados:
         eq += t["lucro_usd"] or 0
         pico = max(pico, eq)
         dd = eq - pico  # ≤ 0
-        max_dd = min(max_dd, dd)
+        if dd < max_dd:
+            max_dd = dd
+            pico_no_dd = pico
         serie.append({
             "t": datetime.fromtimestamp(t["fechamento_utc"], timezone.utc).strftime("%m-%d %H:%M"),
             "eq": round(eq, 2), "dd": round(dd, 2),
@@ -330,7 +347,9 @@ def _curva_capital(trades: list, base: float) -> dict:
         "base": round(base, 2),
         "final": round(eq, 2),
         "max_dd": round(max_dd, 2),
-        "max_dd_pct": round(100 * max_dd / pico, 2) if pico else 0.0,
+        # % sobre o pico vigente QUANDO o DD aconteceu — usar o pico final subestimava o DD
+        # sempre que a equity crescia depois do vale.
+        "max_dd_pct": round(100 * max_dd / pico_no_dd, 2) if pico_no_dd else 0.0,
         "recovery_factor": round(lucro / abs(max_dd), 2) if max_dd < 0 else None,
     }
 

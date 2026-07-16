@@ -229,6 +229,21 @@ def esta_ok() -> bool:
         return False
 
 
+def reconectar() -> None:
+    """Derruba a conexão atual para a PRÓXIMA chamada refazer o connect do zero (proxy RPyC
+    morto após redeploy/restart do container mt5_b3 — mesmo racional da ponte do forex)."""
+    global _mt5, _conn
+    with _LOCK:
+        _mt5 = None
+        if _conn is not None:
+            try:
+                _conn.close()
+            except Exception:  # noqa: BLE001 - conexão já morta
+                pass
+            _conn = None
+    log.warning("Ponte MT5 B3 resetada — reconecta na próxima chamada.")
+
+
 def desligar() -> None:
     """Fecha a conexão (shutdown do MT5 e da conexão rpyc) do terminal B3."""
     global _mt5, _conn

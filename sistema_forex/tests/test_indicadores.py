@@ -81,6 +81,19 @@ def test_qualidade_sr_mede_toques_e_rejeicoes():
     assert qs["rejeicoes"] == 1, qs
 
 
+def test_qualidade_sr_consolidacao_nao_infla_rejeicao():
+    """Regressão: 5 velas raspando a BORDA da banda (sem nunca alcançar o nível) contavam 5
+    toques e 5 "rejeições" → S/R forte fabricado. Agora: visita contínua = 1 toque; rejeição
+    exige FURAR o nível em si (h >= preco) e conta no máx. 1 por visita."""
+    # Resistência em 1.1000, tol 0.0005 (banda 1.0995–1.1005). Velas tocam só a borda inferior.
+    highs = [1.0996] * 5
+    lows = [1.0980] * 5
+    closes = [1.0985] * 5
+    q = ind.qualidade_sr(1.1000, "resistencia", highs, lows, closes, 0.0005)
+    assert q["toques"] == 1, q            # consolidação = UMA visita
+    assert q["rejeicoes"] == 0, q         # nunca furou o nível → sem rejeição
+
+
 def test_order_block_bull():
     # Vela 0 = OB de BAIXA (open>close). Velas 1-3 = impulso de alta que deixa FVG bull
     # (low[3]=1.1016 > high[1]=1.1008). Nada reentra na zona → OB fresco na vela 0.

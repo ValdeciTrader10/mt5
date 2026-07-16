@@ -41,9 +41,21 @@ def _tratar_sinal(signum, frame):  # pragma: no cover
 _OFFSET_SERVIDOR = 0
 
 
+_OFFSET_DEFINIDO = False
+
+
 def _atualizar_offset(hora_servidor: int) -> None:
-    global _OFFSET_SERVIDOR
-    _OFFSET_SERVIDOR = int(round((hora_servidor - int(time.time())) / 3600.0) * 3600)
+    # Guardas contra tick VELHO (a B3 fica ~15h/dia sem tick novo — o último tick do pregão
+    # faria o offset derivar e congelar _agora()): offset plausível ±12h; depois de definido,
+    # só aceita variação de ±1h. Mesmo racional do executor forex.
+    global _OFFSET_SERVIDOR, _OFFSET_DEFINIDO
+    novo = int(round((hora_servidor - int(time.time())) / 3600.0) * 3600)
+    if abs(novo) > 12 * 3600:
+        return
+    if _OFFSET_DEFINIDO and abs(novo - _OFFSET_SERVIDOR) > 3600:
+        return
+    _OFFSET_SERVIDOR = novo
+    _OFFSET_DEFINIDO = True
 
 
 def _agora() -> int:
@@ -198,6 +210,7 @@ class ExecutorB3:
                     idade_candles=idade_candles, min_candles=config.HIBRIDA_SAIDA_MIN_CANDLES)
                 if dec["novo_sl"] != p["sl"]:
                     p["sl"] = dec["novo_sl"]
+                    executor._atualizar_sl(conn, p["trade_id"], p["sl"])  # persiste (painel/restart)
                 if dec["fechar"]:
                     self._fechar(conn, p, preco, pip, dec["motivo"])
                     continue
@@ -206,6 +219,9 @@ class ExecutorB3:
             bateu = (p["direcao"] == "compra" and preco <= p["sl"]) or \
                     (p["direcao"] == "venda" and preco >= p["sl"])
             if bateu:
+                # MAE honesto até o preço do stop (mesmo fix do executor forex).
+                r_stop = gestao.r_por_risco(p["direcao"], p["preco_entrada"], p["sl"], p["risco"])
+                p["mae_r"] = min(p["mae_r"], r_stop)
                 self._fechar(conn, p, p["sl"], pip, "stop no servidor")
                 continue
 
@@ -288,6 +304,13 @@ class ExecutorB3:
             tf = d["tf"] or config.TF_OPERACAO
             estrategia = d["estrategia"]
             variante = d["variante"] or "A_ORIGINAL"
+            # Decisão VELHA nunca abre (downtime/feed parado): o "tick atual" da Genial fora do
+            # pregão é o ÚLTIMO do dia anterior — abrir nele criaria um trade fantasma.
+            if d["criada_utc"] and (time.time() - d["criada_utc"]) > config.ENTRADA_MAX_ATRASO_S:
+                log.warning("Decisão B3 %d (%s %s %s) descartada: %.0fs de atraso (> %ds)",
+                            d["id"], par, tf, estrategia,
+                            time.time() - d["criada_utc"], config.ENTRADA_MAX_ATRASO_S)
+                continue
             if executor.pode_abrir(self.abertas.values(), par, tf, estrategia,
                                    livro="sombra", cap=config_b3.MAX_POS_SOMBRA_B3,
                                    variante=variante):
@@ -350,12 +373,25 @@ def main() -> None:
     db.init_db()
     ex = ExecutorB3()
     with db.sessao() as conn:
-        ex.carregar(conn)
+        # `carregar` resolve símbolos na ponte — se o container mt5_b3 ainda não subiu, não
+        # morrer em crash-loop: re-tentar até a ponte responder (mesma tolerância do loop).
+        while not _parar:
+            try:
+                ex.carregar(conn)
+                break
+            except (mt5_bridge_b3.MT5Erro, EOFError, ConnectionError, OSError) as e:
+                log.error("Ponte MT5 B3 indisponível no arranque (%s) — nova tentativa em %ss",
+                          e, config_b3.GESTOR_B3_POLL_S)
+                mt5_bridge_b3.reconectar()
+                time.sleep(config_b3.GESTOR_B3_POLL_S)
         while not _parar:
             try:
                 ex.ciclo(conn)
             except mt5_bridge_b3.MT5Erro as e:
                 log.error("Ponte MT5 (B3) indisponível: %s", e)
+            except (EOFError, ConnectionError, OSError) as e:
+                log.error("Conexão com a ponte MT5 B3 caiu (%s) — agendando reconexão", e)
+                mt5_bridge_b3.reconectar()
             except Exception:  # noqa: BLE001
                 log.exception("Erro inesperado no ciclo do executor B3")
             for _ in range(config_b3.GESTOR_B3_POLL_S):

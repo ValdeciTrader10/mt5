@@ -41,6 +41,7 @@ def _trade(c, **kw):
         "pips": -10, "lucro_usd": -10.0, "motivo_saida": "stop", "preco_entrada": 1.1000,
         "preco_saida": 1.0990, "risco_inicial": 0.0010, "mae_r": -1.0, "mfe_r": 0.0,
         "regime_entrada": "tendencia", "abertura_utc": 1000, "fechamento_utc": 2000,
+        "simulado": 1,   # dossiê audita o livro SOMBRA (produção sempre grava simulado)
     }
     campos.update(kw)
     cols = ", ".join(campos)

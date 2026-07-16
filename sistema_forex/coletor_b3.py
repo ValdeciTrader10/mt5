@@ -71,10 +71,11 @@ def backfill(conn, simbolos: dict) -> None:
         for tf in config_b3.TFS_COLETA_B3:
             alvo = _alvo_barras(tf)
             candles = _backfill_tf(simbolo, tf, alvo)
-            novos = gravar_candles(conn, par, tf, candles)
+            # Última barra em formação NUNCA persiste; REPLACE saneia parciais congelados.
+            novos = gravar_candles(conn, par, tf, candles[:-1], substituir=True)
             conn.commit()
             log.info(
-                "Backfill B3 %s %s: %d recebidos (alvo %d), %d novos, total no banco %d",
+                "Backfill B3 %s %s: %d recebidos (alvo %d), %d gravados/saneados, total no banco %d",
                 par, tf, len(candles), alvo, novos, contar(conn, par, tf),
             )
 
@@ -140,6 +141,9 @@ def loop(conn, simbolos: dict) -> None:
                 log.debug("B3: nenhum candle novo. Latência do ciclo: %.2fs", time.monotonic() - t0)
         except mt5_bridge_b3.MT5Erro as e:
             log.error("Erro de ponte MT5 (B3): %s — tentando de novo em %ss", e, config_b3.COLETOR_B3_POLL_S)
+        except (EOFError, ConnectionError, OSError) as e:
+            log.error("Conexão com a ponte MT5 B3 caiu (%s) — agendando reconexão", e)
+            mt5_bridge_b3.reconectar()
         except Exception:  # noqa: BLE001 - loop resiliente
             log.exception("Erro inesperado no loop do coletor B3")
         for _ in range(config_b3.COLETOR_B3_POLL_S):  # espera interrompível

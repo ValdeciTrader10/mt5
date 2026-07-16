@@ -542,8 +542,10 @@ def avaliar_fecha_gap(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_atr
     conf = ["gap"]
     if momentum:
         conf.append("momentum_fill")
-    if candle_rejeicao(snap, direcao, close, tol, 0.5):     # rejeição no extremo = reforço
-        conf.append("rejeicao")
+    # Usa o próprio close como "nível" → o toque é trivial; o que isto mede de verdade é um
+    # PAVIO CONTRÁRIO grande (≥50% da vela) — rotulado honestamente p/ a auditoria de confluências.
+    if candle_rejeicao(snap, direcao, close, tol, 0.5):
+        conf.append("pavio_contrario")
     niveis = snap.get("suportes" if direcao == "compra" else "resistencias", [])
     nv = _mais_forte_perto(nivel, niveis, tol)
     if nv and nv[1] >= forca_min:
@@ -1161,14 +1163,20 @@ def avaliar_divergencia_fuzzy(snap: dict, *, sessao_utc, spread_max_pips, n_swin
     sw = indicadores.swings(highs, lows, n_swing)
     tops = [w for w in sw if w["tipo"] == "high"]
     bots = [w for w in sw if w["tipo"] == "low"]
+    # FRESCOR: só entra no candle em que o swing novo acabou de ser CONFIRMADO (i == len-1-n).
+    # Sem isso, a mesma divergência gerava "entrou" TODO candle enquanto durasse (re-entrada
+    # serial → N inflado com trades correlacionados, amostra menos independente que o N sugere).
+    i_fresco = len(highs) - 1 - n_swing
     direcao, conf = None, []
     if len(tops) >= 2:
         t1, t2 = tops[-2], tops[-1]
-        if t2["preco"] > t1["preco"] and scores[t2["i"]] < scores[t1["i"]] and _no_valor_topo(close, vw):
+        if (t2["i"] >= i_fresco and t2["preco"] > t1["preco"]
+                and scores[t2["i"]] < scores[t1["i"]] and _no_valor_topo(close, vw)):
             direcao, conf = "venda", ["div_baixa", "topo_preco_sobe_score_cai", "topo_vwap"]
     if direcao is None and len(bots) >= 2:
         b1, b2 = bots[-2], bots[-1]
-        if b2["preco"] < b1["preco"] and scores[b2["i"]] > scores[b1["i"]] and _no_valor_fundo(close, vw):
+        if (b2["i"] >= i_fresco and b2["preco"] < b1["preco"]
+                and scores[b2["i"]] > scores[b1["i"]] and _no_valor_fundo(close, vw)):
             direcao, conf = "compra", ["div_alta", "fundo_preco_cai_score_sobe", "fundo_vwap"]
     if direcao is None:
         return _d("nao_entrou", None, regime, 0, [], "sem divergência linha×preço na banda")
@@ -1202,6 +1210,10 @@ def avaliar_pullback_leque(snap: dict, *, sessao_utc, spread_max_pips, mare_min,
         return _d("nao_entrou", direcao, regime, 0, [], "sem série de linhas (rápida×lenta)")
     r, l = rapida[-k:], lenta[-k:]
     j0 = max(0, k - 1 - dip_janela)
+    # O TF acima pode não ter score fechado em todos os instantes (asof devolve None no início
+    # da janela) — sem par completo rápida×lenta não há leitura de leque.
+    if any(v is None for v in r[j0:]) or any(v is None for v in l[j0:]):
+        return _d("nao_entrou", direcao, regime, 0, [], "sem série de linhas (rápida×lenta)")
     if direcao == "compra":
         recuou = any(r[j] < l[j] for j in range(j0, k - 1))     # rápida esteve abaixo da lenta
         reengatou = r[-2] <= l[-2] and r[-1] > l[-1]            # e cruzou de volta p/ cima agora
@@ -1271,12 +1283,15 @@ def avaliar_exaustao_fuzzy(snap: dict, *, sessao_utc, spread_max_pips, sat_candl
     presos = scores[-(sat_candles + 1):-1]      # as velas ANTES da atual (o platô saturado)
     atual, anterior = scores[-1], scores[-2]
     direcao = None
+    # "No extremo" = banda ±2σ DE VERDADE quando ela existe (a tese é fade de clímax na banda);
+    # a VWAP só serve de fallback quando a banda não está disponível. O OR antigo deixava
+    # QUALQUER preço acima da VWAP passar por "banda 2σ" — o livro media outra hipótese.
     if all(v >= sat_alto for v in presos) and atual < anterior:          # topo saturado rolando
-        no_extremo = (sup2 is not None and close >= sup2) or (vwap is not None and close > vwap)
+        no_extremo = (close >= sup2) if sup2 is not None else (vwap is not None and close > vwap)
         if no_extremo:
             direcao = "venda"
     if direcao is None and all(v <= sat_baixo for v in presos) and atual > anterior:  # fundo saturado
-        no_extremo = (inf2 is not None and close <= inf2) or (vwap is not None and close < vwap)
+        no_extremo = (close <= inf2) if inf2 is not None else (vwap is not None and close < vwap)
         if no_extremo:
             direcao = "compra"
     if direcao is None:

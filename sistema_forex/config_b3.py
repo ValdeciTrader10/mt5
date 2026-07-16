@@ -94,8 +94,19 @@ VALOR_PONTO_B3 = {"WIN$N": 0.20, "WDO$N": 10.0}
 
 
 def valor_ponto(par: str, default: float = None) -> float:
-    """Valor em BRL de 1 ponto de preço do símbolo B3 (fato de contrato)."""
-    return VALOR_PONTO_B3.get(par, default)
+    """Valor em BRL de 1 ponto de preço do símbolo B3 (fato de contrato).
+
+    Casa por PREFIXO (WIN*/WDO*): `PARES_B3` é env-overridável e um símbolo com outro sufixo
+    (WIN$, WINV26…) devolvia None → todo trade gravava lucro NULL e o P&L da B3 sumia em
+    silêncio. O fato de contrato vale para a família toda, não para um sufixo específico."""
+    v = VALOR_PONTO_B3.get(par)
+    if v is not None:
+        return v
+    p = (par or "").upper()
+    for prefixo, valor in (("WIN", 0.20), ("WDO", 10.0)):
+        if p.startswith(prefixo):
+            return valor
+    return default
 
 
 # --------------------------------------------------------------------------- #
