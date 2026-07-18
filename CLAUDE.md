@@ -175,11 +175,26 @@ banco na manhã seguinte (design do coletor).
     NÃO gatear o controle (skill §5 data-snooping a N=26 + regra "aditivo/controle intocável"); regime segue REFORÇO.
     Achado de calibração (anotado, não mexido): MAE dos 17 ganhadores mediana −0,50R, só 3 precisaram > −0,65R → o
     stop ATR×3 é mais largo que o necessário (candidato a stop estrutural/aperto guiado por MAE, calibração futura).
+  - 18/07 · **3ª auditoria — o CONTROLE puro (36 trades A_ORIGINAL, saída genérica):** wr 50% · exp **+0,018R**
+    (~empate) · +0,93 USD. Leitura mais limpa que a C (a saída genérica NÃO capa os vencedores). **Veredito:
+    ENTRADA fraca, mas estratégia NÃO quebrada** — o edge existe em contexto: **transição +0,29R · tend_alta +0,33R ·
+    tend_baixa +0,15R** (positivos), e **`lateral` é o DRENO: 17/36 trades (47%!) exp −0,285R** (somaR −4,85 — sozinho
+    joga o livro pra baixo). Entrada: **12/18 perdedoras foram contra de imediato** (MFE<0,3R) e **só 2/36 tinham
+    rejeição** → 3ª amostra a confirmar que a OB "só encostar na zona" é fraca. **A SAÍDA da A é saudável:** vencedores
+    R médio **+1,00** (MFE +1,29R), 8 saíram por CHoCH/giveback com r≥1 → o gestor genérico deixa correr (o problema
+    NÃO é a saída, é a entrada). Por par: USDJPY +5,54R carrega, AUDUSD −4,61R afunda (overlap com regime). M15 (+0,10)
+    > M5 (−0,05). **NENHUM ajuste novo no código:** (a) a melhoria da entrada já existe como `order_block_rej_v1` e
+    ESTA amostra a reforça; (b) gatear `lateral` no controle é proibido (regra "controle intocável") e seria
+    data-snooping a N=36 (skill §5); (c) o stop ATR×3 largo reaparece (ganhadores MAE −0,47R médio — não precisaram
+    de tanto espaço) → segue como calibração futura guiada por MAE, não chutar.
 - **`order_block_rej_v1`** · Order block + rejeição · 🅰️🅱️🧪
   - 18/07 · NASCEU. MOTIVO: o achado acima. MESMA detecção, mas SÓ entra se a vela REJEITAR a borda do bloco
     (pavio + fecha de volta). Efeito esperado: matar as perdedoras de reversão imediata. Sombra decide (Etapa 9).
   - 18/07 · a 2ª auditoria (C_CORRE, acima) REFORÇA a aposta: as 5 perdedoras puras da original eram todas
     `entrada_adiantada` (MFE≈0) — exatamente o que exigir rejeição deve barrar. Confirmar/refutar pela sombra do gêmeo.
+  - 18/07 · a 3ª auditoria (controle A_ORIGINAL, 36 trades) REFORÇA de novo: 12/18 perdedoras contra de imediato,
+    só 2/36 com rejeição. Espera-se que o gêmeo (a) barre essas perdedoras E (b) reduza naturalmente as entradas no
+    `lateral` (rejeição confirmada é rara em range choppy) — a sombra dirá se recupera a expectância.
 - **`pullback_tendencia_v1`** · Pullback na tendência · 🟢
   - 13/07 · NASCEU (a favor do H1; recua a S/R forte e a rejeição é o GATILHO obrigatório; OB coincidente reforça).
 - **`fecha_gap_v1`** · Fechamento de gap · 🟢
