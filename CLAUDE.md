@@ -167,9 +167,19 @@ banco na manhã seguinte (design do coletor).
   - 16/07 · `fecha_gap`-style: nada aqui; herdou fixes gerais.
   - 18/07 · **auditoria em lote (54 trades C_HIBRIDA):** 28/28 perdedoras foram CONTRA de imediato (MFE<0,3R),
     só 3/54 com rejeição → a entrada por "só encostar na zona" é fraca. Levou ao gêmeo abaixo. ➖ (N baixo, pré-fix).
+  - 18/07 · **2ª auditoria (26 trades C_CORRE, PÓS-fix 16/07):** wr 65% · exp **+0,26R** · PF 1,83 (positiva, mas
+    N<30 → ➖ inconclusiva). DOIS achados: (a) **`entrada_adiantada` = 5/5 perdedoras −1R com MFE≈0** (nunca andaram
+    a favor) → CONFIRMA a tese que originou o gêmeo `order_block_rej_v1` (a rejeição é o filtro certo). (b) **regime
+    `lateral` é o dreno:** 14/26 trades (54%) mas exp **−0,035R** (empate negativo), enquanto transição (+0,82R),
+    tendência_baixa (+0,60R) carregam TODO o edge — 2ª amostra a mostrar OB fraco no lateral (a 1ª deu −0,10R).
+    NÃO gatear o controle (skill §5 data-snooping a N=26 + regra "aditivo/controle intocável"); regime segue REFORÇO.
+    Achado de calibração (anotado, não mexido): MAE dos 17 ganhadores mediana −0,50R, só 3 precisaram > −0,65R → o
+    stop ATR×3 é mais largo que o necessário (candidato a stop estrutural/aperto guiado por MAE, calibração futura).
 - **`order_block_rej_v1`** · Order block + rejeição · 🅰️🅱️🧪
   - 18/07 · NASCEU. MOTIVO: o achado acima. MESMA detecção, mas SÓ entra se a vela REJEITAR a borda do bloco
     (pavio + fecha de volta). Efeito esperado: matar as perdedoras de reversão imediata. Sombra decide (Etapa 9).
+  - 18/07 · a 2ª auditoria (C_CORRE, acima) REFORÇA a aposta: as 5 perdedoras puras da original eram todas
+    `entrada_adiantada` (MFE≈0) — exatamente o que exigir rejeição deve barrar. Confirmar/refutar pela sombra do gêmeo.
 - **`pullback_tendencia_v1`** · Pullback na tendência · 🟢
   - 13/07 · NASCEU (a favor do H1; recua a S/R forte e a rejeição é o GATILHO obrigatório; OB coincidente reforça).
 - **`fecha_gap_v1`** · Fechamento de gap · 🟢
