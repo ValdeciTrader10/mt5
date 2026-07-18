@@ -139,6 +139,110 @@ banco na manhã seguinte (design do coletor).
 
 ---
 
+# 🕒 LINHA DO TEMPO POR ESTRATÉGIA (changelog — o que foi feito em cada uma e por quê)
+
+> **Para que serve:** registro histórico de CADA estratégia — quando nasceu, que ajustes/melhorias levou,
+> a MOTIVAÇÃO de cada mudança e se a sombra depois CONFIRMOU ou REFUTOU. Assim dá para, ao longo do tempo,
+> julgar o que fez sentido, o que precisa voltar atrás e o que foi irrelevante. **Como manter:** a cada
+> criação/ajuste de estratégia, acrescente 1 linha datada `AA/MM · o quê · POR QUÊ · efeito esperado` e,
+> quando a sombra der veredito (Etapa 9), marque `✅ confirmou` / `❌ refutou` / `➖ inconclusivo (N baixo)`.
+> Convenção de status: 🟢 rodando · 🧪 em teste (sombra) · 🅰️/🅱️ gêmeo A/B de outra · ⏸️ pausada.
+>
+> ⚠️ **Marco divisor (16/07):** a auditoria completa corrigiu ~25 bugs; os fixes 7–11 mudaram entradas/scores.
+> **Toda amostra PRÉ-16/07 é incomparável à pós** — ao julgar histórico, separe antes/depois desse deploy.
+
+## Variante A — as estratégias "cruas" (grupo de CONTROLE, nunca reescrever)
+- **`confluencia_v1`** · Confluência (tendência/S-R) · 🟢
+  - 12/07 · NASCEU na Fase 4 (1ª estratégia; peso de evidências S/R + estrutura, sem gates rígidos).
+  - 13/07 · entrada por **rejeição no nível** virou CONFLUÊNCIA (soma no score), não gate — p/ não secar entradas.
+  - 16/07 · herdou os fixes de fuzzy/S-R (asof, `qualidade_sr` sem inflar rejeição, confluência exige TF distinto).
+- **`sweep_choch_v1`** · Caça-stops + reversão (liquidity sweep + CHoCH no M5) · 🟢
+  - 13/07 · NASCEU (2ª estratégia; varre máx/mín, falha e fecha de volta = stop-hunt Wyckoff).
+  - ⚠️ SL ainda é ATR 3× genérico; o stop estrutural (atrás do pavio) é calibração futura guiada por MAE/MFE.
+- **`sweep_choch_abs_v1`** · gêmea A/B da caça-stops COM filtro de ABSORÇÃO · 🅰️🅱️🧪
+  - 14/07 · NASCEU. MOTIVO: testar se exigir absorção (vol alto + corpo fraco na vela do sweep) melhora a
+    expectância vs a `sweep_choch_v1` (controle intocado). Sombra decide.
+- **`order_block_v1`** · Order block (reteste) · 🟢
+  - 13/07 · NASCEU (detecção exige displacement/FVG, só M15/H1, zona fresca; entra no reteste + rejeição soft).
+  - 16/07 · `fecha_gap`-style: nada aqui; herdou fixes gerais.
+  - 18/07 · **auditoria em lote (54 trades C_HIBRIDA):** 28/28 perdedoras foram CONTRA de imediato (MFE<0,3R),
+    só 3/54 com rejeição → a entrada por "só encostar na zona" é fraca. Levou ao gêmeo abaixo. ➖ (N baixo, pré-fix).
+- **`order_block_rej_v1`** · Order block + rejeição · 🅰️🅱️🧪
+  - 18/07 · NASCEU. MOTIVO: o achado acima. MESMA detecção, mas SÓ entra se a vela REJEITAR a borda do bloco
+    (pavio + fecha de volta). Efeito esperado: matar as perdedoras de reversão imediata. Sombra decide (Etapa 9).
+- **`pullback_tendencia_v1`** · Pullback na tendência · 🟢
+  - 13/07 · NASCEU (a favor do H1; recua a S/R forte e a rejeição é o GATILHO obrigatório; OB coincidente reforça).
+- **`fecha_gap_v1`** · Fechamento de gap · 🟢
+  - 13/07 · NASCEU (fade do gap de sessão rumo ao fechamento anterior; momentum p/ o fill + espaço).
+  - 16/07 · a "confluência rejeição" foi renomeada **`pavio_contrario`** (usava o próprio close como nível → o
+    toque era trivial; ela media só um pavio grande). MOTIVO: honestidade na auditoria de confluências.
+  - ⚠️ na B3 é **N=0 estrutural** (a escala de "pip" do gap é de forex; precisa calibração própria — não chutar).
+- **`pullback_rompimento_v1`** · Pullback ao rompimento (break-and-retest, polaridade invertida) · 🟢
+  - 13/07 · NASCEU (nível rompido por BOS vira suporte/resistência e rejeita no reteste).
+  - 16/07 · afetada pelo fix `_ultimo_evento` **sem M1**: antes tomava a direção de um micro-BOS de M1 (ruído);
+    agora o contexto de estrutura vem de M5+. MOTIVO: a tese é rompimento de estrutura real, não micro-swing.
+- **`rompimento_extremos_v1`** · Rompimento máx/mín do dia (PDH/PDL + reteste) · 🟢
+  - 13/07 · NASCEU (rompe a máx/mín do dia anterior e reteste com rejeição).
+- **`pullback_medias_v1`** · Pullback a médias (EMA9/20 do TF acima) · 🟢
+  - 13/07 · NASCEU (ETAPA 2; a favor da tendência, toque na EMA do TF superior; FVG/OB coincidente DOBRA o score).
+- **`pivot_confluencia_v1`** · Pivot + confluência S/R · 🟢
+  - 13/07 · NASCEU (ETAPA 2; fade de pivot que está a <ATR de zona S/R/OB + rejeição; lateral é o terreno natural).
+
+## Variante B — Fuzzy Puro (fiel à didática do PDF; livro paralelo, não filtra a A)
+- **`fuzzy_puro_v1`** · Fuzzy Puro (maré 60/verde), timing M1 · 🟢
+  - 14/07 · NASCEU (ETAPA 5; pirâmide MTF estrita M15 maré / M5 correnteza / M1 timing; checklist 6 itens; std do candle).
+  - 15/07 · ⚠️ **deixou de rodar no forex** quando o M1 saiu de `TFS_OPERACAO` (timing=M1). Segue na B3 (M1 lá).
+- **`fuzzy_puro_lima_v1`** · gêmeo da maré FIEL ao PDF (Lima=76, mais seletiva) · 🅱️🧪
+  - 14/07 · NASCEU (item 4 de fidelidade). MOTIVO: comparar maré 60 × 76 — os dados dizem se a mais seletiva rende mais.
+
+## Variante C — Híbrida (A + camada fuzzy) e o experimento da SAÍDA
+- **C_HIBRIDA** (espelha cada `entrou` da A com veto/soma fuzzy) · 🧪
+  - 14/07 · NASCEU (ETAPA 6). Camada fuzzy VETA contradições claras (absorção contra, M15 contra, etc.) e soma a favor.
+  - 14/07 · **saída própria plugada** (saída antecipada M5 fuzzy contra + aperto na exaustão) — antes a sombra
+    catalogava tudo pela saída genérica. MOTIVO: a 1ª auditoria mostrou 100% das perdedoras saindo no stop cheio.
+  - 14/07 · **fix de carência** (`HIBRIDA_SAIDA_MIN_CANDLES`): a saída antecipada disparava no 1º ciclo (fechava
+    no mesmo minuto, −1 pip). Agora só fecha após ≥2 velas. MOTIVO: era o exit reagindo à FOTO da entrada.
+  - 18/07 · **auditoria (54 trades):** 49/54 saíram pela "saída antecipada C" capando vencedores (MFE médio dos
+    vencedores só +0,47R; um viu +10 pips DEPOIS do corte). Suspeita: o corte fuzzy come o lucro → ver C_CORRE. ➖.
+- **C_CORRE** (MESMAS entradas da C, SEM o corte fuzzy) · 🧪
+  - 15/07 · NASCEU. MOTIVO: isolar SÓ a saída — se C_CORRE > C_HIBRIDA, o corte fuzzy capa os vencedores e deve
+    ser aposentado. É a ferramenta que responde ao achado de 18/07 acima.
+
+## Família D_LINHAS — dinâmica das CURVAS de score (4 estratégias-puras) · 🧪
+- 14/07 · NASCERAM as 4: **`fuzzy_divergencia_v1`** (esforço×resultado, Lei 2), **`fuzzy_pullback_leque_v1`**
+  (recuo+reengate do leque na maré), **`fuzzy_sync_flip_v1`** (Sync amarelo→alinha), **`fuzzy_exaustao_v1`** (clímax rola).
+- 16/07 · fixes que mudaram a TESE de 3 delas (mediam outra coisa antes): divergência **só no swing recém-confirmado**
+  (era re-entrada serial); leque **alinhado asof** (comparava posições de array = instantes diferentes; o "reengate"
+  disparava pela linha LENTA); exaustão **exige banda ±2σ de verdade** (o OR com a VWAP aceitava qualquer preço acima dela).
+- ⚠️ SL/saída ainda é ATR genérico — stop estrutural por estratégia é calibração futura (só depois de mostrar edge).
+
+## Família E_SENTINELA — FORÇA contínua (micro/macro) + LEQUE (3 estratégias) · 🧪
+- 15/07 · NASCERAM as 3: **`sentinela_forca_v1`**, **`sentinela_divergencia_v1`**, **`sentinela_leque_v1`** (inspiradas
+  no Sync Line do criador do PDF; lê a força contínua, não o score-nível).
+- 15/07 · a LINHA da força virou **ACUMULADOR** (balança 0–100) em vez da média estática (quase plana). MOTIVO:
+  o dono observou que "não balança como a do criador". Ajuste visual/de leitura, não muda a entrada.
+- 16/07 · herdou o fix do `forca_serie` (asof pelo FECHAMENTO, não pela abertura — evita look-ahead no replay/linha).
+
+## Família F_BREAKOUT — rompimento da abertura de Londres (1º EDGE validado OOS) · 🧪 (candidato nº 1 a demo)
+- 15/07 · NASCERAM 2 livros × M15/H1: **`breakout_londres_v1`** (deixa correr) e **`breakout_londres_prot_v1`**
+  (trava +2p após +10p). MOTIVO: único edge que passou fora da amostra (+0,3–0,4 R); as teses do trader (H4 flush,
+  nível-imã) NÃO se sustentaram nos dados — o breakout de Londres sim. Stop ESTRUTURAL (a OR oposta), não ATR.
+- 16/07 · fix do **trade-lixo na borda das 17h** (candle que fecha às 17:00 entrava e fechava em segundos, −spread);
+  gestão passou a valer p/ posição REAL também; `novo_sl` (proteção) agora É persistido.
+
+## B3 (WIN/WDO) — a MESMA matriz de estratégias, mercado isolado (BRL, pregão 09:15–16:00) · 🧪
+- 14/07 · as estratégias (funções puras) foram reusadas sobre WIN/WDO via `decisao_b3`/`executor_b3` (livro
+  `mercado='b3'`, ponte data-only da Genial). NÃO são estratégias novas — é a matriz A/B/C/… rodando na B3.
+- ⚠️ pendências B3 conhecidas: rollover de série (~1 dia de gap/mês), `fecha_gap_v1` N=0 (escala de gap é forex).
+
+## Decisões estruturais que afetam TODAS (não são estratégia, mas mudam o que roda)
+- 13/07 · S/R forte só de **H1/D1/W1** (M5/M15 = ruído); força por toques/rejeição/recência/peso do TF.
+- 15/07 · **GOLD fora de `PARES`** e **M1 fora de `TFS_OPERACAO`** (pós-auditoria de 1657 trades: forex exp −0,114R,
+  o "+224 USD" era ilusão do ouro; M1 ralo pelo custo). Consequência: Variante B some do forex (timing=M1).
+- 16/07 · auditoria completa (~25 bugs). Recomendado **zerar os livros de sombra** após o deploy e recomeçar o gate.
+
+---
+
 ## Arquitetura (um único docker-compose no Dokploy)
 - **mt5**: imagem `gmag11/metatrader5_vnc:2.3` sob Wine + custom-init (`deploy/mt5/`).
   Expõe VNC (`:3100` no host, login VNC) e a API Python RPyC (`:8001`, interna).
