@@ -326,7 +326,7 @@ banco na manhã seguinte (design do coletor).
   disparava pela linha LENTA); exaustão **exige banda ±2σ de verdade** (o OR com a VWAP aceitava qualquer preço acima dela).
 - ⚠️ SL/saída ainda é ATR genérico — stop estrutural por estratégia é calibração futura (só depois de mostrar edge).
 
-## Família E_SENTINELA — FORÇA contínua (micro/macro) + LEQUE (3 estratégias) · 🧪
+## Família E_SENTINELA — FORÇA contínua (micro/macro) + LEQUE (3 estratégias) · ⏸️ **DESLIGADAS (18/07)**
 - 15/07 · NASCERAM as 3: **`sentinela_forca_v1`**, **`sentinela_divergencia_v1`**, **`sentinela_leque_v1`** (inspiradas
   no Sync Line do criador do PDF; lê a força contínua, não o score-nível).
 - 15/07 · a LINHA da força virou **ACUMULADOR** (balança 0–100) em vez da média estática (quase plana). MOTIVO:
@@ -347,19 +347,25 @@ banco na manhã seguinte (design do coletor).
   mandava, era repuxo genuíno (fade prematuro). A saída genérica é saudável (os poucos `alvo_curto` deram +0,80R). Por
   regime, quase tudo negativo; os positivos são N ínfimo (tend_alta n=1–6) → ruído, não gatear (skill §5). Por par
   nada salva de forma estável (AUDUSD# na forca deu 0/10 exp −0,84).
-- 18/07 · **AJUSTE: NENHUMA mudança de código — decisão deliberada (o certo metodologicamente).** (1) **Não tunar a
-  N<50 = data-snooping** (skill §5) — mesmo com split negativo nas duas metades, N=30–43 está abaixo do gate e mexer
-  em `SENT_FORCA_MIN`/`SENT_LEQUE_*`/limiares agora seria ajustar ao ruído. (2) **Não aposentar autonomamente:** o
-  limiar de desligar com confiança é o do `fecha_gap_v1` (N=70 + negativo nas 3 VARIANTES); aqui é 1 variante a N<50, e
-  como o E_SENTINELA é sombra PURA (não elegível ao real — só a Variante A é promovível), deixar rodar até N≥50 é
-  inócuo e AJUDA (mais amostra p/ o gate). O desligar fica com o dono via env (`SENTINELA_HABILITADA`/`SENT_*_HABILITADA`)
-  se ele preferir parar de catalogá-las. (3) **Caminho certo se o padrão "perseguição/adiantada" PERSISTIR a N≥50:**
-  um GÊMEO A/B de CONFIRMAÇÃO — não perseguir o rompimento da VWAP, mas entrar no RETESTE/pullback após o rompimento
-  (análogo ao `order_block_rej_v1` que exigiu rejeição) — **nunca mutar as originais** e só criar o gêmeo depois do
-  N≥50 (a disciplina do D_LINHAS: não espalhar dezenas de livros especulativos antes do edge aparecer isolado).
-  Vereditos de Etapa 9: **➖ inconclusivo por N** (mas com forte sinal NEGATIVO já) nas 3; reauditar com a sombra
-  ZERADA pós-fix chegando a N≥50. ⚠️ SL/saída ainda é o ATR genérico (stop estrutural por estratégia = calibração
-  futura, só DEPOIS de a entrada mostrar edge — que aqui ainda não mostrou).
+- 18/07 · **DECISÃO (dono): DESLIGAR as 3 — ser técnico com o que tem, sem esperar os N≥50.** Provocação do dono:
+  "se está muito negativo, faz sentido manter? deixa de olhar a regra dos 50 e vamos ser técnicos". Ele tem razão e
+  os DADOS bancam: a regra N≥50 protege contra **PROMOVER a real por sorte** (falso positivo); a pergunta aqui é o
+  oposto — **parar de catalogar uma sombra que sangra** — e o risco inverte (o "erro" seria matar um vencedor). Teste-t
+  da exp R por trade (H0 exp=0): **`forca` t=−3,48, IC95% [−0,61, −0,17] (INTEIRO abaixo de zero) → ~99,97% negativa**;
+  **`leque` t=−2,70, IC95% [−0,67, −0,11] → ~99,7% negativa**; **`divergencia` t=−1,47, IC95% [−0,47, +0,07] (roça o
+  zero) → ~93% negativa**. Some a isso PF ~0,35 (forca/leque perdem 3× o que ganham), split-half negativo nas DUAS
+  metades e o modo de falha ESTRUTURAL (perseguição → entrada na direção errada, não variância) → **não há cenário
+  realista onde forca/leque viram positivas com mais amostra; a tese de entrada está quebrada.** `divergencia` é a
+  marginal (IC roça o zero, 2ª metade ~empate, PF 0,62), mas negativa a 93% com o MESMO defeito de entrada → o dono
+  optou por desligar as 3 (aceitando o ~7% de risco de matar a marginal; trivialmente reversível). **Ação:** os 3
+  sub-flags `SENT_FORCA_HABILITADA`/`SENT_DIVERG_HABILITADA`/`SENT_LEQUE_HABILITADA` **default → false** (não geram
+  mais decisão em nenhum TF; a Variante A e as outras famílias intocadas). O `SENTINELA_HABILITADA` (família) segue
+  `true` → a **linha de FORÇA branca do painel/gráfico continua** (é só leitura, `forca_serie`, não gera trade). As
+  funções puras (`avaliar_sentinela_*`) e os dados históricos FICAM (reversível: `SENT_*_HABILITADA=true` religa).
+  Vereditos de Etapa 9: **❌ REFUTADAS** (forca/leque com alta confiança; divergencia negativa a 93%). ⚠️ Conferir se
+  o Dokploy não seta `SENT_*_HABILITADA=true` no Environment (aí o default do código não vale). **Se um dia religar
+  como experimento:** o caminho é um GÊMEO A/B de CONFIRMAÇÃO (entrar no RETESTE/pullback após o rompimento da VWAP, em
+  vez de perseguir — análogo ao `order_block_rej_v1`), nunca mutar as originais.
 
 ## Família F_BREAKOUT — rompimento da abertura de Londres (1º EDGE validado OOS) · 🧪 (candidato nº 1 a demo)
 - 15/07 · NASCERAM 2 livros × M15/H1: **`breakout_londres_v1`** (deixa correr) e **`breakout_londres_prot_v1`**

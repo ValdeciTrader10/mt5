@@ -475,10 +475,14 @@ BREAKOUT_FIM_HORA = int(os.environ.get("BREAKOUT_FIM_HORA", "17"))   # fecha no 
 BREAKOUT_OR_MIN_PIPS = float(os.environ.get("BREAKOUT_OR_MIN_PIPS", "3"))  # faixa mínima (evita degenerada)
 BREAKOUT_PROT_TRIGGER_PIPS = float(os.environ.get("BREAKOUT_PROT_TRIGGER_PIPS", "10"))  # +100 pipetes
 BREAKOUT_PROT_LOCK_PIPS = float(os.environ.get("BREAKOUT_PROT_LOCK_PIPS", "2"))         # trava +2 pips
-# Sub-flags por estratégia (todas ligadas por padrão; desligáveis individualmente).
-SENT_FORCA_HABILITADA = os.environ.get("SENT_FORCA_HABILITADA", "true").lower() in ("1", "true", "sim")
-SENT_DIVERG_HABILITADA = os.environ.get("SENT_DIVERG_HABILITADA", "true").lower() in ("1", "true", "sim")
-SENT_LEQUE_HABILITADA = os.environ.get("SENT_LEQUE_HABILITADA", "true").lower() in ("1", "true", "sim")
+# Sub-flags por estratégia. As 3 DESLIGADAS por padrão desde 18/07: a 1ª auditoria
+# (N=30-43, pós-fix) deu as três NEGATIVAS com o IC 95% da exp R abaixo de zero em forca/leque
+# (t=-3,5/-2,7; PF ~0,35; split-half negativo nas 2 metades) e divergencia negativa a ~93% —
+# falha estrutural de ENTRADA (perseguição/fade adiantado), não variância. Reversível pelo env
+# (SENT_*_HABILITADA=true religa). Ver a linha do tempo da família E_SENTINELA no CLAUDE.md.
+SENT_FORCA_HABILITADA = os.environ.get("SENT_FORCA_HABILITADA", "false").lower() in ("1", "true", "sim")
+SENT_DIVERG_HABILITADA = os.environ.get("SENT_DIVERG_HABILITADA", "false").lower() in ("1", "true", "sim")
+SENT_LEQUE_HABILITADA = os.environ.get("SENT_LEQUE_HABILITADA", "false").lower() in ("1", "true", "sim")
 
 # GESTÃO DE SAÍDA POR VARIANTE (liga as saídas próprias de B/C na sombra) — ADITIVO, a Variante A
 # (controle) NUNCA passa por aqui, segue no gestor genérico. Motivado pela auditoria (14/07): 100%
