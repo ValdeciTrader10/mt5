@@ -302,12 +302,24 @@ def test_confluencia_reforca_zonas_alinhadas():
         os.remove(caminho)
 
 
+def test_combo_real_default_vazio():
+    """DEFAULT curado VAZIO (18/07): confluencia_v1 deu exp R negativa nas 3 variantes na sombra
+    pós-fix → foi despromovida. Nada é elegível ao real por default até passar o gate da Etapa 9."""
+    assert config.EXEC_REAL_ESTRATEGIAS == []
+    assert config.combo_real("confluencia_v1", "M5") is False   # despromovida (auditoria 18/07)
+
+
 def test_combo_real_so_curadas():
-    """O livro real curado só aceita as (estratégia, tf) configuradas (positivas, sem M1)."""
-    assert config.combo_real("confluencia_v1", "M5") is True
-    assert config.combo_real("fecha_gap_v1", "M15") is False    # aposentada (18/07) — fora do curado
-    assert config.combo_real("confluencia_v1", "M1") is False   # M1 fora
-    assert config.combo_real("sweep_choch_v1", "M5") is False   # estratégia não-curada
+    """A FILTRAGEM do livro real curado: só aceita (estratégia, tf) na lista configurada, sem M1."""
+    orig = config.EXEC_REAL_ESTRATEGIAS
+    config.EXEC_REAL_ESTRATEGIAS = ["confluencia_v1"]   # simula o dono repromovendo pelo env
+    try:
+        assert config.combo_real("confluencia_v1", "M5") is True
+        assert config.combo_real("fecha_gap_v1", "M15") is False    # fora da lista
+        assert config.combo_real("confluencia_v1", "M1") is False   # M1 fora dos TFs
+        assert config.combo_real("sweep_choch_v1", "M5") is False   # estratégia não-listada
+    finally:
+        config.EXEC_REAL_ESTRATEGIAS = orig
 
 
 def test_watermark_inicial_nao_redecide_candle_ja_decidido():

@@ -156,6 +156,31 @@ banco na manhã seguinte (design do coletor).
   - 12/07 · NASCEU na Fase 4 (1ª estratégia; peso de evidências S/R + estrutura, sem gates rígidos).
   - 13/07 · entrada por **rejeição no nível** virou CONFLUÊNCIA (soma no score), não gate — p/ não secar entradas.
   - 16/07 · herdou os fixes de fuzzy/S-R (asof, `qualidade_sr` sem inflar rejeição, confluência exige TF distinto).
+  - 18/07 · **1ª auditoria em 3-vias (A vs C_CORRE vs C_HIBRIDA — dono mandou os 3 zips; amostra 100%
+    PÓS-fix 16/07, limpa/comparável):** a estratégia é **NEGATIVA nas TRÊS variantes** — **A_ORIGINAL**
+    (entrada crua + saída genérica) N=47 wr 36% exp **−0,308R** PF 0,41; **C_CORRE** (entrada fuzzy-filtrada +
+    saída genérica) N=44 wr 30% exp **−0,317R** PF 0,39; **C_HIBRIDA** (fuzzy + corte fuzzy) N=139 wr 27% exp
+    **−0,137R** PF 0,40. **Split-half negativo nas duas metades → 0 células no gate da Etapa 9.** DOIS vereditos:
+    (a) **a camada fuzzy da C NÃO ajuda a entrada** (A −0,308 ≈ C_CORRE −0,317, saída idêntica — o veto/soma
+    fuzzy é ~neutro/levemente pior, como no fecha_gap). (b) **o corte fuzzy só MASCARA o dano** — C_HIBRIDA
+    (−0,137) parece "melhor" só porque 135/139 saíram pela "saída antecipada C" capando tudo a ±0,3R e cortando
+    os full-stops (2/139 no stop vs **23/47 = 49%** na A) → menos negativo, mas capa também os vencedores
+    (ganhadoras R_méd +0,34 na C vs +0,60 na A). **O problema é a ENTRADA.** **Achado central (consistente A e
+    C_CORRE): é o REGIME que decide** — `lateral` é o ÚNICO positivo (A +0,191 N=19 wr 68% · C_CORRE +0,268 N=17
+    wr 65%), e as pernas de TENDÊNCIA drenam (`tend_alta` −0,63/−0,70 · `tend_baixa` −0,66/−0,67, wr 8–19%). Faz
+    sentido estrutural: no trend a entrada é a favor (compra na alta/venda na baixa — linhas 131-143) e toma
+    pullback em S/R que o trend ATROPELA (full-stop); no range o S/R segura. Por par só **USDJPY#** salva
+    (+0,41/+0,44); GBPUSD# pior (−0,69). A SAÍDA genérica é saudável (vencedoras via CHoCH/giveback R até +1,41).
+  - 18/07 · **AJUSTE FEITO (o único seguro): DESPROMOVIDA do livro real curado.** Ela era a ÚNICA em
+    `EXEC_REAL_ESTRATEGIAS` (default `confluencia_v1`, TFs M5/M15 — exatamente os TFs negativos: M5 −0,38/−0,41/
+    −0,14, M15 −0,20/−0,17/−0,13). Manter uma estratégia de exp R negativa como candidata a real VIOLA a
+    regra-mãe (nada vira real sem passar o gate). Fix: `EXEC_REAL_ESTRATEGIAS` **default → VAZIO** (nada elegível
+    ao real até aprovar no gate; reversível pelo env). Teste `test_combo_real` desdobrado (default vazio + filtro
+    ainda testado com lista simulada). **NÃO mexi na ENTRADA:** gatear `lateral`/aposentar as pernas de tendência
+    seria (a) proibido na Variante A (controle intocável) e (b) data-snooping a N=47 (skill §5). O caminho certo é
+    reauditar a sombra ZERADA pós-fix com N maior e, se o padrão "só lateral rende" persistir com N≥50, avaliar um
+    GÊMEO A/B `confluencia_range_v1` (só entra no lateral) — como fizemos com `order_block_rej_v1` — nunca tunar o
+    controle. ➖ veredito de N (47/44 é amostra pequena p/ concluir); reauditar após dias de sombra limpa.
 - **`sweep_choch_v1`** · Caça-stops + reversão (liquidity sweep + CHoCH no M5) · 🟢
   - 13/07 · NASCEU (2ª estratégia; varre máx/mín, falha e fecha de volta = stop-hunt Wyckoff).
   - ⚠️ SL ainda é ATR 3× genérico; o stop estrutural (atrás do pavio) é calibração futura guiada por MAE/MFE.
@@ -325,8 +350,11 @@ banco na manhã seguinte (design do coletor).
   livros virtual e real coexistem. **3 modos:** (a) SIMULAÇÃO pura (default) — só sombra; (b)
   `EXECUCAO_ATIVA=true` — tudo real; (c) **PARALELO CURADO** (`EXECUCAO_REAL_CURADA=true`, só em
   DEMO) — a sombra cataloga TUDO (virtual) E um livro REAL dispara um GÊMEO só das combinações
-  positivas (`EXEC_REAL_ESTRATEGIAS`=confluencia_v1,fecha_gap_v1 × `EXEC_REAL_TFS`=M5,M15; teto
-  `MAX_POS_REAL`). Cada ordem real grava a comparação com a sombra: `preco_sinal` (assumido),
+  positivas (`EXEC_REAL_ESTRATEGIAS` × `EXEC_REAL_TFS`=M5,M15; teto
+  `MAX_POS_REAL`). ⚠️ `EXEC_REAL_ESTRATEGIAS` default = **VAZIO** desde 18/07 (a `confluencia_v1`, única
+  curada, deu exp R negativa na sombra pós-fix e foi despromovida — ver a linha do tempo dela; nada é
+  elegível ao real até passar o gate da Etapa 9, o dono repromove pelo env). Cada ordem real grava a
+  comparação com a sombra: `preco_sinal` (assumido),
   `spread_entrada`, `derrapagem_pips` (fill real vs assumido) e `delay_s` (decisão→fill, via
   `decisoes.criada_utc`). `mt5_bridge.preco_fill` lê o price_open real; DD diário trava só o livro
   real; correlação só no real e se ligada. **Painel:** o `/analitico` separa o estudo (livro SOMBRA,
