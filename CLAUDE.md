@@ -218,6 +218,18 @@ banco na manhã seguinte (design do coletor).
 - **`sweep_choch_abs_v1`** · gêmea A/B da caça-stops COM filtro de ABSORÇÃO · 🅰️🅱️🧪
   - 14/07 · NASCEU. MOTIVO: testar se exigir absorção (vol alto + corpo fraco na vela do sweep) melhora a
     expectância vs a `sweep_choch_v1` (controle intocado). Sombra decide.
+  - 18/07 · **1ª espiada (raio-X-zip, SÓ C_HIBRIDA, N=3 — amostra ÍNFIMA, pós-fix 16/07):** N=3 wr 33% exp
+    **−0,123R** (somaR −0,37: #3889 −0,48 · #4663 −0,03 · #5265 +0,14). **NÃO dá p/ concluir NADA** (N=3 ≪ 50;
+    faltam os livros A_ORIGINAL e C_CORRE → não dá nem p/ isolar entrada × corte fuzzy). Só observações
+    qualitativas: (a) **#3889 = entrada ruim clássica** — compra em `tendencia_alta` que varreu e DESABOU (MFE
+    +0,05R = nunca andou a favor, furou o SL em 8,6p e foi −38,7p MAIS contra após a saída) → é a tese "reversão
+    no extremo varrido DE NOVO falha" que já apareceu na `sweep_choch_v1` (regime `transicao`/impulso drena). (b)
+    **#4663 = corte fuzzy ESTRANGULANDO de novo** — a "saída antecipada C" cortou a −0,4p e DEPOIS o preço andou
+    **+34,9p a favor** (vencedora grande capada) → mesmo padrão da OB/fecha_gap/sweep, medido pelo C_CORRE. (c)
+    2/3 em `transicao` (o regime que a `sweep_choch_v1` mostrou ser o dreno). **Entrada MECANICAMENTE sã** (exige
+    sweep+CHoCH E absorção obrigatória — não é toque cru; sem bug tipo `pullback_medias`). **NENHUM ajuste de
+    código** — mexer a N=3 seria data-snooping puro (skill §5); o certo é a sombra ZERADA pós-fix chegar a N≥50 e
+    reauditar A vs C_CORRE vs C_HIBRIDA (aí sim se responde: a absorção bate a `sweep_choch_v1` crua?). ➖ N=3.
 - **`order_block_v1`** · Order block (reteste) · 🟢
   - 13/07 · NASCEU (detecção exige displacement/FVG, só M15/H1, zona fresca; entra no reteste + rejeição soft).
   - 16/07 · `fecha_gap`-style: nada aqui; herdou fixes gerais.
@@ -343,6 +355,21 @@ banco na manhã seguinte (design do coletor).
     REJEIÇÃO no candle da média. Efeito esperado: barrar a faca caindo. Sombra decide (Etapa 9).
 - **`pivot_confluencia_v1`** · Pivot + confluência S/R · 🟢
   - 13/07 · NASCEU (ETAPA 2; fade de pivot que está a <ATR de zona S/R/OB + rejeição; lateral é o terreno natural).
+  - 18/07 · **1ª auditoria em 3-vias (A vs C_CORRE vs C_HIBRIDA — dono mandou os 3 zips; N=4 CADA, pós-fix 16/07):**
+    **A_ORIGINAL** N=4 wr 25% exp **−0,378R** (somaR −1,51); **C_CORRE** = **os MESMOS 4 trades, exp −0,378R
+    IDÊNTICO** (a camada fuzzy vetou 0/4 → **neutra na entrada**, igual ao padrão confluencia/medias); **C_HIBRIDA**
+    N=4 wr 50% exp **+0,020R** (somaR +0,08). **⚠️ N=4 é amostra ÍNFIMA — NADA é conclusivo** (o gate pede N≥50;
+    não há split-half nem teste-t com 4 trades). Só leituras qualitativas, todas JÁ conhecidas de outras
+    estratégias: (a) **o corte fuzzy da C só MASCARA** — a "saída antecipada C" disparou nos 4; transformou dois
+    perdedores em ~empate (#4328 −0,74→+0,11 cortando antes do preço desabar −17p; #4345 −1,00→−0,17) e por isso a
+    C_HIBRIDA (+0,02) "parece melhor" que a A (−0,38), mas **capou também a vencedora** (#4189 saiu cedo e deixou
+    +18,3p na mesa) → o problema é a ENTRADA, não a saída. (b) **1 entrada ruim clara** (#4344/#4346 `entrada_
+    adiantada`, USDJPY# M5 `lateral`, MFE +0,07R = contra de imediato → −1R cheio). (c) por regime os 2 `lateral`
+    (terreno "natural" do fade de pivot) foram os perdedores e os 2 `tendencia_baixa` deram a vencedora + ~empate —
+    mas é N=2 por célula = RUÍDO, não sinal. **Entrada MECANICAMENTE sã** (confluência S/R obrigatória L794 +
+    rejeição obrigatória L808 — não é toque cru; os 4 têm `rejeicao`; sem bug tipo `pullback_medias`). **NENHUM
+    ajuste de código** — a N=4 qualquer mudança na entrada seria data-snooping (skill §5) e a original é CONTROLE
+    intocável. O caminho é a sombra ZERADA pós-fix chegar a N≥50 e reauditar. ➖ inconclusivo (N=4).
 
 ## Variante B — Fuzzy Puro (fiel à didática do PDF; livro paralelo, não filtra a A)
 - **`fuzzy_puro_v1`** · Fuzzy Puro (maré 60/verde), timing M1 · 🟢
