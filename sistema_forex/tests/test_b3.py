@@ -310,6 +310,16 @@ def test_sentinela_desligada_so_no_forex():
     assert config.SENT_FORCA_HABILITADA is False and config.SENT_FORCA_HABILITADA_B3 is True
 
 
+def test_fecha_gap_desligada_so_no_forex():
+    """fecha_gap_v1 foi refutada e desligada SÓ no forex; na B3 segue ligada (nunca auditada).
+    O gate do gap em avaliar_par resolve por mercado: forex=GAP_HABILITADA (off), b3=_B3 (on)."""
+    assert config.GAP_HABILITADA is False        # forex: refutada 18/07
+    assert config.GAP_HABILITADA_B3 is True      # b3: catalogando até auditar
+    # espelha a resolução por mercado do bloco de decisao.avaliar_par
+    assert (config.GAP_HABILITADA if "forex" == "forex" else config.GAP_HABILITADA_B3) is False
+    assert (config.GAP_HABILITADA if "b3" == "forex" else config.GAP_HABILITADA_B3) is True
+
+
 def test_decisao_legada_sem_mercado_fica_no_forex():
     """Decisão antiga (mercado NULL, pré-migração) é tratada como forex — a B3 não a pega."""
     caminho = _tmp_db()

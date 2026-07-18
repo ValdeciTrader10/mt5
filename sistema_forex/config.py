@@ -342,6 +342,11 @@ PULLBACK_HABILITADA = os.environ.get("PULLBACK_HABILITADA", "true").lower() in (
 # variantes (A −0,038R · C_CORRE −0,099R · C_HIBRIDA −0,109R), e a camada fuzzy o piora. Default
 # OFF; a função pura fica no código (reversível: `GAP_HABILITADA=true` religa após reauditar zerado).
 GAP_HABILITADA = os.environ.get("GAP_HABILITADA", "false").lower() in ("1", "true", "sim")
+# B3 INDEPENDENTE do forex: a refutação de 18/07 foi do livro FOREX; o livro `mercado='b3'`
+# nunca foi auditado → LIGADA por default na B3 (catalogando). ⚠️ na B3 tende a N=0 até o motor
+# ganhar detecção de gap em escala própria (o limiar de gap hoje é de pip forex — não gera trade
+# errado, só não marca `gap_*`). Desligar na B3 = `GAP_HABILITADA_B3=false` no env.
+GAP_HABILITADA_B3 = os.environ.get("GAP_HABILITADA_B3", "true").lower() in ("1", "true", "sim")
 # Espaço mínimo (fração do ATR) do preço até o alvo do gap para valer a pena entrar.
 FECHA_GAP_MIN_ATR = float(os.environ.get("FECHA_GAP_MIN_ATR", "0.5"))
 

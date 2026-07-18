@@ -447,7 +447,9 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             forca_min=config.SR_FORCA_MIN,
             pavio_min=config.REJEICAO_PAVIO_MIN,
         ))
-    if config.GAP_HABILITADA:
+    # fecha_gap_v1 foi DESLIGADA no FOREX (dono, 18/07 — refutada); na B3 segue LIGADA por
+    # default (livro `mercado='b3'` nunca auditado) → flag por mercado, igual ao E_SENTINELA.
+    if (config.GAP_HABILITADA if mercado == "forex" else config.GAP_HABILITADA_B3):
         decs.append(estrategias.avaliar_fecha_gap(
             snap,
             sessao_utc=sessao_utc,

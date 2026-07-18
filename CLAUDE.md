@@ -287,6 +287,12 @@ banco na manhã seguinte (design do coletor).
     mais decisão em NENHUMA variante/mercado); tirada do curado (`EXEC_REAL_ESTRATEGIAS` = só `confluencia_v1`); teste
     `combo_real` ajustado. A função pura (`avaliar_fecha_gap`) e os dados históricos FICAM (reversível — `GAP_HABILITADA=
     true` religa). ⚠️ conferir se o Dokploy não seta `GAP_HABILITADA=true` no Environment (aí o default do código não vale).
+  - 18/07 · **RELIGADA SÓ NA B3** (pedido do dono: reativar na B3 as estratégias desativadas — o livro `mercado='b3'`
+    nunca foi auditado; a refutação foi só do FOREX). Como o `decisao_b3` reusa a MESMA `avaliar_par`, o gate do gap
+    virou POR MERCADO: forex usa `GAP_HABILITADA` (false), B3 usa **`GAP_HABILITADA_B3` (default true)**. ⚠️ Na B3 tende
+    a **N=0 estrutural** até o motor detectar gap em escala própria (o limiar de gap hoje é pip-forex → raramente marca
+    `gap_*` em WIN/WDO; **não gera trade errado**, só não sinaliza). Religar rende amostra de verdade só depois da
+    calibração de gap da B3 (pendência conhecida). Desligar na B3 = `GAP_HABILITADA_B3=false` no env.
 - **`pullback_rompimento_v1`** · Pullback ao rompimento (break-and-retest, polaridade invertida) · 🟢
   - 13/07 · NASCEU (nível rompido por BOS vira suporte/resistência e rejeita no reteste).
   - 16/07 · afetada pelo fix `_ultimo_evento` **sem M1**: antes tomava a direção de um micro-BOS de M1 (ruído);
