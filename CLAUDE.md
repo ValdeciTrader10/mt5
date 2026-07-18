@@ -184,6 +184,37 @@ banco na manhã seguinte (design do coletor).
 - **`sweep_choch_v1`** · Caça-stops + reversão (liquidity sweep + CHoCH no M5) · 🟢
   - 13/07 · NASCEU (2ª estratégia; varre máx/mín, falha e fecha de volta = stop-hunt Wyckoff).
   - ⚠️ SL ainda é ATR 3× genérico; o stop estrutural (atrás do pavio) é calibração futura guiada por MAE/MFE.
+  - 18/07 · **1ª auditoria em 3-vias (A vs C_CORRE vs C_HIBRIDA — dono mandou os 3 zips; amostra 16–17/07 =
+    100% PÓS-fix, limpa/comparável):** **A_ORIGINAL** (entrada crua + saída genérica) N=41 wr 54% exp **+0,059R**
+    PF 1,22 +4,17 USD — **split-half POSITIVO nas DUAS metades (+0,071 / +0,047)**; **C_CORRE** (entrada
+    fuzzy-filtrada + saída genérica) N=38 wr 47% exp **−0,065R** PF 0,89; **C_HIBRIDA** (fuzzy + corte fuzzy) N=74
+    wr 31% exp **−0,108R** PF 0,42. **🎯 ACHADO CENTRAL — é o 1º CONTROLE (Variante A) POSITIVO E split-half-estável
+    de TODAS as auditorias** (confluencia −0,31, order_block ~+0,02 empate, fecha_gap −0,04 → todos reprovaram; a
+    sweep+CHoCH é a única com sinal de edge real). MAS **N=41 < 50 e PF 1,22 < 1,3 → NÃO passa o gate da Etapa 9
+    → ➖ inconclusiva** (falta amostra). TRÊS vereditos: (a) **a camada fuzzy da C PIORA a entrada** — A (+0,059) >
+    C_CORRE (−0,065), mesma saída genérica → o veto/soma fuzzy filtra sweeps bons/deixa ruins (net ~−0,12R), igual
+    ao fecha_gap (≠ order_block). (b) **o corte fuzzy da C ESTRANGULA os vencedores** — C_HIBRIDA (−0,108) <
+    C_CORRE (−0,065): **70/74 saíram pela "saída antecipada C (M5 fuzzy contra)"** capando ganhadoras a **+0,23R
+    (MFE +0,49)** vs **+0,81R (MFE +1,12)** na A, e **0/74 full-stops** vs **14/41 na A** → 3ª estratégia (após OB e
+    fecha_gap) a mostrar o corte fuzzy comendo o lucro. (c) **a SAÍDA genérica da A é SAUDÁVEL** — ganhadoras +0,81R
+    via CHoCH/giveback (r até +1,06) e ainda deixaram **+23 pips na mesa** após sair → o gestor genérico "deixa
+    correr" combina com a tese de reversão. **Achado estrutural (consistente A e C_CORRE): o REGIME é o
+    discriminador** — `transicao` DRENA (A n=15 wr 27% **−0,325** · C_CORRE n=17 **−0,392**), enquanto `lateral`
+    (+0,289/+0,120), `tendencia_alta` (+0,103/+0,103) e `tendencia_baixa` (+0,710/+1,030) são POSITIVOS. Faz sentido
+    mecânico: sweep+CHoCH é reversão num extremo varrido — na `transicao` (estrutura ainda virando) o extremo é
+    varrido DE NOVO e a reversão falha; no range/tendência o nível segura. Por desenho a estratégia **nunca gateia
+    por regime** (`avaliar_sweep_choch`: "é reversão, brilha no extremo") → dispara em `transicao` também. Entrada:
+    11/19 perdedoras foram contra de imediato (MFE<0,3R) — bem menos extremo que a OB (28/28). Por par: GBPJPY#
+    carrega (+0,68R), EURUSD# afunda (−0,39R). Por TF: **M5 (+0,203) > M15 (−0,167)**.
+  - 18/07 · **AJUSTE: NENHUMA mudança de código — decisão deliberada (o certo metodologicamente).** (1) A é o
+    **CONTROLE intocável** (princípio governante) — não se tuna. (2) Gatear `transicao`/aposentar as pernas de
+    transição a **N=41** (transicao n=15) seria **data-snooping** (skill §5). (3) A é o controle mais promissor já
+    auditado → o caminho certo é **deixar a sombra ZERADA pós-fix chegar a N≥50 e reauditar**, não tunar cedo. Se o
+    padrão "tudo menos `transicao` rende" PERSISTIR com N≥50, avaliar um GÊMEO A/B `sweep_choch_notrans_v1` (só entra
+    fora da transição) — mesmo playbook do `order_block_rej_v1`/`confluencia_range_v1`, **nunca** mexer no controle.
+    Os achados fuzzy (entrada piora, saída estrangula) já são MEDIDOS pelo experimento C_CORRE e a camada C é
+    compartilhada → sem ação específica de estratégia. **Candidata a acompanhar de perto** (é a A menos ruim até
+    agora); reauditar após dias de sombra limpa com N maior.
 - **`sweep_choch_abs_v1`** · gêmea A/B da caça-stops COM filtro de ABSORÇÃO · 🅰️🅱️🧪
   - 14/07 · NASCEU. MOTIVO: testar se exigir absorção (vol alto + corpo fraco na vela do sweep) melhora a
     expectância vs a `sweep_choch_v1` (controle intocado). Sombra decide.
