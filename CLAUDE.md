@@ -311,6 +311,25 @@ banco na manhã seguinte (design do coletor).
     agora o contexto de estrutura vem de M5+. MOTIVO: a tese é rompimento de estrutura real, não micro-swing.
 - **`rompimento_extremos_v1`** · Rompimento máx/mín do dia (PDH/PDL + reteste) · 🟢
   - 13/07 · NASCEU (rompe a máx/mín do dia anterior e reteste com rejeição).
+  - 18/07 · **1ª auditoria em 3-vias (A vs C_CORRE vs C_HIBRIDA — dono mandou os 3 zips; N=4/2/2, pós-fix 16/07):**
+    **A_ORIGINAL** N=4 wr 25% exp **−0,333R** (somaR −1,33); **C_CORRE** N=2 exp **0,00R** (−1,00/+1,00);
+    **C_HIBRIDA** N=2 exp **−0,285R** (−0,22/−0,35). **⚠️ N=4/2/2 é amostra ÍNFIMA — NADA conclusivo por
+    expectância** (gate pede N≥50; sem split/teste-t). MAS traz o **caso mais LIMPO já visto do corte fuzzy
+    DESTRUINDO um vencedor** (par casado, MESMA entrada): AUDUSD# M5 venda — **C_CORRE #4838 = +1,00R** (deixou
+    correr, saiu no CHoCH de reversão pegando a perna toda) vs **C_HIBRIDA #4837 = −0,35R** na entrada
+    IDÊNTICA (a "saída antecipada C" cortou no candle +3 com MFE 0,00 e DEPOIS o preço andou **+19,3p a favor**).
+    Aqui o corte fuzzy não só CAPA o vencedor — **inverte o sinal** (+1R → −0,35R). É a 6ª estratégia (após
+    OB/fecha_gap/sweep/confluencia/pivot) a mostrar isso → reforça o veredito do experimento **C_CORRE >
+    C_HIBRIDA** (aposentar a saída fuzzy é decisão da camada C, não desta estratégia). **Sobre a ENTRADA da A
+    (o que importa p/ julgar a estratégia):** score=2 sempre (`rompeu_extremo_dia`+`rejeicao`; `a_favor_regime`
+    NUNCA disparou — os 2 vencedores foram em `transicao`, não em tendência). A **saída genérica é SAUDÁVEL** — a
+    vencedora (#4718/#4838) saiu no CHoCH a +1R (deixa correr funciona), e **#4737 (GBPJPY#) foi estopada −1R e
+    DEPOIS andou +40,2p a favor** = o SL ATR×3 pegou RUÍDO (stop estrutural atrás do PDH/PDL teria sobrevivido —
+    a calibração de stop estrutural já anotada p/ todas). Perdedoras: 2 `entrada_adiantada` (MFE 0,00, contra de
+    imediato) em `transicao`/`lateral`. **Entrada MECANICAMENTE sã** (rejeição no reteste obrigatória L665 — não
+    é toque cru; sem bug tipo `pullback_medias`). **NENHUM ajuste de código** — N=4 ≪ 50, mexer seria
+    data-snooping (skill §5) e a original é CONTROLE intocável. Reauditar com a sombra ZERADA pós-fix a N≥50.
+    ➖ inconclusivo (N=4); nota: a saída "deixa correr" parece combinar bem com a tese (pegar a perna via CHoCH).
 - **`pullback_medias_v1`** · Pullback a médias (EMA9/20 do TF acima) · ⏸️ **APOSENTADA no FOREX (18/07)**
   - 13/07 · NASCEU (ETAPA 2; a favor da tendência, toque na EMA do TF superior; FVG/OB coincidente DOBRA o score).
   - 18/07 · **1ª auditoria em 3-vias (A vs C_CORRE vs C_HIBRIDA — dono mandou os 3 zips; amostra 100%
