@@ -475,8 +475,9 @@ def export_raiox(request: Request, estrategia: str, mercado: str = "forex",
     1 HTML por trade (gráfico visual via CDN + fatos + 'por que entrou' + raio-X textual em pips).
     O dono baixa por estratégia e reenvia p/ a IA auditar o ponto de entrada em lote. Só o dono
     logado; conteúdo = dados de mercado + métricas do próprio robô, nada sensível."""
-    import io
+    import time as _time
     import zipfile
+    from fastapi.responses import StreamingResponse
     from ..grafico import grafico_trade_html
 
     if not auth.esta_logado(request):
@@ -497,34 +498,43 @@ def export_raiox(request: Request, estrategia: str, mercado: str = "forex",
         return Response("Nenhum trade fechado dessa estratégia no período.",
                         media_type="text/plain", status_code=404)
 
-    import time as _time
-    t0 = _time.time()
-    buf = io.BytesIO()
-    gerados = 0
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for tid in ids:
-            try:
-                html = grafico_trade_html(tid, plotly_cdn=True, incluir_raiox=True)
-            except Exception:  # noqa: BLE001 - um trade problemático não invalida o lote inteiro
-                log.exception("Falha ao gerar raio-X do trade %s no export", tid)
-                continue
-            z.writestr(f"trade_{tid}.html", html)
-            gerados += 1
+    # Buffer que a gente drena a cada arquivo: o zip é TRANSMITIDO enquanto é montado (bytes
+    # fluem desde o 1º trade). Antes, montava tudo na memória e só então enviava — em muitos
+    # trades o proxy cortava por ociosidade (ERR_EMPTY_RESPONSE) e a RAM podia estourar.
+    class _Dreno:
+        def __init__(self): self.buf = bytearray()
+        def write(self, b): self.buf.extend(b); return len(b)
+        def flush(self): pass
+        def drenar(self):
+            b = bytes(self.buf); self.buf.clear(); return b
+
+    def _gerar():
+        t0 = _time.time()
+        dreno = _Dreno()
+        gerados = 0
+        with zipfile.ZipFile(dreno, "w", zipfile.ZIP_DEFLATED) as z:
+            for tid in ids:
+                try:
+                    html = grafico_trade_html(tid, plotly_cdn=True, incluir_raiox=True)
+                    z.writestr(f"trade_{tid}.html", html)
+                    gerados += 1
+                except Exception:  # noqa: BLE001 - um trade ruim não invalida o lote
+                    log.exception("Falha ao gerar raio-X do trade %s no export", tid)
+                chunk = dreno.drenar()
+                if chunk:
+                    yield chunk           # mantém a conexão viva a cada trade
+            z.writestr("_INDICE.txt",
+                       f"Estrategia: {config.nome_estrategia(estrategia)} ({estrategia})\n"
+                       f"Mercado: {mercado}\nPeriodo: {de or 'inicio'} -> {ate or 'hoje'}\n"
+                       f"Trades exportados: {gerados} de {len(ids)} "
+                       f"(teto {config.RAIOX_EXPORT_MAX}, os mais recentes primeiro)\n")
+        yield dreno.drenar()              # diretório central do zip
         log.info("Export raio-X %s/%s: %d/%d trades em %.1fs", estrategia, mercado,
                  gerados, len(ids), _time.time() - t0)
-        if gerados == 0:
-            return Response("Falha ao gerar o raio-X de todos os trades (ver logs do container web).",
-                            media_type="text/plain", status_code=500)
-        # Índice do lote (o que foi exportado + o teto aplicado), p/ o dono e a IA se situarem.
-        z.writestr("_INDICE.txt",
-                   f"Estratégia: {config.nome_estrategia(estrategia)} ({estrategia})\n"
-                   f"Mercado: {mercado}\nPeríodo: {de or 'início'} → {ate or 'hoje'}\n"
-                   f"Trades exportados: {gerados} (teto {config.RAIOX_EXPORT_MAX}; "
-                   f"os mais RECENTES primeiro)\nIDs: {', '.join(map(str, ids[:gerados]))}\n")
-    buf.seek(0)
-    nome = f"raiox_{mercado}_{estrategia}_{gerados}trades.zip"
-    return Response(buf.getvalue(), media_type="application/zip",
-                    headers={"Content-Disposition": f'attachment; filename="{nome}"'})
+
+    nome = f"raiox_{mercado}_{estrategia}_{len(ids)}trades.zip"
+    return StreamingResponse(_gerar(), media_type="application/zip",
+                             headers={"Content-Disposition": f'attachment; filename="{nome}"'})
 
 
 @app.get("/health")
