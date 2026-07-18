@@ -213,6 +213,20 @@ banco na manhã seguinte (design do coletor).
     **NENHUM ajuste no código ainda:** preciso do **A_ORIGINAL (saída genérica) e do C_CORRE** p/ separar "entrada ruim"
     de "corte fuzzy estrangulando" antes de mexer (sem isolar seria chute). Pedir os 2 zips ou ver A vs C / C_CORRE no
     /relatorio. ⚠️ amostra provavelmente PRÉ/na virada dos fixes de 16/07 — reauditar com o livro zerado.
+  - 18/07 · **ISOLAMENTO 3-vias (A vs C_CORRE vs C_HIBRIDA — o dono mandou os 3 livros):** **A_ORIGINAL** (entrada
+    crua + saída genérica) N=70 wr 50% exp **−0,038R**; **C_CORRE** (entrada fuzzy-filtrada + saída genérica) N=68
+    exp **−0,099R**; **C_HIBRIDA** (fuzzy-filtrada + corte fuzzy) N=150 exp **−0,109R**. **DOIS vereditos limpos:**
+    (a) **a camada fuzzy da C PIORA a entrada** — A (−0,038) > C_CORRE (−0,099), mesma saída genérica → o veto/soma
+    fuzzy está filtrando gap-fills bons ou deixando ruins (net −0,06R). Ao contrário da OB, aqui o fuzzy ATRAPALHA.
+    (b) **o corte fuzzy é ~NEUTRO aqui** — C_HIBRIDA (−0,109) ≈ C_CORRE (−0,099): "deixa correr" NÃO resgata o
+    fecha_gap (diferente da OB, onde o corte era o vilão). **O problema é a ENTRADA, fraca até no controle:** mesmo a
+    A é negativa, e o dreno é o `lateral` (33/70 = 47%, exp −0,137) + `tend_baixa` (−0,468); só `transição` (+0,240)
+    segura. A SAÍDA genérica é saudável (ganhadoras R méd +0,79, MFE +1,13R; 28/70 perdedoras no stop cheio −1R).
+    **Veredito: fecha_gap é FADE FRACO neste forex — CANDIDATO A APOSENTAR** (negativo nas 3 variantes; o fuzzy o
+    piora). NÃO mexer no código agora (controle intocável; gatear `lateral` = data-snooping a N=70; a camada C é
+    compartilhada, não dá p/ tunar só p/ ela). Decisão de desligar é do dono via env (`GAP_HABILITADA`) DEPOIS de
+    reauditar com o livro ZERADO pós-fix + passar (ou reprovar) no gate da Etapa 9. Sem gêmeo de entrada: não há
+    conserto óbvio p/ um fade que não tem edge (≠ OB, que tinha a rejeição como filtro claro).
 - **`pullback_rompimento_v1`** · Pullback ao rompimento (break-and-retest, polaridade invertida) · 🟢
   - 13/07 · NASCEU (nível rompido por BOS vira suporte/resistência e rejeita no reteste).
   - 16/07 · afetada pelo fix `_ultimo_evento` **sem M1**: antes tomava a direção de um micro-BOS de M1 (ruído);
