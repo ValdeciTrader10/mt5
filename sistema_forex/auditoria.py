@@ -210,7 +210,7 @@ def _buscar_perdedores(conn, de_e, ate_e, limite_detalhe, mercado="forex"):
     rows = conn.execute(
         f"SELECT id, par, tf, estrategia, direcao, pips, lucro_usd, motivo_saida, "
         f"preco_entrada, preco_saida, sl_servidor, risco_inicial, mae_r, mfe_r, regime_entrada, "
-        f"abertura_utc, fechamento_utc, decisao_id FROM trades WHERE {where} ORDER BY fechamento_utc DESC",
+        f"abertura_utc, fechamento_utc, decisao_id, variante FROM trades WHERE {where} ORDER BY fechamento_utc DESC",
         args,
     ).fetchall()
     trades = [dict(r) for r in rows]
@@ -353,7 +353,8 @@ def resumo_invalidacao(conn, perdedores: list, limite: int = None) -> dict:
 def _contexto_decisao(conn, t):
     """Recupera score/confluências da decisão que abriu o trade. Casa DIRETO pela FK
     `decisao_id` quando o trade a tem (exato); senão cai na heurística por (par, tf,
-    estratégia, direção) + janela de tempo (trades antigos sem FK)."""
+    estratégia, direção, VARIANTE) + janela de tempo (trades antigos sem FK). O filtro de
+    variante evita que um trade da A puxe o 'porquê' da C_HIBRIDA (mesma estratégia/candle)."""
     r = None
     if t.get("decisao_id"):
         r = conn.execute("SELECT motivo, dados_json FROM decisoes WHERE id=?",
@@ -361,8 +362,10 @@ def _contexto_decisao(conn, t):
     if r is None:
         r = conn.execute(
             "SELECT motivo, dados_json FROM decisoes WHERE par=? AND tf=? AND estrategia=? "
-            "AND direcao=? AND resultado='entrou' AND time_utc<=? ORDER BY time_utc DESC LIMIT 1",
-            (t["par"], t["tf"], t["estrategia"], t["direcao"], (t["abertura_utc"] or 0) + 120),
+            "AND direcao=? AND resultado='entrou' AND COALESCE(variante,'A_ORIGINAL')=? "
+            "AND time_utc<=? ORDER BY time_utc DESC LIMIT 1",
+            (t["par"], t["tf"], t["estrategia"], t["direcao"],
+             t.get("variante") or "A_ORIGINAL", (t["abertura_utc"] or 0) + 120),
         ).fetchone()
     if not r:
         return None

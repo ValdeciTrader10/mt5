@@ -22,11 +22,12 @@ def _conn():
         "motivo_saida TEXT, sl_servidor REAL, preco_entrada REAL, preco_saida REAL, "
         "risco_inicial REAL, mae_r REAL, mfe_r REAL, regime_entrada TEXT, "
         "abertura_utc INTEGER, fechamento_utc INTEGER, simulado INTEGER, decisao_id INTEGER, "
-        "mercado TEXT)"
+        "mercado TEXT, variante TEXT DEFAULT 'A_ORIGINAL')"
     )
     c.execute(
         "CREATE TABLE decisoes (id INTEGER PRIMARY KEY AUTOINCREMENT, par TEXT, time_utc INTEGER, "
-        "tf TEXT, estrategia TEXT, direcao TEXT, resultado TEXT, motivo TEXT, dados_json TEXT)"
+        "tf TEXT, estrategia TEXT, direcao TEXT, resultado TEXT, motivo TEXT, dados_json TEXT, "
+        "variante TEXT DEFAULT 'A_ORIGINAL')"
     )
     c.execute("CREATE TABLE candles (par TEXT, tf TEXT, time_utc INTEGER, open REAL, "
               "high REAL, low REAL, close REAL)")
@@ -368,6 +369,25 @@ def test_dossie_isola_mercado_forex_e_b3():
     b3 = aud.dossie_perdedores(c, mercado="b3")
     assert b3["resumo"]["n"] == 2
     assert {t["par"] for t in b3["perdedores"]} == {"WIN$N", "WDO$N"}
+
+
+def test_contexto_decisao_casa_a_variante_certa():
+    """Regressão do export que 'misturou estratégias': a MESMA estratégia roda em vários livros
+    (A/C_HIBRIDA). Sem FK, o 'por que entrou' tem de casar a decisão da VARIANTE do trade — antes
+    um trade da A puxava o motivo 'C|...' da C_HIBRIDA no mesmo candle."""
+    c = _conn()
+    t0 = 1000
+    for var, motivo, cf in [("A_ORIGINAL", "order_block+a_favor_regime", ["order_block", "a_favor_regime"]),
+                            ("C_HIBRIDA", "C|order_block+fuzzy_vwap_valor", ["order_block", "fuzzy_vwap_valor"])]:
+        c.execute("INSERT INTO decisoes (par,tf,time_utc,estrategia,direcao,resultado,motivo,dados_json,variante) "
+                  "VALUES ('EURUSD#','M5',?,?,'venda','entrou',?,?,?)",
+                  (t0, "order_block_v1", motivo, json.dumps({"score": 2, "confluencias": cf}), var))
+    base = {"par": "EURUSD#", "tf": "M5", "estrategia": "order_block_v1", "direcao": "venda",
+            "abertura_utc": t0, "decisao_id": None}
+    ctx_a = aud._contexto_decisao(c, {**base, "variante": "A_ORIGINAL"})
+    ctx_c = aud._contexto_decisao(c, {**base, "variante": "C_HIBRIDA"})
+    assert ctx_a["confluencias"] == ["order_block", "a_favor_regime"], ctx_a
+    assert ctx_c["confluencias"] == ["order_block", "fuzzy_vwap_valor"], ctx_c
 
 
 def run():

@@ -460,21 +460,27 @@ def export_estrategias(request: Request, mercado: str = "forex"):
         return JSONResponse({"erro": "nao_logado"}, status_code=401)
     filtro = "mercado='b3'" if mercado == "b3" else "(mercado IS NULL OR mercado='forex')"
     with db.sessao() as conn:
+        # Agrupa por LIVRO (variante × estratégia): a mesma estratégia (ex.: order_block_v1)
+        # roda em vários livros (A controle, C híbrida, C_CORRE) — misturá-los no mesmo zip
+        # confunde a auditoria. Cada opção do seletor é um livro só.
         rows = conn.execute(
-            f"SELECT estrategia, COUNT(*) n FROM trades WHERE fechamento_utc IS NOT NULL "
-            f"AND simulado=1 AND {filtro} GROUP BY estrategia ORDER BY n DESC").fetchall()
+            f"SELECT COALESCE(variante,'A_ORIGINAL') var, estrategia, COUNT(*) n FROM trades "
+            f"WHERE fechamento_utc IS NOT NULL AND simulado=1 AND {filtro} "
+            f"GROUP BY var, estrategia ORDER BY n DESC").fetchall()
     return JSONResponse({"estrategias": [
-        {"estrategia": r["estrategia"], "nome": config.nome_estrategia(r["estrategia"]), "n": r["n"]}
+        {"estrategia": r["estrategia"], "variante": r["var"],
+         "nome": f"{config.nome_estrategia(r['estrategia'])} · {config.nome_variante(r['var'])}",
+         "n": r["n"]}
         for r in rows]})
 
 
 @app.get("/export/raiox")
 def export_raiox(request: Request, estrategia: str, mercado: str = "forex",
-                 de: str = "", ate: str = "", limite: int = None):
-    """Exporta um ZIP com o RAIO-X de cada trade (fechado, sombra) de UMA estratégia no período —
-    1 HTML por trade (gráfico visual via CDN + fatos + 'por que entrou' + raio-X textual em pips).
-    O dono baixa por estratégia e reenvia p/ a IA auditar o ponto de entrada em lote. Só o dono
-    logado; conteúdo = dados de mercado + métricas do próprio robô, nada sensível."""
+                 variante: str = "A_ORIGINAL", de: str = "", ate: str = "", limite: int = None):
+    """Exporta um ZIP com o RAIO-X de cada trade (fechado, sombra) de UM LIVRO (variante ×
+    estratégia) no período — 1 HTML por trade (gráfico visual via CDN + fatos + 'por que entrou'
+    + raio-X textual em pips). O `variante` isola o livro (a mesma estratégia roda em A/C/C_CORRE);
+    sem ele o zip misturava os livros. Só o dono logado; dados de mercado + métricas do robô."""
     import time as _time
     import zipfile
     from fastapi.responses import StreamingResponse
@@ -484,7 +490,8 @@ def export_raiox(request: Request, estrategia: str, mercado: str = "forex",
         return auth.redirecionar_login()
     limite = min(limite or config.RAIOX_EXPORT_MAX, config.RAIOX_EXPORT_MAX)
     filtro = "mercado='b3'" if mercado == "b3" else "(mercado IS NULL OR mercado='forex')"
-    cond, args = ["fechamento_utc IS NOT NULL", "simulado=1", "estrategia=?", filtro], [estrategia]
+    cond, args = ["fechamento_utc IS NOT NULL", "simulado=1", "estrategia=?",
+                  "COALESCE(variante,'A_ORIGINAL')=?", filtro], [estrategia, variante]
     de_e, ate_e = _epoch(de), _epoch(ate, fim=True)
     if de_e:
         cond.append("fechamento_utc >= ?"); args.append(de_e)
@@ -495,7 +502,7 @@ def export_raiox(request: Request, estrategia: str, mercado: str = "forex",
             f"SELECT id FROM trades WHERE {' AND '.join(cond)} ORDER BY fechamento_utc DESC LIMIT ?",
             [*args, limite]).fetchall()]
     if not ids:
-        return Response("Nenhum trade fechado dessa estratégia no período.",
+        return Response("Nenhum trade fechado desse livro (variante × estratégia) no período.",
                         media_type="text/plain", status_code=404)
 
     # Buffer que a gente drena a cada arquivo: o zip é TRANSMITIDO enquanto é montado (bytes
@@ -525,14 +532,15 @@ def export_raiox(request: Request, estrategia: str, mercado: str = "forex",
                     yield chunk           # mantém a conexão viva a cada trade
             z.writestr("_INDICE.txt",
                        f"Estrategia: {config.nome_estrategia(estrategia)} ({estrategia})\n"
+                       f"Livro/variante: {config.nome_variante(variante)} ({variante})\n"
                        f"Mercado: {mercado}\nPeriodo: {de or 'inicio'} -> {ate or 'hoje'}\n"
                        f"Trades exportados: {gerados} de {len(ids)} "
                        f"(teto {config.RAIOX_EXPORT_MAX}, os mais recentes primeiro)\n")
         yield dreno.drenar()              # diretório central do zip
-        log.info("Export raio-X %s/%s: %d/%d trades em %.1fs", estrategia, mercado,
+        log.info("Export raio-X %s/%s/%s: %d/%d trades em %.1fs", estrategia, variante, mercado,
                  gerados, len(ids), _time.time() - t0)
 
-    nome = f"raiox_{mercado}_{estrategia}_{len(ids)}trades.zip"
+    nome = f"raiox_{mercado}_{variante}_{estrategia}_{len(ids)}trades.zip"
     return StreamingResponse(_gerar(), media_type="application/zip",
                              headers={"Content-Disposition": f'attachment; filename="{nome}"'})
 

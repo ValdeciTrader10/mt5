@@ -147,13 +147,16 @@ def _res_r(direcao, entrada, saida, risco):
     return gestao.r_por_risco(direcao, entrada, saida, risco)
 
 
-def _contexto_decisao(conn, par, tf, estrategia, direcao, abertura_utc, decisao_id=None):
+def _contexto_decisao(conn, par, tf, estrategia, direcao, abertura_utc, decisao_id=None,
+                      variante=None):
     """Recupera a decisão de ENTRADA que originou o trade (o 'porquê entrou'): score,
     confluências e regime gravados pelo estrategista.
 
     Preferência: se o trade tem `decisao_id` (FK gravada na abertura), casa DIRETO — exato,
-    sem heurística. Fallback (trades antigos sem FK): casa por (par, tf, estratégia, direção)
-    na decisão 'entrou' mais recente até pouco antes da abertura (o trade abre logo após)."""
+    sem heurística. Fallback (trades antigos sem FK): casa por (par, tf, estratégia, direção,
+    VARIANTE) na decisão 'entrou' mais recente até pouco antes da abertura. Sem o filtro de
+    variante, um trade da A pegava o 'porquê' da C_HIBRIDA (mesma estratégia/candle) — o motivo
+    aparecia com prefixo 'C|', misturando os livros."""
     import json
     r = None
     if decisao_id:
@@ -161,10 +164,13 @@ def _contexto_decisao(conn, par, tf, estrategia, direcao, abertura_utc, decisao_
             "SELECT time_utc, motivo, dados_json FROM decisoes WHERE id=?", (decisao_id,)
         ).fetchone()
     if r is None:
+        cond = ["par=?", "tf=?", "estrategia=?", "direcao=?", "resultado='entrou'", "time_utc<=?"]
+        args = [par, tf, estrategia, direcao, (abertura_utc or 0) + 120]
+        if variante is not None:
+            cond.append("COALESCE(variante,'A_ORIGINAL')=?"); args.append(variante)
         r = conn.execute(
-            "SELECT time_utc, motivo, dados_json FROM decisoes WHERE par=? AND tf=? AND estrategia=? "
-            "AND direcao=? AND resultado='entrou' AND time_utc<=? ORDER BY time_utc DESC LIMIT 1",
-            (par, tf, estrategia, direcao, (abertura_utc or 0) + 120),
+            f"SELECT time_utc, motivo, dados_json FROM decisoes WHERE {' AND '.join(cond)} "
+            "ORDER BY time_utc DESC LIMIT 1", args,
         ).fetchone()
     if not r:
         return None
@@ -224,7 +230,8 @@ def grafico_trade_html(trade_id: int, antes: int = None, depois: int = None,
         candles = _janela_trade(conn, par, tf, t["abertura_utc"], t["fechamento_utc"], antes, depois)
         niveis = analise.niveis_ativos(conn, par)
         ctx = _contexto_decisao(conn, par, tf, t["estrategia"], t["direcao"], t["abertura_utc"],
-                                decisao_id=t.get("decisao_id"))
+                                decisao_id=t.get("decisao_id"),
+                                variante=t.get("variante") or "A_ORIGINAL")
         if incluir_raiox:
             try:
                 from . import auditoria   # lazy: auditoria importa grafico (evita import circular)

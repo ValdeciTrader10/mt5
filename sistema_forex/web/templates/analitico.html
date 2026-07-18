@@ -68,9 +68,9 @@
     </div>
 
     <section>
-      <h2>📦 Exportar raio-X por estratégia <span class="muted">— zip com 1 arquivo por trade (gráfico + análise) p/ enviar à IA</span></h2>
+      <h2>📦 Exportar raio-X por livro <span class="muted">— zip com 1 arquivo por trade (gráfico + análise) p/ enviar à IA; cada livro = estratégia × variante (A/C/…)</span></h2>
       <div class="filtros">
-        <label class="f">Estratégia
+        <label class="f">Livro (estratégia × variante)
           <select id="exp-est"><option value="">carregando…</option></select>
         </label>
         <a class="btn p" id="exp-baixar">Baixar zip do período</a>
@@ -207,17 +207,20 @@
       fetch('/api/export/estrategias?mercado=' + MERCADO).then(function (r) { return r.json(); })
         .then(function (j) {
           var ops = (j.estrategias || []);
+          // value = "variante|estrategia" (a mesma estratégia roda em vários livros A/C/C_CORRE)
           sel.innerHTML = ops.length
-            ? ops.map(function (e) { return '<option value="' + esc(e.estrategia) + '">'
-                + esc(e.nome) + ' (' + e.n + ' trades)</option>'; }).join('')
+            ? ops.map(function (e) { return '<option value="' + esc(e.variante + '|' + e.estrategia)
+                + '">' + esc(e.nome) + ' (' + e.n + ' trades)</option>'; }).join('')
             : '<option value="">sem trades fechados</option>';
         }).catch(function () { sel.innerHTML = '<option value="">erro ao carregar</option>'; });
 
       document.getElementById('exp-baixar').addEventListener('click', function () {
-        var est = sel.value;
-        if (!est) { alert('Escolha uma estratégia com trades.'); return; }
+        var val = sel.value;
+        if (!val) { alert('Escolha um livro (estratégia × variante) com trades.'); return; }
+        var partes = val.split('|'), variante = partes[0], est = partes[1];
         var de = document.getElementById('de').value, ate = document.getElementById('ate').value;
         var q = '/export/raiox?mercado=' + MERCADO + '&estrategia=' + encodeURIComponent(est)
+          + '&variante=' + encodeURIComponent(variante)
           + (de ? '&de=' + de : '') + (ate ? '&ate=' + ate : '');
         var btn = this, info = document.getElementById('exp-info');
         btn.style.pointerEvents = 'none'; btn.style.opacity = '.6';
