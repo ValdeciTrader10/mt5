@@ -305,7 +305,7 @@ def test_confluencia_reforca_zonas_alinhadas():
 def test_combo_real_so_curadas():
     """O livro real curado só aceita as (estratégia, tf) configuradas (positivas, sem M1)."""
     assert config.combo_real("confluencia_v1", "M5") is True
-    assert config.combo_real("fecha_gap_v1", "M15") is True
+    assert config.combo_real("fecha_gap_v1", "M15") is False    # aposentada (18/07) — fora do curado
     assert config.combo_real("confluencia_v1", "M1") is False   # M1 fora
     assert config.combo_real("sweep_choch_v1", "M5") is False   # estratégia não-curada
 

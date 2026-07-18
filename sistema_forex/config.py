@@ -338,7 +338,10 @@ PULLBACK_HABILITADA = os.environ.get("PULLBACK_HABILITADA", "true").lower() in (
 # --- 5ª estratégia: fechamento de gap (fade rumo ao fechamento anterior) ---
 # Gap de sessão/notícia tende a ser preenchido. Opera a favor do fill quando a vela vira
 # na direção do alvo (momentum) e o gap ainda tem ESPAÇO. S/R no alvo/rejeição = reforço.
-GAP_HABILITADA = os.environ.get("GAP_HABILITADA", "true").lower() in ("1", "true", "sim")
+# ⚠️ APOSENTADA (18/07, decisão do dono): a auditoria 3-vias mostrou fade FRACO — negativo nas 3
+# variantes (A −0,038R · C_CORRE −0,099R · C_HIBRIDA −0,109R), e a camada fuzzy o piora. Default
+# OFF; a função pura fica no código (reversível: `GAP_HABILITADA=true` religa após reauditar zerado).
+GAP_HABILITADA = os.environ.get("GAP_HABILITADA", "false").lower() in ("1", "true", "sim")
 # Espaço mínimo (fração do ATR) do preço até o alvo do gap para valer a pena entrar.
 FECHA_GAP_MIN_ATR = float(os.environ.get("FECHA_GAP_MIN_ATR", "0.5"))
 
@@ -546,7 +549,7 @@ EXECUCAO_ATIVA = os.environ.get("EXECUCAO_ATIVA", "false").lower() in ("1", "tru
 EXECUCAO_REAL_CURADA = os.environ.get("EXECUCAO_REAL_CURADA", "false").lower() in ("1", "true", "sim")
 # Estratégias e TFs elegíveis ao livro real curado (as positivas na sombra; pula M1).
 EXEC_REAL_ESTRATEGIAS = [s.strip() for s in os.environ.get(
-    "EXEC_REAL_ESTRATEGIAS", "confluencia_v1,fecha_gap_v1").split(",") if s.strip()]
+    "EXEC_REAL_ESTRATEGIAS", "confluencia_v1").split(",") if s.strip()]  # fecha_gap saiu (aposentada 18/07)
 EXEC_REAL_TFS = [s.strip() for s in os.environ.get("EXEC_REAL_TFS", "M5,M15").split(",") if s.strip()]
 # Teto de posições REAIS simultâneas no demo (protege a margem da conta de validação).
 MAX_POS_REAL = int(os.environ.get("MAX_POS_REAL", "12"))

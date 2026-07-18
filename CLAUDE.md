@@ -197,7 +197,7 @@ banco na manhã seguinte (design do coletor).
     `lateral` (rejeição confirmada é rara em range choppy) — a sombra dirá se recupera a expectância.
 - **`pullback_tendencia_v1`** · Pullback na tendência · 🟢
   - 13/07 · NASCEU (a favor do H1; recua a S/R forte e a rejeição é o GATILHO obrigatório; OB coincidente reforça).
-- **`fecha_gap_v1`** · Fechamento de gap · 🟢
+- **`fecha_gap_v1`** · Fechamento de gap · ⏸️ **APOSENTADA (18/07)**
   - 13/07 · NASCEU (fade do gap de sessão rumo ao fechamento anterior; momentum p/ o fill + espaço).
   - 16/07 · a "confluência rejeição" foi renomeada **`pavio_contrario`** (usava o próprio close como nível → o
     toque era trivial; ela media só um pavio grande). MOTIVO: honestidade na auditoria de confluências.
@@ -227,6 +227,10 @@ banco na manhã seguinte (design do coletor).
     compartilhada, não dá p/ tunar só p/ ela). Decisão de desligar é do dono via env (`GAP_HABILITADA`) DEPOIS de
     reauditar com o livro ZERADO pós-fix + passar (ou reprovar) no gate da Etapa 9. Sem gêmeo de entrada: não há
     conserto óbvio p/ um fade que não tem edge (≠ OB, que tinha a rejeição como filtro claro).
+  - 18/07 · **DESLIGADA pelo dono** ("pode deletar essa fecha gap"). `GAP_HABILITADA` default → **false** (não gera
+    mais decisão em NENHUMA variante/mercado); tirada do curado (`EXEC_REAL_ESTRATEGIAS` = só `confluencia_v1`); teste
+    `combo_real` ajustado. A função pura (`avaliar_fecha_gap`) e os dados históricos FICAM (reversível — `GAP_HABILITADA=
+    true` religa). ⚠️ conferir se o Dokploy não seta `GAP_HABILITADA=true` no Environment (aí o default do código não vale).
 - **`pullback_rompimento_v1`** · Pullback ao rompimento (break-and-retest, polaridade invertida) · 🟢
   - 13/07 · NASCEU (nível rompido por BOS vira suporte/resistência e rejeita no reteste).
   - 16/07 · afetada pelo fix `_ultimo_evento` **sem M1**: antes tomava a direção de um micro-BOS de M1 (ruído);
