@@ -301,6 +301,35 @@ banco na manhã seguinte (design do coletor).
   - 13/07 · NASCEU (rompe a máx/mín do dia anterior e reteste com rejeição).
 - **`pullback_medias_v1`** · Pullback a médias (EMA9/20 do TF acima) · 🟢
   - 13/07 · NASCEU (ETAPA 2; a favor da tendência, toque na EMA do TF superior; FVG/OB coincidente DOBRA o score).
+  - 18/07 · **1ª auditoria em 3-vias (A vs C_CORRE vs C_HIBRIDA — dono mandou os 3 zips; amostra 100%
+    PÓS-fix 16/07, limpa/comparável):** é **NEGATIVA nas TRÊS variantes e é o PIOR controle (Variante A)
+    já auditado** — **A_ORIGINAL** N=14 wr 21% exp **−0,589R** PF 0,16; **C_CORRE** N=13 wr 23% exp
+    **−0,556R** PF 0,18; **C_HIBRIDA** N=42 wr 24% exp **−0,209R** PF 0,27. A e C_CORRE são praticamente os
+    MESMOS trades (a camada fuzzy filtrou 1) → **a camada fuzzy é ~neutra na entrada** (−0,589 ≈ −0,556) e
+    o **corte fuzzy da C só MASCARA** (C_HIBRIDA −0,209 capa tudo a ±0,3–0,5R, mesmo padrão de confluencia/
+    order_block/fecha_gap). **🎯 ACHADO CENTRAL — é a ENTRADA, e é um bug de mecânica (não regime nem N):**
+    (a) TODOS os trades são `tendencia_alta`/`tendencia_baixa` — a estratégia SÓ roda em tendência por desenho
+    (pullback à EMA a favor do H1), com a DIREÇÃO certa (compra na alta / venda na baixa) → o dreno não é o
+    regime, é o gatilho. (b) o código (`avaliar_pullback_medias`) dispara em **TOQUE CRU na EMA**: `rejeicao`
+    é só confluência (não gate) e apareceu em **só 1/14 (A) · 3/13 (C_CORRE)** trades; vários perdedores são
+    `entrada_adiantada` com **MFE≈0** (nunca andaram a favor = faca caindo). (c) `fvg_confluente` (que DOBRA o
+    score) dispara em **~todos** (12/14) → a "confluência forte" é ruído sempre-ligado num trend (FVGs colam na
+    média), não filtra nada. **Teste-t (H0 exp=0):** A **t=−3,32 IC95% [−0,94,−0,24]** (INTEIRO abaixo de zero,
+    ~99,7% negativa), C_CORRE t=−2,95 IC95% [−0,93,−0,19]; split-half A negativo nas duas metades (−0,53/−0,65).
+    ⚠️ N=14/13 é pequeno p/ o gate (Etapa 9 pede N≥50) → veredito de N é **➖ inconclusivo p/ APROVAR**, mas o
+    modo de falha é ESTRUTURAL/de código, não variância.
+  - 18/07 · **AJUSTE FEITO (o certo metodologicamente): CRIADO o gêmeo A/B `pullback_medias_rej_v1`** (NÃO
+    toquei o controle A — princípio intocável; gatear/tunar a original a N=14 seria data-snooping, skill §5).
+    MESMA detecção (toque na EMA em tendência), mas **SÓ entra se a vela REJEITAR a média** (`exigir_rejeicao=
+    True` — a "retomada" da tese recua-e-retoma confirmada), exatamente o playbook do `order_block_rej_v1`/
+    `sweep_choch_abs_v1`. Livro de sombra INDEPENDENTE e comparável; nasce nos livros A/C_HIBRIDA/C_CORRE
+    automático. Env `MEDIAS_REJ_HABILITADA` (default on). Espera-se (a) matar os `entrada_adiantada` de toque
+    cru e (b) reduzir naturalmente as entradas fracas (rejeição confirmada na EMA é mais rara). A sombra decide
+    (Etapa 9) — não é conclusão do N=14. ➖ reauditar o gêmeo vs a original com N maior.
+- **`pullback_medias_rej_v1`** · Pullback a médias + rejeição (gêmeo A/B da entrada) · 🅰️🅱️🧪
+  - 18/07 · NASCEU. MOTIVO: a auditoria acima — a `pullback_medias_v1` dispara em toque cru na EMA (rejeição
+    em só 1/14 trades; MFE≈0, stop imediato; pior controle auditado, exp −0,589R). MESMA detecção, mas exige
+    REJEIÇÃO no candle da média. Efeito esperado: barrar a faca caindo. Sombra decide (Etapa 9).
 - **`pivot_confluencia_v1`** · Pivot + confluência S/R · 🟢
   - 13/07 · NASCEU (ETAPA 2; fade de pivot que está a <ATR de zona S/R/OB + rejeição; lateral é o terreno natural).
 
@@ -647,6 +676,21 @@ recupera a expectância (Etapa 9) — NÃO é conclusão do N=54 (amostra pequen
 (não-código):** na C_HIBRIDA, 49/54 saíram pela "saída antecipada C (M5 fuzzy contra)" capando os vencedores
 (MFE médio dos vencedores só +0,47R; um trade viu +10 pips DEPOIS de a C cortar) → é o corte fuzzy comendo o
 lucro, exatamente o que o **C_CORRE** já mede (deixa correr × corta). Comparar C_HIBRIDA × C_CORRE no /relatorio.
+
+## Pullback a médias + rejeição — gêmeo A/B da entrada (18/07, motivado pela auditoria 3-vias)
+Mesma história da OB, na `pullback_medias_v1`: a auditoria 3-vias (A N=14 · C_CORRE N=13 · C_HIBRIDA N=42,
+100% pós-fix) mostrou o **pior controle já auditado** — A exp **−0,589R** (t=−3,32, IC95% [−0,94,−0,24],
+inteiro abaixo de zero), C_CORRE −0,556R, C_HIBRIDA −0,209R (só menos negativa porque o corte fuzzy capa
+tudo). A e C_CORRE são quase os mesmos trades → a camada fuzzy é ~neutra na ENTRADA. O vazamento é de
+MECÂNICA de código, não de regime nem de N: a estratégia SÓ opera em tendência (por desenho) com a direção
+certa, mas `avaliar_pullback_medias` disparava em **TOQUE CRU na EMA** — `rejeicao` era só confluência (não
+gate) e apareceu em **1/14 (A) · 3/13 (C_CORRE)**, enquanto `fvg_confluente` (que DOBRA o score) disparava em
+~todos (ruído sempre-ligado num trend). Resultado: `entrada_adiantada` com MFE≈0 = faca caindo. Fix ADITIVO
+(controle intocado): **`pullback_medias_rej_v1`** = MESMA detecção, mas SÓ entra se a vela **REJEITAR a média**
+(`exigir_rejeicao=True` — a "retomada" da tese recua-e-retoma). `avaliar_pullback_medias` ganhou os params
+`exigir_rejeicao`/`estrategia`; env `MEDIAS_REJ_HABILITADA` (default on); nasce nos livros A/C_HIBRIDA/C_CORRE
+automático. Testes em `test_estrategias` (o gêmeo barra o toque cru que a original aceita). ⚠️ A sombra decide
+(Etapa 9) — NÃO é conclusão do N=14; N<50 não passa o gate. **251 testes, todos passando.**
 
 ## Família F_BREAKOUT — rompimento da abertura de Londres (15/07, 1º EDGE validado OOS)
 6º cenário comparável (A · B · C · D_LINHAS · E_SENTINELA · **F_BREAKOUT**), ADITIVO/desligável. É a

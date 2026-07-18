@@ -487,6 +487,31 @@ def test_medias_fvg_confluente_dobra_score():
     assert dobrado["score"] > base["score"], (dobrado["score"], base["score"])
 
 
+# --- gêmeo A/B: pullback_medias_rej_v1 (EXIGE rejeição na média) ---
+# candle que TOCA a EMA20 (1.1000) mas NÃO rejeita (fecha perto da mínima, sem pavio inferior).
+def _snap_med_sem_rej(**kw):
+    return _snap_med(open=1.1006, high=1.1007, low=1.1000, close=1.1001, **kw)
+
+
+def test_medias_rej_entra_quando_rejeita():
+    # a mesma foto do controle (com rejeição) → o gêmeo entra e carimba a própria estratégia.
+    d = e.avaliar_pullback_medias(_snap_med(), exigir_rejeicao=True,
+                                  estrategia=e.ESTRATEGIA_MEDIAS_REJ, **CFG_MED)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["estrategia"] == "pullback_medias_rej_v1", d
+    assert "rejeicao" in d["confluencias"], d
+
+
+def test_medias_rej_barra_toque_cru_sem_rejeicao():
+    # toque na EMA SEM rejeição: o CONTROLE entra (toque cru), o GÊMEO estrito NÃO.
+    controle = e.avaliar_pullback_medias(_snap_med_sem_rej(), **CFG_MED)
+    gemeo = e.avaliar_pullback_medias(_snap_med_sem_rej(), exigir_rejeicao=True,
+                                      estrategia=e.ESTRATEGIA_MEDIAS_REJ, **CFG_MED)
+    assert controle["resultado"] == "entrou", controle
+    assert "rejeicao" not in controle["confluencias"], controle
+    assert gemeo["resultado"] == "nao_entrou" and "rejeição" in gemeo["motivo"], gemeo
+
+
 # --------------------------------------------------------------------------- #
 # Estratégia 9 — toque em pivot confluente com S/R/OB + rejeição
 # --------------------------------------------------------------------------- #

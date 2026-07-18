@@ -283,6 +283,7 @@ NOMES_ESTRATEGIAS = {
     "pullback_rompimento_v1": "Pullback ao rompimento",
     "rompimento_extremos_v1": "Rompimento máx/mín do dia",
     "pullback_medias_v1": "Pullback a médias (EMA)",
+    "pullback_medias_rej_v1": "Pullback a médias + rejeição",
     "pivot_confluencia_v1": "Pivot + confluência S/R",
     "fuzzy_puro_v1": "Fuzzy Puro (Variante B)",
 }
@@ -364,6 +365,11 @@ EXTREMOS_HABILITADA = os.environ.get("EXTREMOS_HABILITADA", "true").lower() in (
 # A favor da tendência, o preço recua e toca a EMA9/EMA20 do TF SUPERIOR e retoma. FVG/OB
 # coincidente DOBRA o score; rejeição/regime = reforço. Variante A (grupo de controle).
 MEDIAS_HABILITADA = os.environ.get("MEDIAS_HABILITADA", "true").lower() in ("1", "true", "sim")
+# Gêmeo A/B: MESMA detecção (toque na EMA em tendência), mas EXIGE rejeição no candle da média
+# (a "retomada" confirmada). Livro `pullback_medias_rej_v1` comparável ao `pullback_medias_v1` — a
+# auditoria 3-vias (N=14/13, 18/07) mostrou o controle disparando em TOQUE CRU (rejeição em só
+# 1/14; MFE≈0, stop imediato) → exp R −0,589 (pior controle auditado). Sombra decide (Etapa 9).
+MEDIAS_REJ_HABILITADA = os.environ.get("MEDIAS_REJ_HABILITADA", "true").lower() in ("1", "true", "sim")
 # TF de operação → TF ACIMA lido para as médias de contexto (tendência do timeframe maior).
 TF_ACIMA = {"M1": "M5", "M5": "M15", "M15": "H1", "H1": "D1"}
 # Quantos closes do TF acima ler para as médias (>= 200 p/ a SMA200 fechar).

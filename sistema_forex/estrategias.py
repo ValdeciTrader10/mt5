@@ -32,6 +32,7 @@ ESTRATEGIA_GAP = "fecha_gap_v1"
 ESTRATEGIA_ROMPIMENTO = "pullback_rompimento_v1"
 ESTRATEGIA_EXTREMOS = "rompimento_extremos_v1"
 ESTRATEGIA_MEDIAS = "pullback_medias_v1"
+ESTRATEGIA_MEDIAS_REJ = "pullback_medias_rej_v1"  # gêmeo do pullback-média que EXIGE rejeição na média
 ESTRATEGIA_PIVOT = "pivot_confluencia_v1"
 ESTRATEGIA_FUZZY_PURO = "fuzzy_puro_v1"      # Variante B (ETAPA 5)
 ESTRATEGIA_FUZZY_PURO_LIMA = "fuzzy_puro_lima_v1"  # Variante B2 (item 4): mesma lógica, maré = Lima (76)
@@ -688,31 +689,31 @@ def _perto_media(close: float, medias: dict, tol: float):
 
 
 def avaliar_pullback_medias(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_atr,
-                            pavio_min=0.5) -> dict:
+                            pavio_min=0.5, exigir_rejeicao=False,
+                            estrategia=ESTRATEGIA_MEDIAS) -> dict:
     """A FAVOR da tendência (regime), o preço RECUA e toca a EMA9/EMA20 do TF ACIMA (a média
     como suporte/resistência dinâmica) e retoma. O toque na média é o setup; FVG/OB coincidente
     DOBRA o score (confluência forte — doc); rejeição no candle e regime são reforço. Gates duros:
     sessão + spread. Contra a tendência: nem avalia. `medias_acima` no snapshot = médias do TF
-    superior (ex.: M5 opera, lê as médias do M15)."""
+    superior (ex.: M5 opera, lê as médias do M15). Rejeição na média é confluência; só é GATE se
+    exigir_rejeicao=True — usado pelo gêmeo `pullback_medias_rej_v1`."""
+    _d = lambda *a: _decisao(*a, estrategia=estrategia)
     regime = snap.get("regime", "indefinido")
     atr = snap.get("atr")
     close = snap["close"]
     medias = snap.get("medias_acima") or {}
     if atr is None or not medias:
-        return _decisao("nao_entrou", None, regime, 0, [], "sem médias/ATR",
-                        estrategia=ESTRATEGIA_MEDIAS)
+        return _d("nao_entrou", None, regime, 0, [], "sem médias/ATR")
     if regime == "tendencia_alta":
         direcao = "compra"
     elif regime == "tendencia_baixa":
         direcao = "venda"
     else:
-        return _decisao("nao_entrou", None, regime, 0, [], f"sem tendência (regime={regime})",
-                        estrategia=ESTRATEGIA_MEDIAS)
+        return _d("nao_entrou", None, regime, 0, [], f"sem tendência (regime={regime})")
     tol = nivel_prox_atr * atr
     perto = _perto_media(close, medias, tol)
     if perto is None:
-        return _decisao("nao_entrou", direcao, regime, 0, ["regime"],
-                        "preço longe das médias", estrategia=ESTRATEGIA_MEDIAS)
+        return _d("nao_entrou", direcao, regime, 0, ["regime"], "preço longe das médias")
     chave, nivel = perto
     conf = ["regime", f"toque_{chave}"]
     rejeitou = candle_rejeicao(snap, direcao, nivel, tol, pavio_min)
@@ -735,17 +736,19 @@ def avaliar_pullback_medias(snap: dict, *, sessao_utc, spread_max_pips, nivel_pr
             break
     score = len(conf) * 2 if dobra else len(conf)
 
+    # Gêmeo estrito: a tese é RECUA-E-RETOMA; sem rejeição no candle a "retomada" não se
+    # confirmou → o toque na média vira faca caindo (a auditoria N=14 do controle mostrou a
+    # entrada disparando em toque cru, MFE≈0, stop imediato). Só o gêmeo `_rej_v1` gateia.
+    if exigir_rejeicao and not rejeitou:
+        return _d("nao_entrou", direcao, regime, score, conf, "sem rejeição na média (modo estrito)")
     hora = snap.get("hora_utc", 0)
     if not (sessao_utc[0] <= hora < sessao_utc[1]):
-        return _decisao("nao_entrou", direcao, regime, score, conf,
-                        f"fora da sessão ({hora}h UTC)", estrategia=ESTRATEGIA_MEDIAS)
+        return _d("nao_entrou", direcao, regime, score, conf, f"fora da sessão ({hora}h UTC)")
     spread = snap.get("spread_pips", 0.0)
     if spread > spread_max_pips:
-        return _decisao("nao_entrou", direcao, regime, score, conf,
-                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
-                        estrategia=ESTRATEGIA_MEDIAS)
-    return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
-                    estrategia=ESTRATEGIA_MEDIAS)
+        return _d("nao_entrou", direcao, regime, score, conf,
+                  f"spread alto ({spread:.1f}p > {spread_max_pips}p)")
+    return _d("entrou", direcao, regime, score, conf, "+".join(conf))
 
 
 # --------------------------------------------------------------------------- #

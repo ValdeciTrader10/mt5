@@ -483,6 +483,20 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             pavio_min=config.REJEICAO_PAVIO_MIN,
         ))
+    # Gêmeo A/B do pullback-média (motivado pela auditoria 3-vias N=14/13 de 18/07: o controle
+    # dispara em TOQUE CRU na EMA sem rejeição — MFE≈0, stop imediato, exp R −0,589 = pior
+    # controle auditado). `pullback_medias_rej_v1` = MESMA detecção, mas SÓ entra se a vela
+    # REJEITAR a média (retomada confirmada). Livro independente/comparável; original intocada.
+    if config.MEDIAS_REJ_HABILITADA:
+        decs.append(estrategias.avaliar_pullback_medias(
+            snap,
+            sessao_utc=sessao_utc,
+            spread_max_pips=spread_max,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            pavio_min=config.REJEICAO_PAVIO_MIN,
+            exigir_rejeicao=True,
+            estrategia=estrategias.ESTRATEGIA_MEDIAS_REJ,
+        ))
     if config.PIVOT_HABILITADA:
         decs.append(estrategias.avaliar_pivot_confluencia(
             snap,
