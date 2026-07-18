@@ -246,6 +246,24 @@ def test_ob_modo_estrito_exige_rejeicao():
     assert d["resultado"] == "nao_entrou" and "estrito" in d["motivo"], d
 
 
+def test_ob_rej_gemeo_so_entra_com_rejeicao():
+    """Gêmeo `order_block_rej_v1` (motivado pela auditoria da C_HIBRIDA): MESMA detecção do OB,
+    mas SÓ entra se a vela rejeitar a borda do bloco. Com rejeição entra e carimba a estratégia
+    nova; sem rejeição (só encostou e seguiu = o padrão dos 28/28 perdedores) NÃO entra."""
+    d = e.avaliar_order_block(_snap_ob(), estrategia=e.ESTRATEGIA_OB_REJ,
+                              exigir_rejeicao=True, **CFG_OB)
+    assert d["resultado"] == "entrou" and d["estrategia"] == "order_block_rej_v1", d
+    assert "rejeicao" in d["confluencias"], d
+    # mesma zona, mas a vela só encosta e fecha longe da borda (sem pavio de rejeição) → não entra
+    sem_rej = _snap_ob(close=1.1011, open=1.1009, high=1.1012, low=1.1008)
+    d2 = e.avaliar_order_block(sem_rej, estrategia=e.ESTRATEGIA_OB_REJ,
+                              exigir_rejeicao=True, **CFG_OB)
+    assert d2["resultado"] == "nao_entrou" and d2["estrategia"] == "order_block_rej_v1", d2
+    # o controle `order_block_v1` (sem exigir) ENTRA na mesma vela → prova que o gêmeo é mais seletivo
+    d3 = e.avaliar_order_block(sem_rej, **CFG_OB)
+    assert d3["resultado"] == "entrou" and d3["estrategia"] == "order_block_v1", d3
+
+
 # --------------------------------------------------------------------------- #
 # Estratégia 4 — pullback a favor da tendência + rejeição em S/R forte
 # --------------------------------------------------------------------------- #

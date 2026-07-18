@@ -423,6 +423,21 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             pavio_min=config.REJEICAO_PAVIO_MIN,
             exigir_rejeicao=config.EXIGIR_REJEICAO_OB,
         ))
+    # Gêmeo A/B do order block (motivado pela auditoria: 28/28 perdedoras da C_HIBRIDA foram
+    # CONTRA de imediato = entrada sem confirmação). `order_block_rej_v1` = MESMA detecção, mas
+    # SÓ entra se a vela REJEITAR a borda do bloco (pavio + fecha de volta). Livro de sombra
+    # independente e comparável ao `order_block_v1` (a original fica intocada como controle).
+    if config.OB_REJ_HABILITADA:
+        decs.append(estrategias.avaliar_order_block(
+            snap,
+            sessao_utc=sessao_utc,
+            spread_max_pips=spread_max,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            forca_min=config.SR_FORCA_MIN,
+            pavio_min=config.REJEICAO_PAVIO_MIN,
+            exigir_rejeicao=True,
+            estrategia=estrategias.ESTRATEGIA_OB_REJ,
+        ))
     if config.PULLBACK_HABILITADA:
         decs.append(estrategias.avaliar_pullback_tendencia(
             snap,

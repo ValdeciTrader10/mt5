@@ -368,6 +368,22 @@ comprime e EXPANDE na direção da força). Snapshot ganhou `forca`/`forca_serie
 800→1200. Testes em `test_fuzzy` (forca_sync/leque/asof) + `test_estrategias` (as 3). ⚠️ SL/saída segue o
 genérico; validar por expectância na sombra antes de concluir (skill §5) — é o "5º dado" p/ comparar.
 
+## Order block + rejeição — gêmeo A/B da entrada (18/07, motivado pela auditoria da C_HIBRIDA)
+A 1ª auditoria em lote da `order_block_v1` (livro C_HIBRIDA, 54 trades exportados pelo raio-X-zip) mostrou
+o vazamento da ENTRADA: **28/28 perdedoras foram CONTRA de imediato** (MFE < 0,3R — nunca andaram a favor),
+só 3/54 tinham a confluência `rejeicao` e o pior regime era `lateral` (n=30, exp −0,10R). Ou seja: a OB
+entra a mercado quando o preço só ENCOSTA na zona (dentro de `nivel_prox_atr×ATR`), sem confirmação — vira
+moeda pro alto que muitas vezes já sai contra. Fix ADITIVO (controle intocado): **`order_block_rej_v1`** =
+MESMA detecção da `order_block_v1`, mas SÓ entra se a vela **REJEITAR a borda do bloco** (pavio + fecha de
+volta — `exigir_rejeicao=True`). Livro de sombra próprio e comparável à original (como a `sweep_choch_abs_v1`
+é da `sweep_choch_v1`); nasce nos livros A/C_HIBRIDA/C_CORRE automaticamente. `avaliar_order_block` ganhou o
+parâmetro `estrategia`; env `OB_REJ_HABILITADA` (default on). Testes em `test_estrategias` (entra só com
+rejeição; a original entra na mesma vela = o gêmeo é mais seletivo). ⚠️ A sombra decide se a rejeição
+recupera a expectância (Etapa 9) — NÃO é conclusão do N=54 (amostra pequena e pré-fix). **Achado paralelo
+(não-código):** na C_HIBRIDA, 49/54 saíram pela "saída antecipada C (M5 fuzzy contra)" capando os vencedores
+(MFE médio dos vencedores só +0,47R; um trade viu +10 pips DEPOIS de a C cortar) → é o corte fuzzy comendo o
+lucro, exatamente o que o **C_CORRE** já mede (deixa correr × corta). Comparar C_HIBRIDA × C_CORRE no /relatorio.
+
 ## Família F_BREAKOUT — rompimento da abertura de Londres (15/07, 1º EDGE validado OOS)
 6º cenário comparável (A · B · C · D_LINHAS · E_SENTINELA · **F_BREAKOUT**), ADITIVO/desligável. É a
 PRIMEIRA estratégia que nasceu de um **estudo histórico validado FORA DA AMOSTRA** (não de teoria): a

@@ -26,6 +26,7 @@ ESTRATEGIA = "confluencia_v1"
 ESTRATEGIA_SWEEP = "sweep_choch_v1"
 ESTRATEGIA_SWEEP_ABS = "sweep_choch_abs_v1"   # gêmea da caça-stops COM filtro de absorção
 ESTRATEGIA_OB = "order_block_v1"
+ESTRATEGIA_OB_REJ = "order_block_rej_v1"   # gêmeo do OB que EXIGE rejeição na borda do bloco
 ESTRATEGIA_PULLBACK = "pullback_tendencia_v1"
 ESTRATEGIA_GAP = "fecha_gap_v1"
 ESTRATEGIA_ROMPIMENTO = "pullback_rompimento_v1"
@@ -394,22 +395,22 @@ def _ob_retestado(close: float, obs: list, tol: float):
 
 
 def avaliar_order_block(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_atr,
-                        forca_min, pavio_min=0.5, exigir_rejeicao=False) -> dict:
+                        forca_min, pavio_min=0.5, exigir_rejeicao=False,
+                        estrategia=ESTRATEGIA_OB) -> dict:
     """Avalia o reteste de Order Block. O OB fresco + preço retestando É o setup; S/R e
     regime a favor são REFORÇO (nunca veto). Rejeição na borda é confluência (gate só se
-    exigir_rejeicao=True). Gates duros: sessão + spread."""
+    exigir_rejeicao=True — usado pelo gêmeo `order_block_rej_v1`). Gates duros: sessão + spread."""
+    _d = lambda *a: _decisao(*a, estrategia=estrategia)
     regime = snap.get("regime", "indefinido")
     atr = snap.get("atr")
     close = snap["close"]
     obs = snap.get("obs", [])
     if atr is None or not obs:
-        return _decisao("nao_entrou", None, regime, 0, [], "sem OB fresco/ATR",
-                        estrategia=ESTRATEGIA_OB)
+        return _d("nao_entrou", None, regime, 0, [], "sem OB fresco/ATR")
     tol = nivel_prox_atr * atr
     alvo = _ob_retestado(close, obs, tol)
     if alvo is None:
-        return _decisao("nao_entrou", None, regime, 0, [], "preço fora das zonas de OB",
-                        estrategia=ESTRATEGIA_OB)
+        return _d("nao_entrou", None, regime, 0, [], "preço fora das zonas de OB")
     direcao, ob = alvo
     conf = ["order_block"]
     # rejeição na borda de entrada da zona (compra→base como suporte; venda→topo como resistência)
@@ -427,19 +428,15 @@ def avaliar_order_block(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_a
     score = len(conf)
 
     if exigir_rejeicao and not rejeitou:
-        return _decisao("nao_entrou", direcao, regime, score, conf,
-                        "sem rejeição no OB (modo estrito)", estrategia=ESTRATEGIA_OB)
+        return _d("nao_entrou", direcao, regime, score, conf, "sem rejeição no OB (modo estrito)")
     hora = snap.get("hora_utc", 0)
     if not (sessao_utc[0] <= hora < sessao_utc[1]):
-        return _decisao("nao_entrou", direcao, regime, score, conf,
-                        f"fora da sessão ({hora}h UTC)", estrategia=ESTRATEGIA_OB)
+        return _d("nao_entrou", direcao, regime, score, conf, f"fora da sessão ({hora}h UTC)")
     spread = snap.get("spread_pips", 0.0)
     if spread > spread_max_pips:
-        return _decisao("nao_entrou", direcao, regime, score, conf,
-                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
-                        estrategia=ESTRATEGIA_OB)
-    return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
-                    estrategia=ESTRATEGIA_OB)
+        return _d("nao_entrou", direcao, regime, score, conf,
+                  f"spread alto ({spread:.1f}p > {spread_max_pips}p)")
+    return _d("entrou", direcao, regime, score, conf, "+".join(conf))
 
 
 # --------------------------------------------------------------------------- #

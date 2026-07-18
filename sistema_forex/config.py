@@ -277,6 +277,7 @@ NOMES_ESTRATEGIAS = {
     "confluencia_v1": "Confluência (tendência / S-R)",
     "sweep_choch_v1": "Caça-stops + reversão",
     "order_block_v1": "Order block (reteste)",
+    "order_block_rej_v1": "Order block + rejeição",
     "pullback_tendencia_v1": "Pullback na tendência",
     "fecha_gap_v1": "Fechamento de gap",
     "pullback_rompimento_v1": "Pullback ao rompimento",
@@ -323,6 +324,10 @@ SWEEP_ABS_JANELA = int(os.environ.get("SWEEP_ABS_JANELA", "20"))
 # se EXIGIR_REJEICAO_OB=true (modo estrito).
 OB_HABILITADA = os.environ.get("OB_HABILITADA", "true").lower() in ("1", "true", "sim")
 EXIGIR_REJEICAO_OB = os.environ.get("EXIGIR_REJEICAO_OB", "false").lower() in ("1", "true", "sim")
+# Gêmeo A/B do order block: MESMA detecção, mas exige REJEIÇÃO na borda do bloco (a vela testa e
+# volta). Livro `order_block_rej_v1` comparável ao `order_block_v1` — a auditoria da C_HIBRIDA
+# mostrou 28/28 perdedoras indo contra de imediato (entrada sem confirmação). Sombra decide.
+OB_REJ_HABILITADA = os.environ.get("OB_REJ_HABILITADA", "true").lower() in ("1", "true", "sim")
 
 # --- 4ª estratégia: pullback a favor da tendência (H1) + rejeição em S/R forte ---
 # Tese própria: em tendência, o preço recua a um S/R FORTE na direção da tendência, REJEITA
