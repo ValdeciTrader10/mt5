@@ -230,6 +230,11 @@ banco na manhã seguinte (design do coletor).
     sweep+CHoCH E absorção obrigatória — não é toque cru; sem bug tipo `pullback_medias`). **NENHUM ajuste de
     código** — mexer a N=3 seria data-snooping puro (skill §5); o certo é a sombra ZERADA pós-fix chegar a N≥50 e
     reauditar A vs C_CORRE vs C_HIBRIDA (aí sim se responde: a absorção bate a `sweep_choch_v1` crua?). ➖ N=3.
+- **`sweep_choch_st_v1`** · Caça-stops + STOP ESTRUTURAL · 🅰️🅱️🧪
+  - 18/07 · NASCEU junto com o `order_block_st_v1` (mesmo lever). MESMA entrada da `sweep_choch_v1`, mas o stop
+    vai **ATRÁS DO EXTREMO VARRIDO** (`det["nivel_sweep"]` + buffer) via `sl_atr_mult` — a reversão pós-sweep
+    morre se o preço voltar além do extremo, então esse é o stop estruturalmente correto (e mais apertado que o
+    ATR×3). Env `SWEEP_ST_HABILITADA`. Isola o efeito de cortar a perda média na caça-stops. Sombra decide.
 - **`order_block_v1`** · Order block (reteste) · 🟢
   - 13/07 · NASCEU (detecção exige displacement/FVG, só M15/H1, zona fresca; entra no reteste + rejeição soft).
   - 16/07 · `fecha_gap`-style: nada aqui; herdou fixes gerais.
@@ -263,6 +268,13 @@ banco na manhã seguinte (design do coletor).
   - 18/07 · a 3ª auditoria (controle A_ORIGINAL, 36 trades) REFORÇA de novo: 12/18 perdedoras contra de imediato,
     só 2/36 com rejeição. Espera-se que o gêmeo (a) barre essas perdedoras E (b) reduza naturalmente as entradas no
     `lateral` (rejeição confirmada é rara em range choppy) — a sombra dirá se recupera a expectância.
+- **`order_block_st_v1`** · Order block + STOP ESTRUTURAL · 🅰️🅱️🧪
+  - 18/07 · NASCEU. MOTIVO: a 3ª auditoria mostrou os vencedores precisando de só **−0,47R de calor médio** → o
+    stop ATR×3 genérico é largo demais e INFLA a perda média (perdedoras batem −1R cheio). MESMA entrada do
+    `order_block_v1`, mas o stop vai **ATRÁS DO BLOCO** (borda + buffer 0,3 ATR), carimbado como `sl_atr_mult`
+    (multiplicador de ATR, só APERTA — clampado no teto ATR×3). Isola o LEVER "cortar a perda média sem tocar
+    nos vencedores" (o "prejuízo pequeno" do dono). Env `OB_ST_HABILITADA`. Efeito esperado: perda média cai →
+    expectância sobe SE os vencedores sobreviverem ao stop mais apertado. Sombra decide (Etapa 9).
 - **`pullback_tendencia_v1`** · Pullback na tendência · 🟢
   - 13/07 · NASCEU (a favor do H1; recua a S/R forte e a rejeição é o GATILHO obrigatório; OB coincidente reforça).
 - **`fecha_gap_v1`** · Fechamento de gap · ⏸️ **APOSENTADA (18/07)**

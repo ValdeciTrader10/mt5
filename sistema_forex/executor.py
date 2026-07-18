@@ -631,21 +631,26 @@ class Executor:
         # Limites de SL POR SÍMBOLO (o ouro precisa de stops muito mais largos que o forex).
         sl_min = config.param_simbolo(par, "sl_min_pips", config.SL_MIN_PIPS)
         sl_max = config.param_simbolo(par, "sl_max_pips", config.SL_MAX_PIPS)
-        sl = gestao.calcular_sl(direcao, assumido, atr, mult=config.SL_SERVIDOR_ATR_MULT,
-                                min_pips=sl_min, max_pips=sl_max, pip=pip)
-        # F_BREAKOUT: o stop é ESTRUTURAL (lado oposto da opening range), não ATR — o `sl_pips`
-        # vem gravado na decisão (`dados_json`). Sem isso o breakout usaria o ATR genérico.
-        if d and (d["variante"] == "F_BREAKOUT"):
+        mult = config.SL_SERVIDOR_ATR_MULT
+        # Stop vindo da DECISÃO (dados_json): `sl_pips` = stop estrutural em pips (F_BREAKOUT, OR
+        # oposta); `sl_atr_mult` = stop estrutural como multiplicador de ATR (gêmeos _st, atrás do
+        # bloco/sweep). Sem eles, cai no ATR×mult genérico.
+        _dd = {}
+        if d and d["dados_json"]:
             try:
-                _dd = json.loads(d["dados_json"] or "{}")
+                _dd = json.loads(d["dados_json"])
             except Exception:  # noqa: BLE001
                 _dd = {}
-            slp = _dd.get("sl_pips")
-            if slp:
-                sl = assumido - slp * pip if direcao == "compra" else assumido + slp * pip
-            else:  # nunca deve acontecer (a decisão 'entrou' sempre grava sl_pips) — não silenciar
-                log.warning("F_BREAKOUT %s %s sem sl_pips na decisão %s — caindo no stop ATR",
-                            par, tf, d["id"])
+        if _dd.get("sl_atr_mult"):
+            mult = _dd["sl_atr_mult"]
+        sl = gestao.calcular_sl(direcao, assumido, atr, mult=mult,
+                                min_pips=sl_min, max_pips=sl_max, pip=pip)
+        slp = _dd.get("sl_pips")
+        if slp:                       # sl_pips manda (stop na OR do F_BREAKOUT)
+            sl = assumido - slp * pip if direcao == "compra" else assumido + slp * pip
+        elif d and d["variante"] == "F_BREAKOUT":
+            log.warning("F_BREAKOUT %s %s sem sl_pips na decisão %s — caindo no stop ATR",
+                        par, tf, d["id"])
         entrada, ticket, fill = assumido, None, {}
         if real:
             if not mt5_bridge.verificar_margem(simbolo, config.LOTE, direcao == "compra"):

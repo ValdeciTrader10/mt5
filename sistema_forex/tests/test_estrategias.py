@@ -246,6 +246,28 @@ def test_ob_modo_estrito_exige_rejeicao():
     assert d["resultado"] == "nao_entrou" and "estrito" in d["motivo"], d
 
 
+def test_sl_atr_mult_estrutural_aperta_e_nunca_afrouxa():
+    # dist 1,5 ATR até o nível + 0,3 buffer = 1,8 (aperta vs teto 3,0)
+    m = e.sl_atr_mult_estrutural("compra", 1.1005, 1.0990, 0.0010, buffer_atr=0.3, mult_teto=3.0)
+    assert m == 1.8, m
+    # nível MUITO longe (5 ATR) → clampa no teto (não afrouxa além do ATR genérico)
+    assert e.sl_atr_mult_estrutural("compra", 1.1050, 1.0990, 0.0010, buffer_atr=0.3, mult_teto=3.0) == 3.0
+    # nível do lado ERRADO (acima da entrada numa compra) → None (usa o ATR padrão, sem stop inválido)
+    assert e.sl_atr_mult_estrutural("compra", 1.0990, 1.1005, 0.0010, buffer_atr=0.3, mult_teto=3.0) is None
+
+
+def test_ob_st_gemeo_carimba_stop_estrutural():
+    """Gêmeo `order_block_st_v1`: MESMA entrada do controle, mas carimba `sl_atr_mult` (stop atrás
+    do bloco, mais apertado que o ATR×3). O controle NÃO carrega o campo (segue intocado)."""
+    d = e.avaliar_order_block(_snap_ob(), estrategia=e.ESTRATEGIA_OB_ST, stop_estrutural=True,
+                              buffer_atr=0.3, mult_teto=3.0, **CFG_OB)
+    assert d["resultado"] == "entrou" and d["estrategia"] == "order_block_st_v1", d
+    assert d.get("sl_atr_mult") is not None and d["sl_atr_mult"] < 3.0, d
+    # controle intocado: sem sl_atr_mult
+    d0 = e.avaliar_order_block(_snap_ob(), **CFG_OB)
+    assert d0.get("sl_atr_mult") is None and d0["estrategia"] == "order_block_v1", d0
+
+
 def test_ob_rej_gemeo_so_entra_com_rejeicao():
     """Gêmeo `order_block_rej_v1` (motivado pela auditoria da C_HIBRIDA): MESMA detecção do OB,
     mas SÓ entra se a vela rejeitar a borda do bloco. Com rejeição entra e carimba a estratégia

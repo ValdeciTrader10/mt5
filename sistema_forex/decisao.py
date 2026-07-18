@@ -338,6 +338,8 @@ def _gravar_decisao(conn, par: str, tf: str, time_utc: int, dec: dict, mercado: 
     dados = {"score": dec["score"], "confluencias": dec["confluencias"], "regime": dec["regime"]}
     if dec.get("sl_pips") is not None:      # F_BREAKOUT: stop na OR (o executor lê e usa no lugar do ATR)
         dados["sl_pips"] = dec["sl_pips"]
+    if dec.get("sl_atr_mult") is not None:  # gêmeos _st: stop ESTRUTURAL = multiplicador de ATR (aperta)
+        dados["sl_atr_mult"] = dec["sl_atr_mult"]
     if config.EV_HABILITADO:
         try:
             dados["ev"] = _scores_ev(conn, par, tf, time_utc, dec)
@@ -413,6 +415,23 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             forca_min=config.SR_FORCA_MIN,
             absorcao_janela=config.SWEEP_ABS_JANELA,
         ))
+    # Gêmeo do STOP ESTRUTURAL da caça-stops: MESMA entrada da `sweep_choch_v1`, mas o stop vai
+    # ATRÁS DO EXTREMO VARRIDO (a reversão morre se o preço voltar lá) — aperta a perda média.
+    if config.SWEEP_ST_HABILITADA:
+        decs.append(estrategias.avaliar_sweep_choch(
+            snap,
+            sessao_utc=sessao_utc,
+            spread_max_pips=spread_max,
+            n_swing=config.SWEEP_N_SWING,
+            sweep_min_atr=config.SWEEP_MIN_ATR,
+            sweep_recente=config.SWEEP_RECENTE,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            forca_min=config.SR_FORCA_MIN,
+            estrategia=estrategias.ESTRATEGIA_SWEEP_ST,
+            stop_estrutural=True,
+            buffer_atr=config.STOP_ESTRUTURAL_BUFFER_ATR,
+            mult_teto=config.SL_SERVIDOR_ATR_MULT,
+        ))
     if config.OB_HABILITADA:
         decs.append(estrategias.avaliar_order_block(
             snap,
@@ -437,6 +456,22 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             pavio_min=config.REJEICAO_PAVIO_MIN,
             exigir_rejeicao=True,
             estrategia=estrategias.ESTRATEGIA_OB_REJ,
+        ))
+    # Gêmeo do STOP ESTRUTURAL (motivado pela auditoria: vencedores só precisaram de ~0,5R de calor
+    # → o ATR×3 é largo demais e infla a perda média). MESMA entrada do `order_block_v1`, mas o stop
+    # vai ATRÁS DO BLOCO (aperta a perda média sem tocar nos vencedores). Isola o LEVER da saída.
+    if config.OB_ST_HABILITADA:
+        decs.append(estrategias.avaliar_order_block(
+            snap,
+            sessao_utc=sessao_utc,
+            spread_max_pips=spread_max,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            forca_min=config.SR_FORCA_MIN,
+            pavio_min=config.REJEICAO_PAVIO_MIN,
+            estrategia=estrategias.ESTRATEGIA_OB_ST,
+            stop_estrutural=True,
+            buffer_atr=config.STOP_ESTRUTURAL_BUFFER_ATR,
+            mult_teto=config.SL_SERVIDOR_ATR_MULT,
         ))
     if config.PULLBACK_HABILITADA:
         decs.append(estrategias.avaliar_pullback_tendencia(

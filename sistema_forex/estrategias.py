@@ -25,8 +25,10 @@ from . import fuzzy_score, indicadores
 ESTRATEGIA = "confluencia_v1"
 ESTRATEGIA_SWEEP = "sweep_choch_v1"
 ESTRATEGIA_SWEEP_ABS = "sweep_choch_abs_v1"   # gêmea da caça-stops COM filtro de absorção
+ESTRATEGIA_SWEEP_ST = "sweep_choch_st_v1"     # gêmeo da caça-stops com STOP ESTRUTURAL (atrás do sweep)
 ESTRATEGIA_OB = "order_block_v1"
 ESTRATEGIA_OB_REJ = "order_block_rej_v1"   # gêmeo do OB que EXIGE rejeição na borda do bloco
+ESTRATEGIA_OB_ST = "order_block_st_v1"     # gêmeo do OB com STOP ESTRUTURAL (atrás do bloco)
 ESTRATEGIA_PULLBACK = "pullback_tendencia_v1"
 ESTRATEGIA_GAP = "fecha_gap_v1"
 ESTRATEGIA_ROMPIMENTO = "pullback_rompimento_v1"
@@ -259,26 +261,28 @@ def detectar_sweep_choch(opens, highs, lows, closes, atr, *, n_swing, sweep_min_
 
 
 def avaliar_sweep_choch(snap: dict, *, sessao_utc, spread_max_pips, n_swing, sweep_min_atr,
-                        sweep_recente, nivel_prox_atr, forca_min) -> dict:
+                        sweep_recente, nivel_prox_atr, forca_min,
+                        estrategia=ESTRATEGIA_SWEEP, stop_estrutural=False,
+                        buffer_atr=0.3, mult_teto=3.0) -> dict:
     """Avalia a 2ª estratégia (sweep+CHoCH) sobre a janela M5 do snapshot.
 
     O padrão É o sinal (não exige score mínimo de confluências como a confluencia_v1).
     Gates duros continuam valendo (sessão + spread — liquidez/custo). S/R forte no nível
-    varrido é REFORÇO informativo (nunca veto); regime nunca gateia.
+    varrido é REFORÇO informativo (nunca veto); regime nunca gateia. `stop_estrutural=True`
+    (gêmeo `sweep_choch_st_v1`) carimba `sl_atr_mult` = stop atrás do extremo varrido.
     """
+    _d = lambda *a: _decisao(*a, estrategia=estrategia)
     regime = snap.get("regime", "indefinido")
     jan = snap.get("m5_janela")
     atr = snap.get("atr")
     if not jan or not jan.get("close") or not atr:
-        return _decisao("nao_entrou", None, regime, 0, [], "sem janela M5/ATR",
-                        estrategia=ESTRATEGIA_SWEEP)
+        return _d("nao_entrou", None, regime, 0, [], "sem janela M5/ATR")
 
     det = detectar_sweep_choch(jan["open"], jan["high"], jan["low"], jan["close"], atr,
                                n_swing=n_swing, sweep_min_atr=sweep_min_atr,
                                sweep_recente=sweep_recente)
     if det is None:
-        return _decisao("nao_entrou", None, regime, 0, [], "sem sweep+choch",
-                        estrategia=ESTRATEGIA_SWEEP)
+        return _d("nao_entrou", None, regime, 0, [], "sem sweep+choch")
 
     direcao = det["direcao"]
     conf = ["sweep+choch"]
@@ -297,16 +301,19 @@ def avaliar_sweep_choch(snap: dict, *, sessao_utc, spread_max_pips, n_swing, swe
     # Gates duros (iguais aos da confluencia_v1): sessão e spread.
     hora = snap.get("hora_utc", 0)
     if not (sessao_utc[0] <= hora < sessao_utc[1]):
-        return _decisao("nao_entrou", direcao, regime, score, conf,
-                        f"fora da sessão ({hora}h UTC)", estrategia=ESTRATEGIA_SWEEP)
+        return _d("nao_entrou", direcao, regime, score, conf, f"fora da sessão ({hora}h UTC)")
     spread = snap.get("spread_pips", 0.0)
     if spread > spread_max_pips:
-        return _decisao("nao_entrou", direcao, regime, score, conf,
-                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
-                        estrategia=ESTRATEGIA_SWEEP)
+        return _d("nao_entrou", direcao, regime, score, conf,
+                  f"spread alto ({spread:.1f}p > {spread_max_pips}p)")
 
-    return _decisao("entrou", direcao, regime, score, conf, "+".join(conf),
-                    estrategia=ESTRATEGIA_SWEEP)
+    dec = _d("entrou", direcao, regime, score, conf, "+".join(conf))
+    if stop_estrutural:   # stop atrás do extremo VARRIDO (a reversão morre se o preço voltar lá)
+        m = sl_atr_mult_estrutural(direcao, snap["close"], det["nivel_sweep"], atr,
+                                   buffer_atr=buffer_atr, mult_teto=mult_teto)
+        if m is not None:
+            dec["sl_atr_mult"] = m
+    return dec
 
 
 def avaliar_sweep_choch_abs(snap: dict, *, sessao_utc, spread_max_pips, n_swing, sweep_min_atr,
@@ -379,6 +386,26 @@ def avaliar_sweep_choch_abs(snap: dict, *, sessao_utc, spread_max_pips, n_swing,
 
 
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# STOP ESTRUTURAL — multiplicador de ATR até ALÉM do nível que invalida o setup
+# --------------------------------------------------------------------------- #
+def sl_atr_mult_estrutural(direcao, close, nivel_invalida, atr, *, buffer_atr, mult_teto):
+    """Distância do preço de entrada até ALÉM do nível de invalidação (borda do bloco / extremo
+    varrido), em unidades de ATR + um buffer — o "stop estrutural" que o executor aplica no lugar
+    do ATR×3 genérico (motivado pelos dados: os vencedores só precisaram de ~0,5R de calor → o
+    ATR×3 é largo demais e infla a perda média). PURA, sem pip (adimensional). Retorna None (cai
+    no ATR padrão) se o nível estiver do lado ERRADO da entrada (stop inválido) ou se a distância
+    degenerar. Nunca AFROUXA: clampa no `mult_teto` (o default), então só pode APERTAR."""
+    if not atr or atr <= 0 or nivel_invalida is None:
+        return None
+    dist = (close - nivel_invalida) if direcao == "compra" else (nivel_invalida - close)
+    if dist <= 0:
+        return None
+    mult = dist / atr + buffer_atr
+    return round(max(0.5, min(mult, mult_teto)), 3)   # piso 0,5 ATR; teto = não afrouxar
+
+
+# --------------------------------------------------------------------------- #
 # Estratégia 3 — reteste de Order Block (M15/H1) + rejeição
 # --------------------------------------------------------------------------- #
 def _ob_retestado(close: float, obs: list, tol: float):
@@ -397,10 +424,12 @@ def _ob_retestado(close: float, obs: list, tol: float):
 
 def avaliar_order_block(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_atr,
                         forca_min, pavio_min=0.5, exigir_rejeicao=False,
-                        estrategia=ESTRATEGIA_OB) -> dict:
+                        estrategia=ESTRATEGIA_OB, stop_estrutural=False,
+                        buffer_atr=0.3, mult_teto=3.0) -> dict:
     """Avalia o reteste de Order Block. O OB fresco + preço retestando É o setup; S/R e
     regime a favor são REFORÇO (nunca veto). Rejeição na borda é confluência (gate só se
-    exigir_rejeicao=True — usado pelo gêmeo `order_block_rej_v1`). Gates duros: sessão + spread."""
+    exigir_rejeicao=True — usado pelo gêmeo `order_block_rej_v1`). Gates duros: sessão + spread.
+    `stop_estrutural=True` (gêmeo `order_block_st_v1`) carimba `sl_atr_mult` = stop atrás do bloco."""
     _d = lambda *a: _decisao(*a, estrategia=estrategia)
     regime = snap.get("regime", "indefinido")
     atr = snap.get("atr")
@@ -437,7 +466,13 @@ def avaliar_order_block(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_a
     if spread > spread_max_pips:
         return _d("nao_entrou", direcao, regime, score, conf,
                   f"spread alto ({spread:.1f}p > {spread_max_pips}p)")
-    return _d("entrou", direcao, regime, score, conf, "+".join(conf))
+    dec = _d("entrou", direcao, regime, score, conf, "+".join(conf))
+    if stop_estrutural:   # stop atrás do bloco (compra→base como suporte; venda→topo)
+        m = sl_atr_mult_estrutural(direcao, close, nivel_ref, atr,
+                                   buffer_atr=buffer_atr, mult_teto=mult_teto)
+        if m is not None:
+            dec["sl_atr_mult"] = m
+    return dec
 
 
 # --------------------------------------------------------------------------- #
@@ -1064,7 +1099,12 @@ def avaliar_hibrida(dec_base: dict, snap: dict, *, mare_min, corrente_min):
             conf.append("fuzzy_vwap_valor")
             bonus += 1
 
-    return _C("entrou", "C|" + "+".join(conf), base_score + bonus)
+    dec_c = _C("entrou", "C|" + "+".join(conf), base_score + bonus)
+    # O espelho C herda o stop estrutural/OR da base (senão o gêmeo _st da C usaria o ATR genérico).
+    for k in ("sl_atr_mult", "sl_pips"):
+        if dec_base.get(k) is not None:
+            dec_c[k] = dec_base[k]
+    return dec_c
 
 
 def saida_antecipada_hibrida(direcao: str, fuzzy_m5_score, *, minimo) -> bool:

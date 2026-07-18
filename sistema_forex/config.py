@@ -278,6 +278,8 @@ NOMES_ESTRATEGIAS = {
     "sweep_choch_v1": "Caça-stops + reversão",
     "order_block_v1": "Order block (reteste)",
     "order_block_rej_v1": "Order block + rejeição",
+    "order_block_st_v1": "Order block + stop estrutural",
+    "sweep_choch_st_v1": "Caça-stops + stop estrutural",
     "pullback_tendencia_v1": "Pullback na tendência",
     "fecha_gap_v1": "Fechamento de gap",
     "pullback_rompimento_v1": "Pullback ao rompimento",
@@ -325,6 +327,14 @@ SWEEP_ABS_JANELA = int(os.environ.get("SWEEP_ABS_JANELA", "20"))
 # se EXIGIR_REJEICAO_OB=true (modo estrito).
 OB_HABILITADA = os.environ.get("OB_HABILITADA", "true").lower() in ("1", "true", "sim")
 EXIGIR_REJEICAO_OB = os.environ.get("EXIGIR_REJEICAO_OB", "false").lower() in ("1", "true", "sim")
+# --- Experimento do STOP ESTRUTURAL (gêmeos _st de order_block e sweep_choch) ---
+# Motivado pela auditoria: os vencedores só precisaram de ~0,5R de calor → o stop ATR×3 genérico é
+# largo demais e infla a PERDA MÉDIA. Os gêmeos usam o mesmo entry, mas o stop vai ATRÁS do nível
+# que invalida o setup (borda do bloco / extremo varrido) + um buffer, em unidades de ATR. Só
+# APERTA (nunca afrouxa além do ATR×mult). Isola o lever "cortar a perda média" — a sombra decide.
+OB_ST_HABILITADA = os.environ.get("OB_ST_HABILITADA", "true").lower() in ("1", "true", "sim")
+SWEEP_ST_HABILITADA = os.environ.get("SWEEP_ST_HABILITADA", "true").lower() in ("1", "true", "sim")
+STOP_ESTRUTURAL_BUFFER_ATR = float(os.environ.get("STOP_ESTRUTURAL_BUFFER_ATR", "0.3"))
 # Gêmeo A/B do order block: MESMA detecção, mas exige REJEIÇÃO na borda do bloco (a vela testa e
 # volta). Livro `order_block_rej_v1` comparável ao `order_block_v1` — a auditoria da C_HIBRIDA
 # mostrou 28/28 perdedoras indo contra de imediato (entrada sem confirmação). Sombra decide.
