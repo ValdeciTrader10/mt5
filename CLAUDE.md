@@ -202,6 +202,17 @@ banco na manhã seguinte (design do coletor).
   - 16/07 · a "confluência rejeição" foi renomeada **`pavio_contrario`** (usava o próprio close como nível → o
     toque era trivial; ela media só um pavio grande). MOTIVO: honestidade na auditoria de confluências.
   - ⚠️ na B3 é **N=0 estrutural** (a escala de "pip" do gap é de forex; precisa calibração própria — não chutar).
+  - 18/07 · **1ª auditoria (150 trades C_HIBRIDA — N cheio):** wr **31%** · exp **−0,109R** · −19,84 USD, **negativo em
+    TODOS os pares, TFs e regimes** (nada positivo — pior que a OB). MAS o resultado é **DOMINADO pela SAÍDA da C:
+    143/150 saíram pela "saída antecipada C (M5 fuzzy contra)"**, capando tudo a ±0,3R (ganhadoras +0,31R médias,
+    perdedoras −0,30R, MAE das perdedoras só −0,38R = nem chegam no stop). É o MESMO padrão do order_block C_HIBRIDA
+    (o corte fuzzy estrangula) — 2ª estratégia a mostrar isso → reforça comparar **C_HIBRIDA × C_CORRE** (deixa correr).
+    A ENTRADA não dá p/ isolar só pela C (o corte confunde): **100/103 perdedoras foram contra de imediato** (MFE<0,3R),
+    mas foram CORTADAS cedo, não estopadas — pode ser entrada fraca OU o corte matando o fill antes de completar.
+    Gate `momentum_fill` é quase sempre verdadeiro (150/150) → entrada frouxa (fade com gatilho só de momentum).
+    **NENHUM ajuste no código ainda:** preciso do **A_ORIGINAL (saída genérica) e do C_CORRE** p/ separar "entrada ruim"
+    de "corte fuzzy estrangulando" antes de mexer (sem isolar seria chute). Pedir os 2 zips ou ver A vs C / C_CORRE no
+    /relatorio. ⚠️ amostra provavelmente PRÉ/na virada dos fixes de 16/07 — reauditar com o livro zerado.
 - **`pullback_rompimento_v1`** · Pullback ao rompimento (break-and-retest, polaridade invertida) · 🟢
   - 13/07 · NASCEU (nível rompido por BOS vira suporte/resistência e rejeita no reteste).
   - 16/07 · afetada pelo fix `_ultimo_evento` **sem M1**: antes tomava a direção de um micro-BOS de M1 (ruído);
