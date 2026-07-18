@@ -332,6 +332,34 @@ banco na manhã seguinte (design do coletor).
 - 15/07 · a LINHA da força virou **ACUMULADOR** (balança 0–100) em vez da média estática (quase plana). MOTIVO:
   o dono observou que "não balança como a do criador". Ajuste visual/de leitura, não muda a entrada.
 - 16/07 · herdou o fix do `forca_serie` (asof pelo FECHAMENTO, não pela abertura — evita look-ahead no replay/linha).
+- 18/07 · **1ª auditoria das 3 (raio-X-zip, amostra 16–17/07 = 100% PÓS-fix 16/07, limpa/comparável):** as TRÊS são
+  **NEGATIVAS e reprovam o gate** (N<50 e exp R<0 e PF<1,3): **`sentinela_forca_v1`** N=43 wr 28% exp **−0,392R** PF 0,33
+  −20,78 USD (split-half −0,31/−0,47, negativo nas DUAS metades); **`sentinela_divergencia_v1`** N=41 wr 44% exp
+  **−0,201R** PF 0,62 −12,05 USD (split −0,39/−0,02); **`sentinela_leque_v1`** N=30 wr 27% exp **−0,387R** PF 0,36
+  −14,32 USD (split −0,28/−0,50). **🎯 ACHADO CENTRAL — o vazamento é a ENTRADA, não o stop nem a saída:** a falha
+  dominante é `entrada_adiantada` (forca 18/43 · diverg 14/41 · leque 10/30, TODAS exp ≈ **−1,0R**) com **MFE médio
+  na vida de só +0,07 a +0,11R** (mal andaram a favor) e, DEPOIS de sair, o preço segue **fortemente CONTRA** (fav
+  médio +1 a +6 pips vs contra médio −19 a −31 pips; **17/18 · 14/14 · 9/10** foram mais contra que a favor pós-saída).
+  Isso descarta "stop apertado/saída cedo" (que mostraria muito a favor após sair) → é **entrada na direção errada**.
+  Mecânica coerente com o desenho: **forca e leque PERSEGUEM** (só entram com a força JÁ alinhada + preço JÁ rompendo
+  a VWAP = entram DEPOIS do movimento, no instante em que ele exaure → reverte na cara; 24/43 e 16/30 furaram o SL);
+  **divergencia** faz fade "seguindo a maré macro" no extremo da banda, mas 14/14 seguiram contra = a maré macro não
+  mandava, era repuxo genuíno (fade prematuro). A saída genérica é saudável (os poucos `alvo_curto` deram +0,80R). Por
+  regime, quase tudo negativo; os positivos são N ínfimo (tend_alta n=1–6) → ruído, não gatear (skill §5). Por par
+  nada salva de forma estável (AUDUSD# na forca deu 0/10 exp −0,84).
+- 18/07 · **AJUSTE: NENHUMA mudança de código — decisão deliberada (o certo metodologicamente).** (1) **Não tunar a
+  N<50 = data-snooping** (skill §5) — mesmo com split negativo nas duas metades, N=30–43 está abaixo do gate e mexer
+  em `SENT_FORCA_MIN`/`SENT_LEQUE_*`/limiares agora seria ajustar ao ruído. (2) **Não aposentar autonomamente:** o
+  limiar de desligar com confiança é o do `fecha_gap_v1` (N=70 + negativo nas 3 VARIANTES); aqui é 1 variante a N<50, e
+  como o E_SENTINELA é sombra PURA (não elegível ao real — só a Variante A é promovível), deixar rodar até N≥50 é
+  inócuo e AJUDA (mais amostra p/ o gate). O desligar fica com o dono via env (`SENTINELA_HABILITADA`/`SENT_*_HABILITADA`)
+  se ele preferir parar de catalogá-las. (3) **Caminho certo se o padrão "perseguição/adiantada" PERSISTIR a N≥50:**
+  um GÊMEO A/B de CONFIRMAÇÃO — não perseguir o rompimento da VWAP, mas entrar no RETESTE/pullback após o rompimento
+  (análogo ao `order_block_rej_v1` que exigiu rejeição) — **nunca mutar as originais** e só criar o gêmeo depois do
+  N≥50 (a disciplina do D_LINHAS: não espalhar dezenas de livros especulativos antes do edge aparecer isolado).
+  Vereditos de Etapa 9: **➖ inconclusivo por N** (mas com forte sinal NEGATIVO já) nas 3; reauditar com a sombra
+  ZERADA pós-fix chegando a N≥50. ⚠️ SL/saída ainda é o ATR genérico (stop estrutural por estratégia = calibração
+  futura, só DEPOIS de a entrada mostrar edge — que aqui ainda não mostrou).
 
 ## Família F_BREAKOUT — rompimento da abertura de Londres (1º EDGE validado OOS) · 🧪 (candidato nº 1 a demo)
 - 15/07 · NASCERAM 2 livros × M15/H1: **`breakout_londres_v1`** (deixa correr) e **`breakout_londres_prot_v1`**
