@@ -842,6 +842,16 @@ do deal; toda ordem com stop de servidor; todas as chamadas MT5 sob lock global;
 desde a v1; DD diário máx 5%; anti-spam Telegram por flags; reset diário no topo do loop.
 
 ## Metodologia definida pelo DONO (seguir à risca)
+- **META DO DIA por MUITAS operações, não por uma bala de prata (18/07):** o dono NÃO quer depender de
+  UMA operação que sozinha faça o lucro do dia (ex.: um runner de +200 pipetes = +20 pips). A meta diária
+  deve ser atingida pela SOMA de **VÁRIAS operações simultâneas** (o catálogo já roda dezenas de livros em
+  paralelo — é o modo desejado). **Candidato a demo = estratégia com ALTA assertividade (winrate) E resultado
+  LÍQUIDO positivo** (lucros − perdas > 0). ⚠️ Nuance quant (skill §1, "bug dos centavos"): winrate alto só
+  presta se a expectância LÍQUIDA (em R, DEPOIS do spread) for positiva — 70% de acerto com alvo de 2 pips
+  morre no custo do M5. Então ao julgar candidatos, reportar **winrate + expectância R + PF juntos** e exigir
+  que o alvo médio seja bem maior que o spread. Consequência prática: preferir estratégias CONSISTENTES
+  (muitos ganhos pequenos, curva suave) a estratégias de poucos trades com um vencedor gigante — MAS sempre
+  com o líquido positivo confirmado pelo gate da Etapa 9 (N≥50 · expR>0 · PF≥1,3 · split-half).
 - **Não engessar**: preferir modelo de CONFLUÊNCIA/score (peso das evidências), não muitos
   gates obrigatórios em AND — senão as entradas secam.
 - **S/R fortes = H1, Diário (D1), Semanal (W1)**; M5/M15 são ruído e NÃO geram S/R. Força
