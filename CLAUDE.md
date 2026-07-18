@@ -366,6 +366,13 @@ banco na manhã seguinte (design do coletor).
   o Dokploy não seta `SENT_*_HABILITADA=true` no Environment (aí o default do código não vale). **Se um dia religar
   como experimento:** o caminho é um GÊMEO A/B de CONFIRMAÇÃO (entrar no RETESTE/pullback após o rompimento da VWAP, em
   vez de perseguir — análogo ao `order_block_rej_v1`), nunca mutar as originais.
+- 18/07 · **ESCOPO: o desligamento é SÓ do FOREX — a B3 segue LIGADA (ainda não auditada).** A auditoria acima é do
+  livro `mercado='forex'`; a B3 tem escala/pregão/volume real DIFERENTES e o livro `mercado='b3'` das 3 nunca foi
+  analisado. Como o `decisao_b3` reusa a MESMA `decisao.avaliar_par` (flags globais), virar `SENT_*_HABILITADA` p/
+  false teria desligado a B3 junto — corrigido: `avaliar_par` agora resolve o flag POR MERCADO (`_forex = mercado
+  == "forex"`); o forex usa `SENT_*_HABILITADA` (false), a B3 usa `SENT_*_HABILITADA_B3` (**default true**). Assim as
+  3 seguem catalogando na B3 até termos amostra própria; desligar cada uma na B3 é só setar `SENT_*_HABILITADA_B3=
+  false` no env quando a auditoria da B3 pedir. (Mesma lição do isolamento forex×B3 por `mercado` no /relatorio e gate.)
 
 ## Família F_BREAKOUT — rompimento da abertura de Londres (1º EDGE validado OOS) · 🧪 (candidato nº 1 a demo)
 - 15/07 · NASCERAM 2 livros × M15/H1: **`breakout_londres_v1`** (deixa correr) e **`breakout_londres_prot_v1`**

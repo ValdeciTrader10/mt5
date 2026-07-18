@@ -13,7 +13,7 @@ Cobre o que a fundação adiciona de forma PURA/determinística:
 import os
 import tempfile
 
-from .. import (calibracao_b3, config_b3, coletor_b3, db, executor, executor_b3,
+from .. import (calibracao_b3, config, config_b3, coletor_b3, db, executor, executor_b3,
                 manutencao, mt5_bridge_b3)
 from ..coletor_mt5 import contar, gravar_candles
 
@@ -288,6 +288,26 @@ def test_decisoes_isoladas_por_mercado():
             assert [r["par"] for r in b3] == ["WIN$N"], [r["par"] for r in b3]
     finally:
         os.remove(caminho)
+
+
+def test_sentinela_desligada_so_no_forex():
+    """A refutação do E_SENTINELA (18/07) desligou as 3 SÓ no forex; na B3 seguem em teste.
+    O default é forex=false / b3=true, e o gate por mercado de `avaliar_par` reflete isso:
+    forex resolve pelos flags forex (off), b3 pelos flags _B3 (on)."""
+    # 1) defaults por mercado (o que o dono pediu: forex desligado, B3 catalogando)
+    assert (config.SENT_FORCA_HABILITADA, config.SENT_DIVERG_HABILITADA,
+            config.SENT_LEQUE_HABILITADA) == (False, False, False)
+    assert (config.SENT_FORCA_HABILITADA_B3, config.SENT_DIVERG_HABILITADA_B3,
+            config.SENT_LEQUE_HABILITADA_B3) == (True, True, True)
+    # 2) a resolução por mercado usada em decisao.avaliar_par (forex off, b3 on)
+    for merc, forca, diverg, leque in (
+            ("forex", config.SENT_FORCA_HABILITADA, config.SENT_DIVERG_HABILITADA, config.SENT_LEQUE_HABILITADA),
+            ("b3", config.SENT_FORCA_HABILITADA_B3, config.SENT_DIVERG_HABILITADA_B3, config.SENT_LEQUE_HABILITADA_B3)):
+        _forex = (merc == "forex")
+        assert (config.SENT_FORCA_HABILITADA if _forex else config.SENT_FORCA_HABILITADA_B3) == forca
+        assert (config.SENT_DIVERG_HABILITADA if _forex else config.SENT_DIVERG_HABILITADA_B3) == diverg
+        assert (config.SENT_LEQUE_HABILITADA if _forex else config.SENT_LEQUE_HABILITADA_B3) == leque
+    assert config.SENT_FORCA_HABILITADA is False and config.SENT_FORCA_HABILITADA_B3 is True
 
 
 def test_decisao_legada_sem_mercado_fica_no_forex():

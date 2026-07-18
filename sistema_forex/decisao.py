@@ -561,14 +561,20 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             sat_baixo=config.EXAUSTAO_SAT_BAIXO))
 
     # FAMÍLIA E_SENTINELA — força contínua (micro/macro) + leque (5º cenário, aditivo).
+    # As 3 foram REFUTADAS no FOREX (auditoria 18/07) e desligadas SÓ lá; na B3 seguem em teste
+    # (o livro da B3 ainda não foi auditado) → os flags por mercado decidem qual habilitar.
     if config.SENTINELA_HABILITADA:
-        if config.SENT_FORCA_HABILITADA:
+        _forex = (mercado == "forex")
+        _sent_forca = config.SENT_FORCA_HABILITADA if _forex else config.SENT_FORCA_HABILITADA_B3
+        _sent_diverg = config.SENT_DIVERG_HABILITADA if _forex else config.SENT_DIVERG_HABILITADA_B3
+        _sent_leque = config.SENT_LEQUE_HABILITADA if _forex else config.SENT_LEQUE_HABILITADA_B3
+        if _sent_forca:
             decs.append(estrategias.avaliar_sentinela_forca(
                 snap, sessao_utc=sessao_utc, spread_max_pips=spread_max, forca_min=config.SENT_FORCA_MIN))
-        if config.SENT_DIVERG_HABILITADA:
+        if _sent_diverg:
             decs.append(estrategias.avaliar_sentinela_divergencia(
                 snap, sessao_utc=sessao_utc, spread_max_pips=spread_max))
-        if config.SENT_LEQUE_HABILITADA:
+        if _sent_leque:
             decs.append(estrategias.avaliar_sentinela_leque(
                 snap, sessao_utc=sessao_utc, spread_max_pips=spread_max,
                 estreito=config.SENT_LEQUE_ESTREITO, largo=config.SENT_LEQUE_LARGO))

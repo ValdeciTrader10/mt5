@@ -483,6 +483,12 @@ BREAKOUT_PROT_LOCK_PIPS = float(os.environ.get("BREAKOUT_PROT_LOCK_PIPS", "2")) 
 SENT_FORCA_HABILITADA = os.environ.get("SENT_FORCA_HABILITADA", "false").lower() in ("1", "true", "sim")
 SENT_DIVERG_HABILITADA = os.environ.get("SENT_DIVERG_HABILITADA", "false").lower() in ("1", "true", "sim")
 SENT_LEQUE_HABILITADA = os.environ.get("SENT_LEQUE_HABILITADA", "false").lower() in ("1", "true", "sim")
+# Flags da B3 — INDEPENDENTES do forex: a refutação de 18/07 foi do livro FOREX; o livro da B3
+# (mercado='b3') ainda NÃO foi auditado, então as 3 seguem LIGADAS por padrão na B3 (catalogando)
+# até termos amostra própria. Desligar cada uma pelo env quando a auditoria da B3 pedir.
+SENT_FORCA_HABILITADA_B3 = os.environ.get("SENT_FORCA_HABILITADA_B3", "true").lower() in ("1", "true", "sim")
+SENT_DIVERG_HABILITADA_B3 = os.environ.get("SENT_DIVERG_HABILITADA_B3", "true").lower() in ("1", "true", "sim")
+SENT_LEQUE_HABILITADA_B3 = os.environ.get("SENT_LEQUE_HABILITADA_B3", "true").lower() in ("1", "true", "sim")
 
 # GESTÃO DE SAÍDA POR VARIANTE (liga as saídas próprias de B/C na sombra) — ADITIVO, a Variante A
 # (controle) NUNCA passa por aqui, segue no gestor genérico. Motivado pela auditoria (14/07): 100%
