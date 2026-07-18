@@ -34,10 +34,15 @@ TF_OPERACAO = "M5"
 # COLETADO (TFS_COLETA) e alimenta a pirâmide fuzzy/sync — só não gera mais operação no forex.
 # ⚠️ Consequência: a Variante B (fuzzy_puro, timing=M1) deixa de rodar no forex; a B3 usa
 # TFS_OPERACAO_B3 (próprio) e NÃO é afetada. Ajustável por env (Dokploy).
-TFS_OPERACAO = [s.strip() for s in os.environ.get("TFS_OPERACAO", "M5,M15").split(",") if s.strip()]
+# M15/H1/H4 adicionados (18/07): a análise custo×edge sobre os candles mostrou que o spread
+# come 21% de um movimento típico no M15, 10% no H1 e só ~5% no H4 — quanto MAIOR o TF, mais o
+# edge sobrevive ao custo. Monitoramos os 4 em paralelo (M5 = observação; M15/H1/H4 = onde o
+# edge respira). Cada TF tem SL/tempo próprios (sl_cap_tf/tempo_max_h_tf), calibrados pelo ATR.
+TFS_OPERACAO = [s.strip() for s in os.environ.get("TFS_OPERACAO", "M5,M15,H1,H4").split(",") if s.strip()]
 # W1 (semanal) incluído: é onde estão os S/R mais fortes (junto de D1/H1). M1 coletado
-# para as operações de sombra do M1 (não gera S/R — é só a vela de operação/ATR).
-TFS_COLETA = ["M1", "M5", "M15", "H1", "D1", "W1"]
+# para as operações de sombra do M1 (não gera S/R — é só a vela de operação/ATR). H4 coletado
+# desde 18/07 (novo TF de operação — spread ~5% do movimento, o melhor custo/edge do forex).
+TFS_COLETA = ["M1", "M5", "M15", "H1", "H4", "D1", "W1"]
 BACKFILL_MESES = 6
 # Piso de barras por TF no backfill: garante histórico suficiente para os TFs altos
 # (6 meses de W1 são só ~26 velas; precisamos de mais para ATR/S/R no semanal).
@@ -100,6 +105,18 @@ LOTE = 0.01
 SL_SERVIDOR_ATR_MULT = 3.0
 SL_MIN_PIPS = 12
 SL_MAX_PIPS = 40
+# Caps de SL POR TF (guarda-larga; o ATR×3 é quem dimensiona — os caps só barram casos
+# degenerados). Derivados da análise de custo×edge 18/07 (ATR×3 típico: M15~17, H1~36, H4~76
+# pips; p90 muito maior). Sem isso, o cap global 40 ESTRANGULAVA o H1/H4 (insta-stop — a lição
+# do GOLD). (min, max) em pips. Ajustáveis por env se o fuso/broker mudar a escala.
+SL_CAPS_TF = {"M1": (6, 30), "M5": (10, 45), "M15": (8, 80), "H1": (12, 170), "H4": (24, 350)}
+
+
+def sl_cap_tf(tf: str):
+    """(min, max) de SL em pips do TF — guarda-larga em torno do ATR×3 (ver SL_CAPS_TF)."""
+    return SL_CAPS_TF.get(tf, (SL_MIN_PIPS, SL_MAX_PIPS))
+
+
 BE_TRIGGER_R = 1.0
 DD_DIARIO_MAX_PCT = 5.0
 # --- Modo MONITORAMENTO / CATALOGAÇÃO (sombra) vs. travas de risco (real) ---
@@ -111,7 +128,9 @@ DD_DIARIO_MAX_PCT = 5.0
 # no modo REAL (proteção de conta), onde risco correlacionado importa de verdade.
 # Teto ampliado p/ 1200: com C/C_CORRE + D_LINHAS (4) + E_SENTINELA (3) o catálogo cresceu — 1200
 # evita truncar a amostra dos grupos novos. Ajustável por env no Dokploy.
-MAX_POS_SOMBRA = int(os.environ.get("MAX_POS_SOMBRA", "1200"))
+# 1200→3000 (18/07): com H1 e H4 somando aos TFs de operação (2→4) e as posições de H1/H4
+# vivendo horas/dias (ocupam slot por mais tempo), o catálogo cresceu — teto amplo evita truncar.
+MAX_POS_SOMBRA = int(os.environ.get("MAX_POS_SOMBRA", "3000"))
 # Idade máxima de uma decisão para virar posição (segundos, medida em UTC contra criada_utc).
 # Guarda contra abrir sinal VELHO após downtime (redeploy/fim de semana): sem preço vivo da
 # hora do sinal, a simulação seria desonesta (tick atual ≠ contexto da decisão).
@@ -127,6 +146,16 @@ MAX_POS_TOTAL = int(os.environ.get("MAX_POS_TOTAL", "2"))
 GUARDA_CORRELACAO = os.environ.get("GUARDA_CORRELACAO", "false").lower() in ("1", "true", "sim")
 MAX_EXPOSICAO_MOEDA = int(os.environ.get("MAX_EXPOSICAO_MOEDA", "1"))
 TEMPO_MAX_POSICAO_H = 8
+# Tempo máximo em posição POR TF: um trade de H4 precisa de dias, não de 8h — o valor global
+# fecharia H1/H4 cedo demais por tempo. ~96 velas do TF (M5→8h, M15→24h, H1→96h/4d, H4→240h/10d).
+TEMPO_MAX_H_TF = {"M1": 2, "M5": 8, "M15": 24, "H1": 96, "H4": 240}
+
+
+def tempo_max_h_tf(tf: str) -> float:
+    """Horas máximas em posição do TF (escala com o TF — ver TEMPO_MAX_H_TF)."""
+    return TEMPO_MAX_H_TF.get(tf, TEMPO_MAX_POSICAO_H)
+
+
 SCORE_MIN_CONFLUENCIAS = 2
 
 # Auditoria de custo (lição MASMC): edge fino morre com spread alto.
@@ -252,7 +281,7 @@ VWAP_K2 = float(os.environ.get("VWAP_K2", "2.0"))
 # (50 neutro), estado por cor e flags absorção/exaustão/transição. Desligável por env.
 FUZZY_HABILITADO = os.environ.get("FUZZY_HABILITADO", "true").lower() in ("1", "true", "sim")
 # TFs pontuados (finos + estruturais). Cada TF é uma linha de score no painel (ETAPA 4).
-FUZZY_TFS = [s.strip() for s in os.environ.get("FUZZY_TFS", "M1,M5,M15,H1").split(",") if s.strip()]
+FUZZY_TFS = [s.strip() for s in os.environ.get("FUZZY_TFS", "M1,M5,M15,H1,H4").split(",") if s.strip()]
 # Janela deslizante (candles recentes) recalculada por ciclo — não varre o histórico todo.
 FUZZY_JANELA = int(os.environ.get("FUZZY_JANELA", "120"))
 # Nº de velas ANTERIORES usadas como referência (range/volume médios) na normalização.
@@ -388,7 +417,7 @@ MEDIAS_HABILITADA_B3 = os.environ.get("MEDIAS_HABILITADA_B3", "true").lower() in
 # 1/14; MFE≈0, stop imediato) → exp R −0,589 (pior controle auditado). Sombra decide (Etapa 9).
 MEDIAS_REJ_HABILITADA = os.environ.get("MEDIAS_REJ_HABILITADA", "true").lower() in ("1", "true", "sim")
 # TF de operação → TF ACIMA lido para as médias de contexto (tendência do timeframe maior).
-TF_ACIMA = {"M1": "M5", "M5": "M15", "M15": "H1", "H1": "D1"}
+TF_ACIMA = {"M1": "M5", "M5": "M15", "M15": "H1", "H1": "H4", "H4": "D1"}
 # Quantos closes do TF acima ler para as médias (>= 200 p/ a SMA200 fechar).
 MEDIAS_JANELA = int(os.environ.get("MEDIAS_JANELA", "260"))
 

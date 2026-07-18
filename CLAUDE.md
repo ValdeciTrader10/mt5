@@ -495,6 +495,15 @@ banco na manhã seguinte (design do coletor).
 - 15/07 · **GOLD fora de `PARES`** e **M1 fora de `TFS_OPERACAO`** (pós-auditoria de 1657 trades: forex exp −0,114R,
   o "+224 USD" era ilusão do ouro; M1 ralo pelo custo). Consequência: Variante B some do forex (timing=M1).
 - 16/07 · auditoria completa (~25 bugs). Recomendado **zerar os livros de sombra** após o deploy e recomeçar o gate.
+- 18/07 · **H1 e H4 entram como TFs de operação** (`TFS_OPERACAO` = M5,M15,H1,H4) — análise custo×edge sobre os
+  candles (H1/M15 do dono + H4 reconstruído do H1) mostrou que o **spread come 21% de um movimento típico no M15,
+  10% no H1 e só ~5% no H4** → quanto MAIOR o TF, mais o edge sobrevive ao custo (regra-mãe do varejo). Por horário:
+  o melhor é **15h–18h servidor** (Londres/NY, custo ~5%) e 9h–11h; a Ásia (22h–6h) e o rollover 0h são os piores.
+  Por par: **USDJPY#/GBPUSD# os melhores** (spread baixo, movimento grande), **USDCAD o pior** (spread 2,6p = 55% no
+  M15). Consequências no código: H4 em `TFS_COLETA`/`FUZZY_TFS`; `TF_ACIMA[H4]=D1`; **SL e tempo-máx POR TF**
+  (`sl_cap_tf`/`tempo_max_h_tf`) — o cap global 40 estrangulava H1/H4 (ATR×3 ~36/76 pips = insta-stop, lição do
+  GOLD), agora M15 8–80 · H1 12–170 · H4 24–350 pips e tempo-máx M15 24h · H1 4d · H4 10d; `MAX_POS_SOMBRA` 1200→3000.
+  O SL/TP segue ATR-relativo (auto-escala) + saída estrutural em R (não tem TP fixo). M5 fica como observação.
 
 ---
 

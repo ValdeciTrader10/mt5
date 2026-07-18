@@ -247,7 +247,7 @@ class ExecutorB3:
                 direcao=p["direcao"], r=r, r_max=p["r_max"], idade_h=idade_h,
                 ultimo_evento=executor._evento_saida(conn, p["par"]), be_movido=p["be_movido"],
                 be_trigger_r=config.BE_TRIGGER_R, giveback_r=config.GIVEBACK_R,
-                tempo_max_h=config.TEMPO_MAX_POSICAO_H, estrut_min_r=config.SAIDA_ESTRUTURA_MIN_R,
+                tempo_max_h=config.tempo_max_h_tf(p["tf"]), estrut_min_r=config.SAIDA_ESTRUTURA_MIN_R,
             )
             if acao == "fechar":
                 self._fechar(conn, p, preco, pip, motivo)

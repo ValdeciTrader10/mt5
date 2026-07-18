@@ -309,6 +309,22 @@ def test_combo_real_default_vazio():
     assert config.combo_real("confluencia_v1", "M5") is False   # despromovida (auditoria 18/07)
 
 
+def test_tfs_operacao_e_caps_por_tf():
+    """M15/H1/H4 entram como TFs de operação (18/07) com SL/tempo próprios: os caps crescem com o
+    TF (o cap global 40 estrangulava H1/H4 — ATR×3 ~36/76 pips) e o tempo-máx escala (H4 vive dias)."""
+    assert set(config.TFS_OPERACAO) >= {"M5", "M15", "H1", "H4"}, config.TFS_OPERACAO
+    assert "H4" in config.TFS_COLETA and "H4" in config.FUZZY_TFS
+    # caps de SL crescem monotonicamente com o TF (o max do H4 >> max do M5)
+    caps = [config.sl_cap_tf(tf)[1] for tf in ("M5", "M15", "H1", "H4")]
+    assert caps == sorted(caps) and caps[-1] > caps[0] * 3, caps
+    # tempo-máx idem (H4 muito maior que M5)
+    tmax = [config.tempo_max_h_tf(tf) for tf in ("M5", "M15", "H1", "H4")]
+    assert tmax == sorted(tmax) and tmax[-1] >= 240, tmax
+    # TF desconhecido cai no fallback global (não quebra)
+    assert config.sl_cap_tf("X9") == (config.SL_MIN_PIPS, config.SL_MAX_PIPS)
+    assert config.tempo_max_h_tf("X9") == config.TEMPO_MAX_POSICAO_H
+
+
 def test_combo_real_so_curadas():
     """A FILTRAGEM do livro real curado: só aceita (estratégia, tf) na lista configurada, sem M1."""
     orig = config.EXEC_REAL_ESTRATEGIAS

@@ -520,7 +520,7 @@ class Executor:
                 direcao=p["direcao"], r=r, r_max=p["r_max"], idade_h=idade_h,
                 ultimo_evento=_evento_saida(conn, p["par"]), be_movido=p["be_movido"],
                 be_trigger_r=config.BE_TRIGGER_R, giveback_r=config.GIVEBACK_R,
-                tempo_max_h=config.TEMPO_MAX_POSICAO_H,
+                tempo_max_h=config.tempo_max_h_tf(p["tf"]),   # escala com o TF (H1/H4 vivem dias)
                 estrut_min_r=config.SAIDA_ESTRUTURA_MIN_R,
             )
             if acao == "fechar":
@@ -629,8 +629,11 @@ class Executor:
         if assumido is None:
             return
         # Limites de SL POR SÍMBOLO (o ouro precisa de stops muito mais largos que o forex).
-        sl_min = config.param_simbolo(par, "sl_min_pips", config.SL_MIN_PIPS)
-        sl_max = config.param_simbolo(par, "sl_max_pips", config.SL_MAX_PIPS)
+        # Caps de SL POR TF (o ATR×3 dimensiona; os caps são guarda-larga). Sem isso o cap
+        # global 40 estrangulava H1/H4 (ATR×3 ~36/76 pips). Override por símbolo ainda vale.
+        _cmin, _cmax = config.sl_cap_tf(tf)
+        sl_min = config.param_simbolo(par, "sl_min_pips", _cmin)
+        sl_max = config.param_simbolo(par, "sl_max_pips", _cmax)
         mult = config.SL_SERVIDOR_ATR_MULT
         # Stop vindo da DECISÃO (dados_json): `sl_pips` = stop estrutural em pips (F_BREAKOUT, OR
         # oposta); `sl_atr_mult` = stop estrutural como multiplicador de ATR (gêmeos _st, atrás do
