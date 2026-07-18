@@ -299,7 +299,7 @@ banco na manhã seguinte (design do coletor).
     agora o contexto de estrutura vem de M5+. MOTIVO: a tese é rompimento de estrutura real, não micro-swing.
 - **`rompimento_extremos_v1`** · Rompimento máx/mín do dia (PDH/PDL + reteste) · 🟢
   - 13/07 · NASCEU (rompe a máx/mín do dia anterior e reteste com rejeição).
-- **`pullback_medias_v1`** · Pullback a médias (EMA9/20 do TF acima) · 🟢
+- **`pullback_medias_v1`** · Pullback a médias (EMA9/20 do TF acima) · ⏸️ **APOSENTADA no FOREX (18/07)**
   - 13/07 · NASCEU (ETAPA 2; a favor da tendência, toque na EMA do TF superior; FVG/OB coincidente DOBRA o score).
   - 18/07 · **1ª auditoria em 3-vias (A vs C_CORRE vs C_HIBRIDA — dono mandou os 3 zips; amostra 100%
     PÓS-fix 16/07, limpa/comparável):** é **NEGATIVA nas TRÊS variantes e é o PIOR controle (Variante A)
@@ -326,6 +326,17 @@ banco na manhã seguinte (design do coletor).
     automático. Env `MEDIAS_REJ_HABILITADA` (default on). Espera-se (a) matar os `entrada_adiantada` de toque
     cru e (b) reduzir naturalmente as entradas fracas (rejeição confirmada na EMA é mais rara). A sombra decide
     (Etapa 9) — não é conclusão do N=14. ➖ reauditar o gêmeo vs a original com N maior.
+  - 18/07 · **APOSENTADA no FOREX (dono: "se é o pior pode aposentar").** É o pior controle já auditado
+    (t=−3,32, IC95% [−0,94,−0,24] inteiro < 0, ~99,7% negativa, modo de falha ESTRUTURAL de código) → mesma
+    lógica técnica do E_SENTINELA/fecha_gap (parar de catalogar uma sombra que só sangra; o "erro" seria matar
+    um vencedor, e não há cenário realista em que a entrada de toque cru vire positiva). `MEDIAS_HABILITADA`
+    default → **false** no forex (não gera mais decisão em A/C_HIBRIDA/C_CORRE). **Escopo = SÓ forex:** a B3
+    (`mercado='b3'`, nunca auditada) segue LIGADA por `MEDIAS_HABILITADA_B3` (default true) — flag por mercado,
+    igual ao GAP/SENT. A função pura e os dados FICAM (reversível: `MEDIAS_HABILITADA=true` religa). **O conserto
+    fica vivo:** o gêmeo `pullback_medias_rej_v1` (exige rejeição) CONTINUA rodando no forex — é a hipótese nova
+    (N=0), não a refutada; se der edge no gate, a ideia pullback-à-EMA volta pela porta certa. ❌ REFUTADA (a
+    original, entrada de toque cru); o gêmeo segue 🧪 em teste. ⚠️ conferir se o Dokploy não seta
+    `MEDIAS_HABILITADA=true` no Environment (aí o default do código não vale).
 - **`pullback_medias_rej_v1`** · Pullback a médias + rejeição (gêmeo A/B da entrada) · 🅰️🅱️🧪
   - 18/07 · NASCEU. MOTIVO: a auditoria acima — a `pullback_medias_v1` dispara em toque cru na EMA (rejeição
     em só 1/14 trades; MFE≈0, stop imediato; pior controle auditado, exp −0,589R). MESMA detecção, mas exige
@@ -690,7 +701,11 @@ gate) e apareceu em **1/14 (A) · 3/13 (C_CORRE)**, enquanto `fvg_confluente` (q
 (`exigir_rejeicao=True` — a "retomada" da tese recua-e-retoma). `avaliar_pullback_medias` ganhou os params
 `exigir_rejeicao`/`estrategia`; env `MEDIAS_REJ_HABILITADA` (default on); nasce nos livros A/C_HIBRIDA/C_CORRE
 automático. Testes em `test_estrategias` (o gêmeo barra o toque cru que a original aceita). ⚠️ A sombra decide
-(Etapa 9) — NÃO é conclusão do N=14; N<50 não passa o gate. **251 testes, todos passando.**
+(Etapa 9) — NÃO é conclusão do N=14; N<50 não passa o gate. **252 testes, todos passando.**
+**Desdobramento (18/07): a original `pullback_medias_v1` foi APOSENTADA no FOREX** pelo dono (pior controle
+auditado; `MEDIAS_HABILITADA` default → false, flag por mercado com `MEDIAS_HABILITADA_B3` default true — a B3
+nunca auditada segue ligada). O gêmeo `pullback_medias_rej_v1` **CONTINUA rodando** no forex: é a hipótese nova
+(rejeição obrigatória), não a refutada — se der edge no gate, a ideia volta pela entrada certa.
 
 ## Família F_BREAKOUT — rompimento da abertura de Londres (15/07, 1º EDGE validado OOS)
 6º cenário comparável (A · B · C · D_LINHAS · E_SENTINELA · **F_BREAKOUT**), ADITIVO/desligável. É a

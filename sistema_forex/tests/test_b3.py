@@ -320,6 +320,15 @@ def test_fecha_gap_desligada_so_no_forex():
     assert (config.GAP_HABILITADA if "b3" == "forex" else config.GAP_HABILITADA_B3) is True
 
 
+def test_pullback_medias_aposentada_so_no_forex():
+    """pullback_medias_v1 aposentada (pior controle) SÓ no forex; na B3 segue ligada (nunca
+    auditada). O gate em avaliar_par resolve por mercado: forex=MEDIAS_HABILITADA (off), b3=_B3 (on)."""
+    assert config.MEDIAS_HABILITADA is False        # forex: refutada 18/07 (exp −0,589R)
+    assert config.MEDIAS_HABILITADA_B3 is True      # b3: catalogando até auditar
+    assert (config.MEDIAS_HABILITADA if "forex" == "forex" else config.MEDIAS_HABILITADA_B3) is False
+    assert (config.MEDIAS_HABILITADA if "b3" == "forex" else config.MEDIAS_HABILITADA_B3) is True
+
+
 def test_decisao_legada_sem_mercado_fica_no_forex():
     """Decisão antiga (mercado NULL, pré-migração) é tratada como forex — a B3 não a pega."""
     caminho = _tmp_db()

@@ -364,7 +364,14 @@ EXTREMOS_HABILITADA = os.environ.get("EXTREMOS_HABILITADA", "true").lower() in (
 # --- 8ª estratégia: pullback a médias (EMA9/EMA20 do TF acima) em tendência ---
 # A favor da tendência, o preço recua e toca a EMA9/EMA20 do TF SUPERIOR e retoma. FVG/OB
 # coincidente DOBRA o score; rejeição/regime = reforço. Variante A (grupo de controle).
-MEDIAS_HABILITADA = os.environ.get("MEDIAS_HABILITADA", "true").lower() in ("1", "true", "sim")
+# ⚠️ APOSENTADA no FOREX (18/07, decisão do dono "se é o pior pode aposentar"): a auditoria 3-vias
+# deu o PIOR controle já visto — A exp −0,589R (t=−3,32, IC95% [−0,94,−0,24], inteiro < 0), refutada
+# por entrada em TOQUE CRU na EMA. Default OFF no forex; a função pura fica (reversível). O conserto
+# (exigir rejeição) segue vivo no gêmeo `pullback_medias_rej_v1`.
+MEDIAS_HABILITADA = os.environ.get("MEDIAS_HABILITADA", "false").lower() in ("1", "true", "sim")
+# B3 INDEPENDENTE: a refutação foi do livro FOREX; o `mercado='b3'` nunca foi auditado → LIGADA por
+# default na B3 (catalogando). Desligar na B3 = `MEDIAS_HABILITADA_B3=false`. (mesmo padrão do GAP/SENT)
+MEDIAS_HABILITADA_B3 = os.environ.get("MEDIAS_HABILITADA_B3", "true").lower() in ("1", "true", "sim")
 # Gêmeo A/B: MESMA detecção (toque na EMA em tendência), mas EXIGE rejeição no candle da média
 # (a "retomada" confirmada). Livro `pullback_medias_rej_v1` comparável ao `pullback_medias_v1` — a
 # auditoria 3-vias (N=14/13, 18/07) mostrou o controle disparando em TOQUE CRU (rejeição em só

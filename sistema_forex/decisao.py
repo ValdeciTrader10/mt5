@@ -475,7 +475,9 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             nivel_prox_atr=config.NIVEL_PROX_ATR,
             pavio_min=config.REJEICAO_PAVIO_MIN,
         ))
-    if config.MEDIAS_HABILITADA:
+    # pullback_medias_v1 APOSENTADA no FOREX (dono, 18/07 — pior controle auditado); na B3 segue
+    # LIGADA por default (livro `mercado='b3'` nunca auditado) → flag por mercado, igual ao GAP/SENT.
+    if (config.MEDIAS_HABILITADA if mercado == "forex" else config.MEDIAS_HABILITADA_B3):
         decs.append(estrategias.avaliar_pullback_medias(
             snap,
             sessao_utc=sessao_utc,
