@@ -452,6 +452,74 @@ def export_candles(request: Request, tf: str = "H1", mercado: str = "forex"):
         "Content-Disposition": f'attachment; filename="candles_{mercado}_{tf}.csv"'})
 
 
+@app.get("/api/export/estrategias")
+def export_estrategias(request: Request, mercado: str = "forex"):
+    """Estratégias com trades FECHADOS no livro sombra do mercado + a contagem — alimenta o
+    seletor do botão de exportação (o dono escolhe a estratégia e baixa o zip)."""
+    if not auth.esta_logado(request):
+        return JSONResponse({"erro": "nao_logado"}, status_code=401)
+    filtro = "mercado='b3'" if mercado == "b3" else "(mercado IS NULL OR mercado='forex')"
+    with db.sessao() as conn:
+        rows = conn.execute(
+            f"SELECT estrategia, COUNT(*) n FROM trades WHERE fechamento_utc IS NOT NULL "
+            f"AND simulado=1 AND {filtro} GROUP BY estrategia ORDER BY n DESC").fetchall()
+    return JSONResponse({"estrategias": [
+        {"estrategia": r["estrategia"], "nome": config.nome_estrategia(r["estrategia"]), "n": r["n"]}
+        for r in rows]})
+
+
+@app.get("/export/raiox")
+def export_raiox(request: Request, estrategia: str, mercado: str = "forex",
+                 de: str = "", ate: str = "", limite: int = None):
+    """Exporta um ZIP com o RAIO-X de cada trade (fechado, sombra) de UMA estratégia no período —
+    1 HTML por trade (gráfico visual via CDN + fatos + 'por que entrou' + raio-X textual em pips).
+    O dono baixa por estratégia e reenvia p/ a IA auditar o ponto de entrada em lote. Só o dono
+    logado; conteúdo = dados de mercado + métricas do próprio robô, nada sensível."""
+    import io
+    import zipfile
+    from ..grafico import grafico_trade_html
+
+    if not auth.esta_logado(request):
+        return auth.redirecionar_login()
+    limite = min(limite or config.RAIOX_EXPORT_MAX, config.RAIOX_EXPORT_MAX)
+    filtro = "mercado='b3'" if mercado == "b3" else "(mercado IS NULL OR mercado='forex')"
+    cond, args = ["fechamento_utc IS NOT NULL", "simulado=1", "estrategia=?", filtro], [estrategia]
+    de_e, ate_e = _epoch(de), _epoch(ate, fim=True)
+    if de_e:
+        cond.append("fechamento_utc >= ?"); args.append(de_e)
+    if ate_e:
+        cond.append("fechamento_utc <= ?"); args.append(ate_e)
+    with db.sessao() as conn:
+        ids = [r["id"] for r in conn.execute(
+            f"SELECT id FROM trades WHERE {' AND '.join(cond)} ORDER BY fechamento_utc DESC LIMIT ?",
+            [*args, limite]).fetchall()]
+    if not ids:
+        return Response("Nenhum trade fechado dessa estratégia no período.",
+                        media_type="text/plain", status_code=404)
+
+    buf = io.BytesIO()
+    gerados = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for tid in ids:
+            try:
+                html = grafico_trade_html(tid, plotly_cdn=True, incluir_raiox=True)
+            except Exception:  # noqa: BLE001 - um trade problemático não invalida o lote inteiro
+                log.exception("Falha ao gerar raio-X do trade %s no export", tid)
+                continue
+            z.writestr(f"trade_{tid}.html", html)
+            gerados += 1
+        # Índice do lote (o que foi exportado + o teto aplicado), p/ o dono e a IA se situarem.
+        z.writestr("_INDICE.txt",
+                   f"Estratégia: {config.nome_estrategia(estrategia)} ({estrategia})\n"
+                   f"Mercado: {mercado}\nPeríodo: {de or 'início'} → {ate or 'hoje'}\n"
+                   f"Trades exportados: {gerados} (teto {config.RAIOX_EXPORT_MAX}; "
+                   f"os mais RECENTES primeiro)\nIDs: {', '.join(map(str, ids[:gerados]))}\n")
+    buf.seek(0)
+    nome = f"raiox_{mercado}_{estrategia}_{gerados}trades.zip"
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}"'})
+
+
 @app.get("/health")
 def health() -> JSONResponse:
     return JSONResponse({"status": "ok"})

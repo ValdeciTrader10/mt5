@@ -200,15 +200,21 @@ def _faixa_y(candles, precos=(), margem: float = 0.08):
     return [lo - pad, hi + pad]
 
 
-def grafico_trade_html(trade_id: int, antes: int = None, depois: int = None) -> str:
+def grafico_trade_html(trade_id: int, antes: int = None, depois: int = None,
+                       plotly_cdn: bool = False, incluir_raiox: bool = False) -> str:
     """HTML (offline) do raio-x de UM trade: candles antes/durante/depois com entrada, SL,
-    saída, MAE/MFE, níveis do motor e o contexto da decisão que abriu a posição."""
+    saída, MAE/MFE, níveis do motor e o contexto da decisão que abriu a posição.
+
+    `plotly_cdn=True` carrega o Plotly da CDN em vez de embutir ~4,5 MB — usado na EXPORTAÇÃO EM
+    LOTE (dezenas de arquivos num zip; o gráfico renderiza com internet). `incluir_raiox=True`
+    embute o raio-X TEXTUAL em pips (a leitura de price action que a IA usa p/ auditar a entrada)."""
     import plotly.graph_objects as go
     from datetime import datetime
 
     antes = antes if antes is not None else config.GRAFICO_TRADE_BARRAS_ANTES
     depois = depois if depois is not None else config.GRAFICO_TRADE_BARRAS_DEPOIS
 
+    raiox_txt = None
     with db.sessao() as conn:
         t = conn.execute("SELECT * FROM trades WHERE id=?", (trade_id,)).fetchone()
         if not t:
@@ -219,6 +225,12 @@ def grafico_trade_html(trade_id: int, antes: int = None, depois: int = None) -> 
         niveis = analise.niveis_ativos(conn, par)
         ctx = _contexto_decisao(conn, par, tf, t["estrategia"], t["direcao"], t["abertura_utc"],
                                 decisao_id=t.get("decisao_id"))
+        if incluir_raiox:
+            try:
+                from . import auditoria   # lazy: auditoria importa grafico (evita import circular)
+                raiox_txt = auditoria.raiox_texto(auditoria.raiox_dados(conn, t))
+            except Exception:  # noqa: BLE001 - o raio-X textual é um extra; não derruba a página
+                raiox_txt = None
 
     if not candles:
         return _pagina_erro(f"Sem candles {par} {tf} para o trade #{trade_id}.")
@@ -269,8 +281,8 @@ def grafico_trade_html(trade_id: int, antes: int = None, depois: int = None) -> 
         margin=dict(l=40, r=20, t=50, b=40), height=560, showlegend=False,
         yaxis=dict(range=faixa) if faixa else {},
     )
-    plot = fig.to_html(include_plotlyjs=True, full_html=False)
-    return _pagina_trade(t, ctx, plot, tf, antes, depois)
+    plot = fig.to_html(include_plotlyjs=("cdn" if plotly_cdn else True), full_html=False)
+    return _pagina_trade(t, ctx, plot, tf, antes, depois, raiox_texto=raiox_txt)
 
 
 def _fmt_ts(ep) -> str:
@@ -278,7 +290,8 @@ def _fmt_ts(ep) -> str:
     return datetime.utcfromtimestamp(ep).strftime("%Y-%m-%d %H:%M") if ep else "—"
 
 
-def _pagina_trade(t: dict, ctx, plot_html: str, tf: str, antes: int, depois: int) -> str:
+def _pagina_trade(t: dict, ctx, plot_html: str, tf: str, antes: int, depois: int,
+                  raiox_texto: str = None) -> str:
     """Monta a página do raio-x: cabeçalho com os fatos do trade + o 'porquê entrou'."""
     import html as _h
     from . import gestao
@@ -345,6 +358,11 @@ def _pagina_trade(t: dict, ctx, plot_html: str, tf: str, antes: int, depois: int
     dica_html = ("<div class='dicas'><h2>Leitura</h2><ul>"
                  + "".join(f"<li>{d}</li>" for d in dicas) + "</ul></div>") if dicas else ""
 
+    # Raio-X TEXTUAL (price action em pips) — a leitura que a IA usa p/ auditar o ponto de entrada.
+    raiox_html = (f"<div class='porque'><h2>Raio-X textual (para a IA)</h2>"
+                  f"<pre style='white-space:pre-wrap;font-size:.8rem;color:#c9d1d9;margin:0'>"
+                  f"{_h.escape(raiox_texto)}</pre></div>") if raiox_texto else ""
+
     return f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Raio-X trade #{t['id']}</title>
@@ -375,6 +393,7 @@ def _pagina_trade(t: dict, ctx, plot_html: str, tf: str, antes: int, depois: int
     grava novos candles — reabra dias depois para ver o desfecho completo.</p>
   {porque}
   {dica_html}
+  {raiox_html}
 </body></html>"""
 
 

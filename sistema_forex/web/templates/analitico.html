@@ -67,6 +67,17 @@
       <span class="muted" id="periodo"></span>
     </div>
 
+    <section>
+      <h2>📦 Exportar raio-X por estratégia <span class="muted">— zip com 1 arquivo por trade (gráfico + análise) p/ enviar à IA</span></h2>
+      <div class="filtros">
+        <label class="f">Estratégia
+          <select id="exp-est"><option value="">carregando…</option></select>
+        </label>
+        <a class="btn p" id="exp-baixar">Baixar zip do período</a>
+        <span class="muted" id="exp-info"></span>
+      </div>
+    </section>
+
     <div class="grid" id="kpis"></div>
 
     <section>
@@ -188,6 +199,31 @@
     var DADOS = {{ dados|tojson }};
     var API_URL = {{ (api_url|default('/api/analitico'))|tojson }};
     var MOEDA = {{ (moeda|default('USD'))|tojson }};
+    var MERCADO = {{ ('b3' if b3|default(false) else 'forex')|tojson }};
+
+    // Seletor de estratégias + download do zip de raio-X (por estratégia, no período filtrado).
+    (function () {
+      var sel = document.getElementById('exp-est');
+      fetch('/api/export/estrategias?mercado=' + MERCADO).then(function (r) { return r.json(); })
+        .then(function (j) {
+          var ops = (j.estrategias || []);
+          sel.innerHTML = ops.length
+            ? ops.map(function (e) { return '<option value="' + esc(e.estrategia) + '">'
+                + esc(e.nome) + ' (' + e.n + ' trades)</option>'; }).join('')
+            : '<option value="">sem trades fechados</option>';
+        }).catch(function () { sel.innerHTML = '<option value="">erro ao carregar</option>'; });
+
+      document.getElementById('exp-baixar').addEventListener('click', function () {
+        var est = sel.value;
+        if (!est) { alert('Escolha uma estratégia com trades.'); return; }
+        var de = document.getElementById('de').value, ate = document.getElementById('ate').value;
+        var q = '/export/raiox?mercado=' + MERCADO + '&estrategia=' + encodeURIComponent(est)
+          + (de ? '&de=' + de : '') + (ate ? '&ate=' + ate : '');
+        document.getElementById('exp-info').textContent = 'gerando zip… (pode levar alguns segundos)';
+        window.location = q;
+        setTimeout(function () { document.getElementById('exp-info').textContent = ''; }, 8000);
+      });
+    })();
 
     function fmt(n, d) {
       if (n === null || n === undefined) return '—';

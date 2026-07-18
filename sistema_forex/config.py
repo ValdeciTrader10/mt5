@@ -579,6 +579,10 @@ SALDO_SIMULADO = float(os.environ.get("SALDO_SIMULADO", "1000"))
 # "futuro" se preenche sozinho com o tempo; auditar dias depois mostra o desfecho completo.
 GRAFICO_TRADE_BARRAS_ANTES = int(os.environ.get("GRAFICO_TRADE_BARRAS_ANTES", "60"))
 GRAFICO_TRADE_BARRAS_DEPOIS = int(os.environ.get("GRAFICO_TRADE_BARRAS_DEPOIS", "40"))
+# Exportação em LOTE do raio-X por estratégia (zip com 1 HTML/trade — gráfico visual + raio-X
+# textual). Teto de trades por download (o mais RECENTE primeiro) p/ não estourar CPU/memória da
+# VPS gerando centenas de gráficos Plotly num request só.
+RAIOX_EXPORT_MAX = int(os.environ.get("RAIOX_EXPORT_MAX", "150"))
 
 # Auditoria IA — "raio-x textual" das perdedoras: candles em pips relativos à entrada que a IA
 # lê para analisar o price action (stop real, confirmação do padrão, entrada adiantada). Janela
