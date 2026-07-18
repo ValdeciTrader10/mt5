@@ -497,6 +497,8 @@ def export_raiox(request: Request, estrategia: str, mercado: str = "forex",
         return Response("Nenhum trade fechado dessa estratégia no período.",
                         media_type="text/plain", status_code=404)
 
+    import time as _time
+    t0 = _time.time()
     buf = io.BytesIO()
     gerados = 0
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -508,6 +510,11 @@ def export_raiox(request: Request, estrategia: str, mercado: str = "forex",
                 continue
             z.writestr(f"trade_{tid}.html", html)
             gerados += 1
+        log.info("Export raio-X %s/%s: %d/%d trades em %.1fs", estrategia, mercado,
+                 gerados, len(ids), _time.time() - t0)
+        if gerados == 0:
+            return Response("Falha ao gerar o raio-X de todos os trades (ver logs do container web).",
+                            media_type="text/plain", status_code=500)
         # Índice do lote (o que foi exportado + o teto aplicado), p/ o dono e a IA se situarem.
         z.writestr("_INDICE.txt",
                    f"Estratégia: {config.nome_estrategia(estrategia)} ({estrategia})\n"

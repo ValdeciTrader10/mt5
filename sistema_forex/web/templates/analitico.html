@@ -219,9 +219,25 @@
         var de = document.getElementById('de').value, ate = document.getElementById('ate').value;
         var q = '/export/raiox?mercado=' + MERCADO + '&estrategia=' + encodeURIComponent(est)
           + (de ? '&de=' + de : '') + (ate ? '&ate=' + ate : '');
-        document.getElementById('exp-info').textContent = 'gerando zip… (pode levar alguns segundos)';
-        window.location = q;
-        setTimeout(function () { document.getElementById('exp-info').textContent = ''; }, 8000);
+        var btn = this, info = document.getElementById('exp-info');
+        btn.style.pointerEvents = 'none'; btn.style.opacity = '.6';
+        info.textContent = 'gerando o zip… (dezenas de trades podem levar 1–2 min — aguarde)';
+        // fetch + blob: baixa de forma confiável mesmo em resposta lenta E mostra o erro real
+        // (o window.location antigo engolia 500/404 e não dava feedback).
+        fetch(q, { credentials: 'same-origin' }).then(function (r) {
+          if (!r.ok) return r.text().then(function (t) {
+            throw new Error('HTTP ' + r.status + (t ? ' — ' + t.slice(0, 200) : '')); });
+          var nome = 'raiox.zip', cd = r.headers.get('Content-Disposition') || '';
+          var m = cd.match(/filename="?([^"]+)"?/); if (m) nome = m[1];
+          return r.blob().then(function (b) { return { b: b, nome: nome }; });
+        }).then(function (o) {
+          var url = URL.createObjectURL(o.b), a = document.createElement('a');
+          a.href = url; a.download = o.nome; document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(url); }, 3000);
+          info.textContent = '✅ baixado: ' + o.nome + ' (' + Math.round(o.b.size / 1024) + ' KB)';
+        }).catch(function (e) {
+          info.textContent = '❌ falhou: ' + e.message;
+        }).finally(function () { btn.style.pointerEvents = ''; btn.style.opacity = ''; });
       });
     })();
 
