@@ -191,6 +191,66 @@ def test_vwap_serie_sem_volume_e_entradas_invalidas():
     assert ind.vwap_serie([1.0], [1.0], [1.0], [1], []) == []  # tamanhos divergentes
 
 
+def _serie_plana(n, base=10.0):
+    """n barras chatas (O=H=L=C=base, vol=100) p/ montar histórico de referência da VSA."""
+    return ([base] * n, [base] * n, [base] * n, [base] * n, [100] * n)
+
+
+def test_vsa_spring_detecta_falso_rompimento_de_baixa():
+    o, h, l, c, v = _serie_plana(21)          # 21 barras planas
+    # última barra: varre a mínima (novo fundo), fecha de volta PRA CIMA, volume alto
+    o[-1], h[-1], l[-1], c[-1], v[-1] = 9.5, 10.0, 9.0, 9.9, 300
+    r = ind.vsa_sinais(o, h, l, c, v, janela=20)
+    assert r["spring"] and not r["upthrust"], r
+    assert r["vol_rel"] >= 1.3 and r["close_pos"] >= 0.6, r
+
+
+def test_vsa_upthrust_detecta_falso_rompimento_de_alta():
+    o, h, l, c, v = _serie_plana(21)
+    o[-1], h[-1], l[-1], c[-1], v[-1] = 10.5, 11.0, 10.0, 10.1, 300
+    r = ind.vsa_sinais(o, h, l, c, v, janela=20)
+    assert r["upthrust"] and not r["spring"], r
+
+
+def test_vsa_no_supply_e_no_demand_por_volume_seco():
+    o, h, l, c, v = _serie_plana(21)
+    o[-1], h[-1], l[-1], c[-1], v[-1] = 10.0, 10.2, 9.8, 9.9, 40   # queda com volume BAIXO
+    r = ind.vsa_sinais(o, h, l, c, v, janela=20)
+    assert r["no_supply"] and not r["no_demand"], r
+    o[-1], c[-1] = 9.9, 10.1                                        # agora ALTA com volume baixo
+    r = ind.vsa_sinais(o, h, l, c, v, janela=20)
+    assert r["no_demand"] and not r["no_supply"], r
+
+
+def test_vsa_delta_anexa_sinal_de_fluxo_quando_dado():
+    o, h, l, c, v = _serie_plana(21)
+    o[-1], h[-1], l[-1], c[-1], v[-1] = 9.5, 10.0, 9.0, 9.9, 300
+    deltas = [0.0] * 20 + [150.0]                # agressão compradora na barra do spring
+    r = ind.vsa_sinais(o, h, l, c, v, janela=20, deltas=deltas)
+    assert r["delta"] == 150.0 and r["delta_pos"] and not r["delta_neg"], r
+    # sem deltas → as chaves de fluxo nem aparecem (forex)
+    r2 = ind.vsa_sinais(o, h, l, c, v, janela=20)
+    assert "delta" not in r2, r2
+
+
+def test_vsa_janela_curta_retorna_none():
+    o, h, l, c, v = _serie_plana(5)
+    assert ind.vsa_sinais(o, h, l, c, v, janela=20) is None
+
+
+def test_delta_de_ticks_por_flag_e_pela_regra_do_tick():
+    # Com flag explícita (feed de futuros): compra soma, venda subtrai.
+    ticks = [{"volume": 10, "flag": "buy"}, {"volume": 4, "flag": "sell"},
+             {"volume": 6, "flag": "buy"}]
+    assert ind.delta_de_ticks(ticks) == 12.0    # 10 - 4 + 6
+    # Sem flag: regra do tick (uptick=compra, downtick=venda, igual repete o último lado).
+    ticks2 = [{"volume": 5, "last": 100.0}, {"volume": 5, "last": 101.0},
+              {"volume": 5, "last": 100.5}, {"volume": 5, "last": 100.5}]
+    # 1ª: prev None → lado inicial compra (+5); 2ª uptick +5; 3ª downtick -5; 4ª igual → repete -5
+    assert ind.delta_de_ticks(ticks2) == 0.0, ind.delta_de_ticks(ticks2)
+    assert ind.delta_de_ticks([]) is None
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

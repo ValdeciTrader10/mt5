@@ -26,6 +26,7 @@ ESTRATEGIA = "confluencia_v1"
 ESTRATEGIA_SWEEP = "sweep_choch_v1"
 ESTRATEGIA_SWEEP_ABS = "sweep_choch_abs_v1"   # gêmea da caça-stops COM filtro de absorção
 ESTRATEGIA_SWEEP_ST = "sweep_choch_st_v1"     # gêmeo da caça-stops com STOP ESTRUTURAL (atrás do sweep)
+ESTRATEGIA_VSA = "vsa_delta_v1"            # reversão VSA (Wyckoff/WAPV): volume no forex, volume+delta na B3
 ESTRATEGIA_OB = "order_block_v1"
 ESTRATEGIA_OB_REJ = "order_block_rej_v1"   # gêmeo do OB que EXIGE rejeição na borda do bloco
 ESTRATEGIA_OB_ST = "order_block_st_v1"     # gêmeo do OB com STOP ESTRUTURAL (atrás do bloco)
@@ -473,6 +474,97 @@ def avaliar_order_block(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_a
         if m is not None:
             dec["sl_atr_mult"] = m
     return dec
+
+
+# --------------------------------------------------------------------------- #
+# Estratégia VSA / Delta (Wyckoff/WAPV) — reversão por leitura de VOLUME (+fluxo real na B3)
+# --------------------------------------------------------------------------- #
+def avaliar_vsa_delta(snap: dict, *, sessao_utc, spread_max_pips, nivel_prox_atr, forca_min,
+                      score_min=2, janela=20, estrategia=ESTRATEGIA_VSA) -> dict:
+    """Reversão pela leitura VSA (Volume Spread Analysis, do material WAPV/Wyckoff): a barra
+    delata a intenção do "smart money" por spread × posição do fechamento × VOLUME relativo.
+
+    Sinais (`indicadores.vsa_sinais`): **spring** (varre a mínima e fecha de volta com volume alto
+    = absorção de venda → COMPRA), **upthrust** (varre a máxima e fecha de volta = VENDA),
+    **no_supply** (queda com volume seco → COMPRA) e **no_demand** (alta com volume seco → VENDA);
+    **climax** (volume extremo) reforça. `spring`/`upthrust` são falsos-rompimentos AUTOSSUFICIENTES
+    (entram sozinhos); `no_supply`/`no_demand` são fracos → exigem reforço (S/R forte, climax, delta)
+    até `score_min`. S/R forte no nível (compra em suporte / venda em resistência) é REFORÇO.
+
+    **Delta (só B3, futuros):** quando a janela traz `delta` (agressão compra−venda REAL), a
+    agressão A FAVOR do sinal SOMA no score (`delta_compra`/`delta_venda`) e a agressão CONTRA
+    (esforço sem confirmação de fluxo) VETA a entrada — é a confirmação de order-flow que o WAPV usa.
+    No forex `delta` é None (só há tick_volume) → o VSA roda sem essa camada (nem soma nem veta).
+
+    Gates duros: sessão + spread. `snap["m5_janela"]` é a janela do TF de operação (vela/volume do
+    próprio TF) → roda IGUAL em M5/M15/H1/H4, cada TF um livro de sombra independente."""
+    _d = lambda *a: _decisao(*a, estrategia=estrategia)
+    regime = snap.get("regime", "indefinido")
+    jan = snap.get("m5_janela")
+    atr = snap.get("atr")
+    close = snap.get("close")
+    if not jan or not jan.get("close") or not atr:
+        return _d("nao_entrou", None, regime, 0, [], "sem janela/ATR")
+    vols = jan.get("vol_real") or jan.get("volume")
+    if not vols:
+        return _d("nao_entrou", None, regime, 0, [], "sem volume p/ VSA")
+    vsa = indicadores.vsa_sinais(jan["open"], jan["high"], jan["low"], jan["close"], vols,
+                                 janela=janela, deltas=jan.get("delta"))
+    if vsa is None:
+        return _d("nao_entrou", None, regime, 0, [], "janela curta p/ VSA")
+
+    compra = vsa["spring"] or vsa["no_supply"]
+    venda = vsa["upthrust"] or vsa["no_demand"]
+    if compra == venda:   # nenhum sinal, ou os dois (ambíguo) → fora
+        return _d("nao_entrou", None, regime, 0, [], "sem sinal VSA claro")
+    direcao = "compra" if compra else "venda"
+
+    conf = []
+    if direcao == "compra":
+        if vsa["spring"]:
+            conf.append("spring")
+        if vsa["no_supply"]:
+            conf.append("no_supply")
+    else:
+        if vsa["upthrust"]:
+            conf.append("upthrust")
+        if vsa["no_demand"]:
+            conf.append("no_demand")
+    forte = ("spring" in conf) or ("upthrust" in conf)   # falso-rompimento = autossuficiente
+    if vsa["climax"]:
+        conf.append("climax")
+    # S/R forte no nível = reforço (compra em suporte / venda em resistência). Nunca veto.
+    tol = nivel_prox_atr * atr
+    niveis = snap.get("suportes" if direcao == "compra" else "resistencias", [])
+    nv = _mais_forte_perto(close, niveis, tol)
+    if nv and nv[1] >= forca_min:
+        conf.append(f"sr_confluente_{int(nv[1])}")
+    # Confirmação de FLUXO REAL (só B3): delta a favor soma; delta contra VETA (contradição clara).
+    delta_contra = False
+    if direcao == "compra":
+        if vsa.get("delta_pos"):
+            conf.append("delta_compra")
+        elif vsa.get("delta_neg"):
+            delta_contra = True
+    else:
+        if vsa.get("delta_neg"):
+            conf.append("delta_venda")
+        elif vsa.get("delta_pos"):
+            delta_contra = True
+    score = len(conf)
+
+    if not forte and score < score_min:   # no_supply/no_demand sozinho não basta
+        return _d("nao_entrou", direcao, regime, score, conf, "sinal VSA fraco sem reforço")
+    if delta_contra:   # B3: o order-flow contradiz a leitura de volume → não entra
+        return _d("nao_entrou", direcao, regime, score, conf, "delta (fluxo) contra o sinal VSA")
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _d("nao_entrou", direcao, regime, score, conf, f"fora da sessão ({hora}h UTC)")
+    spread = snap.get("spread_pips", 0.0)
+    if spread > spread_max_pips:
+        return _d("nao_entrou", direcao, regime, score, conf,
+                  f"spread alto ({spread:.1f}p > {spread_max_pips}p)")
+    return _d("entrou", direcao, regime, score, conf, "+".join(conf))
 
 
 # --------------------------------------------------------------------------- #

@@ -119,8 +119,9 @@ def _extremos_dia(conn, par: str, agora_utc: int):
 def _janela(conn, par: str, tf: str, n: int) -> dict:
     """Últimos `n` candles do TF de operação (cronológicos) p/ a detecção de sweep+CHoCH."""
     rows = conn.execute(
-        "SELECT open, high, low, close, tick_volume FROM candles WHERE par=? AND tf=? "
-        "ORDER BY time_utc DESC LIMIT ?",
+        "SELECT open, high, low, close, tick_volume, "
+        "COALESCE(NULLIF(real_volume,0), tick_volume) AS vol_real, delta "
+        "FROM candles WHERE par=? AND tf=? ORDER BY time_utc DESC LIMIT ?",
         (par, tf, n),
     ).fetchall()
     rows = list(reversed(rows))
@@ -130,6 +131,8 @@ def _janela(conn, par: str, tf: str, n: int) -> dict:
         "low": [r["low"] for r in rows],
         "close": [r["close"] for r in rows],
         "volume": [r["tick_volume"] for r in rows],   # p/ o filtro de absorção (sweep_choch_abs_v1)
+        "vol_real": [r["vol_real"] for r in rows],     # B3 = contratos reais; forex = tick_volume (VSA)
+        "delta": [r["delta"] for r in rows],           # B3 = fluxo real; forex = tudo None (VSA_delta)
     }
 
 
@@ -431,6 +434,19 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             stop_estrutural=True,
             buffer_atr=config.STOP_ESTRUTURAL_BUFFER_ATR,
             mult_teto=config.SL_SERVIDOR_ATR_MULT,
+        ))
+    # VSA/Delta (Wyckoff/WAPV) — reversão pela leitura de VOLUME. No forex usa o tick_volume;
+    # na B3 (futuros) usa o volume REAL (contratos) + o DELTA de fluxo (agressão compra−venda),
+    # que confirma/veta o sinal. Roda em TODOS os TFs de operação (cada TF um livro de sombra).
+    if config.VSA_HABILITADA:
+        decs.append(estrategias.avaliar_vsa_delta(
+            snap,
+            sessao_utc=sessao_utc,
+            spread_max_pips=spread_max,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            forca_min=config.SR_FORCA_MIN,
+            score_min=config.VSA_SCORE_MIN,
+            janela=config.VSA_JANELA,
         ))
     if config.OB_HABILITADA:
         decs.append(estrategias.avaliar_order_block(

@@ -200,6 +200,85 @@ def test_avaliar_sweep_abs_sem_volume_nao_entra():
 
 
 # --------------------------------------------------------------------------- #
+# Estratégia VSA / Delta (Wyckoff/WAPV) — reversão pela leitura de volume
+# --------------------------------------------------------------------------- #
+CFG_VSA = dict(sessao_utc=(7, 20), spread_max_pips=2.0, nivel_prox_atr=0.5, forca_min=3,
+               score_min=2, janela=20)
+
+
+def _jan_spring(vol_ult=300, delta_ult=None):
+    """Janela de 21 barras: 20 planas em 1.1000 (vol 100) + 1 SPRING (varre a mínima, fecha em cima)."""
+    o = [1.1000] * 20 + [1.0996]
+    h = [1.1000] * 20 + [1.1001]
+    l = [1.1000] * 20 + [1.0990]      # última fura a mínima recente (1.1000)
+    c = [1.1000] * 20 + [1.1000]      # fecha no topo do range (close_pos alto)
+    v = [100] * 20 + [vol_ult]
+    jan = {"open": o, "high": h, "low": l, "close": c, "vol_real": v, "volume": v}
+    if delta_ult is not None:
+        jan["delta"] = [0.0] * 20 + [delta_ult]
+    return jan
+
+
+def _snap_vsa(**kw):
+    base = dict(atr=0.0010, regime="lateral", hora_utc=10, spread_pips=1.0, close=1.1000,
+                suportes=[], resistencias=[], m5_janela=_jan_spring())
+    base.update(kw)
+    return base
+
+
+def test_vsa_entra_compra_no_spring():
+    snap = _snap_vsa(suportes=[(1.1000, 5)])   # spring EM suporte forte → reforço
+    d = e.avaliar_vsa_delta(snap, **CFG_VSA)
+    assert d["resultado"] == "entrou" and d["direcao"] == "compra", d
+    assert d["estrategia"] == "vsa_delta_v1", d
+    assert "spring" in d["confluencias"] and "sr_confluente_5" in d["confluencias"], d
+
+
+def test_vsa_spring_sozinho_e_autossuficiente():
+    # sem S/R nem delta: spring é falso-rompimento autossuficiente → entra mesmo sem reforço
+    # (vol 180 = 1,8× a média: dispara spring mas NÃO climax, isolando o "spring sozinho")
+    d = e.avaliar_vsa_delta(_snap_vsa(m5_janela=_jan_spring(vol_ult=180)), **CFG_VSA)
+    assert d["resultado"] == "entrou" and d["confluencias"] == ["spring"], d
+
+
+def test_vsa_delta_a_favor_soma_confluencia():
+    snap = _snap_vsa(m5_janela=_jan_spring(delta_ult=150.0))   # agressão compradora (B3)
+    d = e.avaliar_vsa_delta(snap, **CFG_VSA)
+    assert d["resultado"] == "entrou" and "delta_compra" in d["confluencias"], d
+
+
+def test_vsa_delta_contra_veta_entrada():
+    # spring (viés de compra) mas o FLUXO real vendeu (delta negativo) → contradição → não entra
+    snap = _snap_vsa(m5_janela=_jan_spring(delta_ult=-150.0))
+    d = e.avaliar_vsa_delta(snap, **CFG_VSA)
+    assert d["resultado"] == "nao_entrou" and "delta" in d["motivo"], d
+
+
+def test_vsa_no_supply_fraco_precisa_reforco():
+    # barra de QUEDA com volume BAIXO (no_supply) e SEM reforço → sinal fraco não basta
+    o = [1.1000] * 20 + [1.1000]
+    h = [1.1000] * 20 + [1.1002]
+    l = [1.1000] * 20 + [1.0996]
+    c = [1.1000] * 20 + [1.0998]      # fechou em baixa
+    v = [100] * 20 + [40]             # volume seco
+    jan = {"open": o, "high": h, "low": l, "close": c, "vol_real": v, "volume": v}
+    d = e.avaliar_vsa_delta(_snap_vsa(m5_janela=jan, close=1.0998), **CFG_VSA)
+    assert d["resultado"] == "nao_entrou" and "fraco" in d["motivo"], d
+
+
+def test_vsa_fora_da_sessao_nao_entra():
+    d = e.avaliar_vsa_delta(_snap_vsa(hora_utc=3), **CFG_VSA)
+    assert d["resultado"] == "nao_entrou" and "sessão" in d["motivo"], d
+
+
+def test_vsa_janela_curta_nao_entra():
+    jan = {"open": [1.1] * 5, "high": [1.1] * 5, "low": [1.1] * 5, "close": [1.1] * 5,
+           "vol_real": [100] * 5, "volume": [100] * 5}
+    d = e.avaliar_vsa_delta(_snap_vsa(m5_janela=jan), **CFG_VSA)
+    assert d["resultado"] == "nao_entrou", d
+
+
+# --------------------------------------------------------------------------- #
 # Estratégia 3 — reteste de Order Block
 # --------------------------------------------------------------------------- #
 CFG_OB = dict(sessao_utc=(7, 20), spread_max_pips=2.0, nivel_prox_atr=0.5, forca_min=3,

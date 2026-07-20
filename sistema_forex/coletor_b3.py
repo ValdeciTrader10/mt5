@@ -19,7 +19,7 @@ import signal
 import time
 from datetime import datetime
 
-from . import config_b3, db, mt5_bridge_b3
+from . import config_b3, db, indicadores, mt5_bridge_b3
 from .coletor_mt5 import _MIN_POR_TF, contar, gravar_candles
 
 log = logging.getLogger("coletor_b3")
@@ -97,13 +97,57 @@ def _ultimo_fechado(simbolo: str, tf: str):
     return recentes[-2]  # [-2] é o último fechado; [-1] está em formação
 
 
+def _delta_do_candle(simbolo: str, tf: str, candle: dict):
+    """DELTA de fluxo (agressão compra−venda) do candle, dos TRADE ticks da sua janela de tempo.
+
+    None se o feed não devolveu ticks (leilão/fora do pregão) — o consumidor cai no volume só.
+    A janela é [time, time + duração do TF) no MESMO relógio (server) dos candles."""
+    minutos = _MIN_POR_TF.get(tf, 5)
+    inicio = datetime.utcfromtimestamp(candle["time"])
+    fim = datetime.utcfromtimestamp(candle["time"] + minutos * 60)
+    try:
+        ticks = mt5_bridge_b3.copy_ticks_range(simbolo, inicio, fim)
+    except mt5_bridge_b3.MT5Erro as e:
+        log.debug("Sem ticks p/ delta %s %s: %s", simbolo, tf, e)
+        return None
+    return indicadores.delta_de_ticks(ticks)
+
+
+def _atualizar_deltas(conn, par: str, simbolo: str, tf: str, fechados: list) -> None:
+    """Calcula e grava o DELTA dos candles recém-fechados que ainda não o têm (evita re-buscar
+    ticks). Só nos TFs de OPERAÇÃO da B3 (onde a VSA/Delta roda) — bound de custo dos ticks."""
+    if not fechados or tf not in config_b3.TFS_OPERACAO_B3:
+        return
+    tempos = [c["time"] for c in fechados]
+    ph = ",".join("?" * len(tempos))
+    com_delta = {
+        r[0] for r in conn.execute(
+            f"SELECT time_utc FROM candles WHERE par=? AND tf=? AND time_utc IN ({ph}) "
+            "AND delta IS NOT NULL",
+            (par, tf, *tempos),
+        ).fetchall()
+    }
+    for c in fechados:
+        if c["time"] in com_delta:
+            continue
+        d = _delta_do_candle(simbolo, tf, c)
+        if d is not None:
+            conn.execute("UPDATE candles SET delta=? WHERE par=? AND tf=? AND time_utc=?",
+                         (d, par, tf, c["time"]))
+
+
 def coletar_incremental(conn, par: str, simbolo: str) -> int:
-    """Insere candles novos de todos os TFs para um símbolo. Retorna total de novos."""
+    """Insere candles novos de todos os TFs para um símbolo. Retorna total de novos.
+
+    Nos TFs de operação, calcula também o DELTA de fluxo (agressão) do candle a partir dos
+    trade ticks — a matéria-prima da VSA/Delta na B3 (no forex não há delta = só tick_volume).
+    """
     total = 0
     for tf in config_b3.TFS_COLETA_B3:
         candles = mt5_bridge_b3.copy_rates_from_pos(simbolo, tf, 0, _JANELA_INCREMENTAL)
         fechados = candles[:-1] if candles else []  # descarta o candle em formação
         total += gravar_candles(conn, par, tf, fechados)
+        _atualizar_deltas(conn, par, simbolo, tf, fechados)
     return total
 
 

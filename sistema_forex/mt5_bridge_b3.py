@@ -144,6 +144,49 @@ def copy_rates_range(simbolo: str, tf: str, inicio, fim):
         return _para_dicts(rates)
 
 
+def _ticks_para_dicts(ticks, mt5) -> list:
+    """Converte o array de TRADE ticks (netref numpy) em dicts p/ o cálculo de delta.
+
+    Lê o agressor pelas flags do MT5 (TICK_FLAG_BUY/SELL) quando presentes — o feed de futuros
+    da B3 costuma marcá-las. O volume do negócio vem de `volume_real` (contratos) e cai no
+    `volume` quando ausente. `last` (preço do negócio) permite o fallback pela regra do tick.
+    """
+    import rpyc
+
+    ticks = rpyc.classic.obtain(ticks)
+    fbuy = int(getattr(mt5, "TICK_FLAG_BUY", 32))
+    fsell = int(getattr(mt5, "TICK_FLAG_SELL", 64))
+    out = []
+    for t in ticks:
+        campos = t.dtype.names
+        fl = int(t["flags"]) if "flags" in campos else 0
+        lado = "buy" if fl & fbuy else ("sell" if fl & fsell else None)
+        vol = 0.0
+        if "volume_real" in campos and t["volume_real"]:
+            vol = float(t["volume_real"])
+        elif "volume" in campos:
+            vol = float(t["volume"])
+        out.append({
+            "time": int(t["time"]),
+            "last": float(t["last"]) if "last" in campos else None,
+            "volume": vol,
+            "flag": lado,
+        })
+    return out
+
+
+def copy_ticks_range(simbolo: str, inicio, fim) -> list:
+    """TRADE ticks (COPY_TICKS_TRADE) do símbolo B3 no intervalo [inicio, fim) — a matéria-prima
+    do DELTA de fluxo (agressão compra−venda). SÓ LEITURA. Lista vazia se indisponível."""
+    with _LOCK:
+        mt5 = _cliente()
+        flags = int(getattr(mt5, "COPY_TICKS_TRADE", 2))
+        ticks = mt5.copy_ticks_range(simbolo, inicio, fim, flags)
+        if ticks is None:
+            return []
+        return _ticks_para_dicts(ticks, mt5)
+
+
 def tick_valido(bid: float, ask: float) -> bool:
     """True se bid/ask é uma cotação REAL — não zero/negativo nem cruzada (função PURA).
 

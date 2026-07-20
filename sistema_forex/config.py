@@ -309,6 +309,7 @@ NOMES_ESTRATEGIAS = {
     "order_block_rej_v1": "Order block + rejeição",
     "order_block_st_v1": "Order block + stop estrutural",
     "sweep_choch_st_v1": "Caça-stops + stop estrutural",
+    "vsa_delta_v1": "VSA / Delta (volume Wyckoff)",
     "pullback_tendencia_v1": "Pullback na tendência",
     "fecha_gap_v1": "Fechamento de gap",
     "pullback_rompimento_v1": "Pullback ao rompimento",
@@ -349,6 +350,16 @@ SWEEP_RECENTE = int(os.environ.get("SWEEP_RECENTE", "6"))
 SWEEP_ABS_HABILITADA = os.environ.get("SWEEP_ABS_HABILITADA", "true").lower() in ("1", "true", "sim")
 # Candles anteriores usados como referência p/ medir volume/range médios da absorção.
 SWEEP_ABS_JANELA = int(os.environ.get("SWEEP_ABS_JANELA", "20"))
+
+# --- VSA/Delta (Wyckoff/WAPV): reversão pela leitura de VOLUME (+ fluxo real na B3) ---
+# spring/upthrust/no_supply/no_demand + climax. No forex usa tick_volume; na B3 (futuros) usa o
+# volume REAL (contratos) + o DELTA de agressão (compra−venda), que confirma/veta o sinal. Roda em
+# TODOS os TFs de operação (cada TF um livro de sombra independente). Livro `vsa_delta_v1`.
+VSA_HABILITADA = os.environ.get("VSA_HABILITADA", "true").lower() in ("1", "true", "sim")
+# Sinais fracos (no_supply/no_demand sozinhos) exigem reforço até este score; spring/upthrust entram sós.
+VSA_SCORE_MIN = int(os.environ.get("VSA_SCORE_MIN", "2"))
+# Candles de referência p/ a média de volume e os extremos (spring/upthrust) da leitura VSA.
+VSA_JANELA = int(os.environ.get("VSA_JANELA", "20"))
 
 # --- 3ª estratégia: reteste de Order Block (M15/H1) + rejeição ---
 # Entra quando o preço RETESTA uma zona de OB fresca na direção do OB. S/R e regime a

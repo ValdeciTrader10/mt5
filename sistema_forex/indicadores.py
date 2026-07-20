@@ -462,3 +462,87 @@ def classificar_regime(adx_val, plus_di, minus_di, adx_tend: float, adx_lat: flo
     if adx_val <= adx_lat:
         return "lateral"
     return "transicao"
+
+
+# --------------------------------------------------------------------------- #
+# VSA (Volume Spread Analysis) — sinais Wyckoff da ÚLTIMA barra + DELTA de fluxo
+# --------------------------------------------------------------------------- #
+def vsa_sinais(opens, highs, lows, closes, volumes, *, janela=20,
+               vol_alto=1.3, vol_baixo=0.7, deltas=None):
+    """Sinais VSA (Wyckoff/WAPV) da ÚLTIMA barra, lidos de spread × posição do fechamento ×
+    VOLUME relativo à média recente. PURA/sem look-ahead (só a barra atual + histórico anterior):
+
+      - `spring`   : varre a mínima recente (novo fundo) e FECHA de volta pra cima com volume alto
+                     → falso rompimento p/ baixo (absorção de venda) = viés de COMPRA.
+      - `upthrust` : varre a máxima recente e FECHA de volta pra baixo com volume alto
+                     → falso rompimento p/ cima = viés de VENDA.
+      - `no_supply`: barra de QUEDA com volume BAIXO (secou a venda) = viés de COMPRA.
+      - `no_demand`: barra de ALTA com volume BAIXO (secou a compra) = viés de VENDA.
+      - `climax`   : volume EXTREMO (≥2× a média) — clímax de esforço.
+
+    Em mercado com fluxo real (B3, `deltas` dado), acrescenta `delta` da barra e `delta_pos`/
+    `delta_neg` (sinal do delta) — a confirmação de agressão que o WAPV usa. No forex `deltas`
+    é None (o volume é só tick_volume; delta não existe). Retorna dict ou None (dados curtos)."""
+    n = len(closes)
+    if n < janela + 1 or len(volumes) < janela + 1:
+        return None
+    ref = [v for v in volumes[-janela - 1:-1] if v is not None]
+    if len(ref) < janela // 2 or sum(ref) <= 0:
+        return None
+    media_vol = sum(ref) / len(ref)
+    o, h, l, c, v = opens[-1], highs[-1], lows[-1], closes[-1], volumes[-1]
+    spread = h - l
+    if spread <= 0 or v is None or media_vol <= 0:
+        return None
+    close_pos = (c - l) / spread            # 0 = fechou na mínima, 1 = fechou na máxima
+    vol_rel = v / media_vol
+    up, down = c > o, c < o
+    hh = max(highs[-janela - 1:-1]); ll = min(lows[-janela - 1:-1])
+    out = {
+        "vol_rel": round(vol_rel, 2), "close_pos": round(close_pos, 2),
+        "spring":   bool(l < ll and close_pos >= 0.6 and vol_rel >= vol_alto),
+        "upthrust": bool(h > hh and close_pos <= 0.4 and vol_rel >= vol_alto),
+        "no_supply": bool(down and vol_rel <= vol_baixo),
+        "no_demand": bool(up and vol_rel <= vol_baixo),
+        "climax":   bool(vol_rel >= 2.0),
+    }
+    if deltas is not None and len(deltas) == n and deltas[-1] is not None:
+        d = deltas[-1]
+        out["delta"] = d
+        out["delta_pos"] = d > 0     # agressão compradora
+        out["delta_neg"] = d < 0     # agressão vendedora
+    return out
+
+
+def delta_de_ticks(ticks):
+    """DELTA de fluxo (Σ volume agressor comprador − Σ agressor vendedor) de uma lista de trade
+    ticks. PURA/testável. Cada tick = dict com `volume` e:
+      - `flag` in {'buy','sell'} quando o feed dá o agressor (ideal, futuros B3), OU
+      - só `last` (preço do negócio) → classifica pela REGRA DO TICK (uptick=compra, downtick=venda,
+        repete o último em preço igual). Retorna float (0.0 se sem volume) ou None se lista vazia."""
+    if not ticks:
+        return None
+    delta = 0.0
+    ult_lado = 1  # 1 compra, -1 venda (para a regra do tick em preço igual)
+    prev = None
+    for t in ticks:
+        vol = t.get("volume") or 0
+        flag = t.get("flag")
+        if flag == "buy":
+            lado = 1
+        elif flag == "sell":
+            lado = -1
+        else:
+            p = t.get("last")
+            if p is None or prev is None:
+                lado = ult_lado
+            elif p > prev:
+                lado = 1
+            elif p < prev:
+                lado = -1
+            else:
+                lado = ult_lado
+            prev = p if p is not None else prev
+        ult_lado = lado
+        delta += lado * vol
+    return delta

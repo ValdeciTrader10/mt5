@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS candles (
     close       REAL NOT NULL,
     tick_volume INTEGER,
     real_volume INTEGER,               -- contratos negociados (B3/futuros = volume Wyckoff real); NULL no forex
+    delta       REAL,                  -- delta de fluxo (agressão compra−venda) — só B3/futuros; NULL no forex
     spread      INTEGER,
     PRIMARY KEY (par, tf, time_utc)
 );
@@ -211,6 +212,8 @@ def _migrar(conn) -> None:
         ccols = {r["name"] for r in conn.execute("PRAGMA table_info(candles)").fetchall()}
         if "real_volume" not in ccols:  # volume real (contratos) da B3/futuros — item 6
             conn.execute("ALTER TABLE candles ADD COLUMN real_volume INTEGER")
+        if "delta" not in ccols:  # DELTA de fluxo (agressão compra−venda) — só B3 (futuros); NULL no forex
+            conn.execute("ALTER TABLE candles ADD COLUMN delta REAL")
 
 
 def conectar(db_path=None) -> sqlite3.Connection:

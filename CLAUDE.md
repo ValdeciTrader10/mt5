@@ -401,6 +401,18 @@ banco na manhã seguinte (design do coletor).
     rejeição obrigatória L808 — não é toque cru; os 4 têm `rejeicao`; sem bug tipo `pullback_medias`). **NENHUM
     ajuste de código** — a N=4 qualquer mudança na entrada seria data-snooping (skill §5) e a original é CONTROLE
     intocável. O caminho é a sombra ZERADA pós-fix chegar a N≥50 e reauditar. ➖ inconclusivo (N=4).
+- **`vsa_delta_v1`** · VSA / Delta (Volume Spread Analysis, Wyckoff/WAPV) · 🧪 **NOVA (20/07)**
+  - 20/07 · NASCEU (pedido do dono após revisar o manual WAPV: "faça o delta na B3 e o que for possível no forex,
+    para todos os timeframes"). Reversão pela leitura do VOLUME da barra (esforço×resultado da Lei Wyckoff):
+    **spring** (varre a mínima e fecha de volta com volume alto = absorção de venda → COMPRA), **upthrust**
+    (varre a máxima e fecha de volta → VENDA), **no_supply** (queda com volume seco → COMPRA), **no_demand**
+    (alta com volume seco → VENDA) + **climax** (volume extremo, reforço). `spring`/`upthrust` são falsos-rompimentos
+    AUTOSSUFICIENTES; `no_supply`/`no_demand` (fracos) exigem reforço (S/R forte, climax, delta) até `VSA_SCORE_MIN`.
+    S/R forte no nível é confluência. Roda em **TODOS os TFs de operação** (M5/M15/H1/H4 no forex; M1/M5/M15 na B3),
+    cada TF um livro de sombra. **Delta só na B3** (futuros): a agressão A FAVOR soma no score; a agressão CONTRA
+    VETA (esforço sem confirmação de fluxo). No forex `delta`=None (só tick_volume) → roda sem essa camada. Env
+    `VSA_HABILITADA`. ⚠️ SL/saída é o ATR genérico (calibração de stop estrutural fica p/ depois de mostrar edge).
+    Sombra decide (Etapa 9) — sem conclusão até N≥50.
 
 ## Variante B — Fuzzy Puro (fiel à didática do PDF; livro paralelo, não filtra a A)
 - **`fuzzy_puro_v1`** · Fuzzy Puro (maré 60/verde), timing M1 · 🟢
@@ -754,6 +766,32 @@ recupera a expectância (Etapa 9) — NÃO é conclusão do N=54 (amostra pequen
 (não-código):** na C_HIBRIDA, 49/54 saíram pela "saída antecipada C (M5 fuzzy contra)" capando os vencedores
 (MFE médio dos vencedores só +0,47R; um trade viu +10 pips DEPOIS de a C cortar) → é o corte fuzzy comendo o
 lucro, exatamente o que o **C_CORRE** já mede (deixa correr × corta). Comparar C_HIBRIDA × C_CORRE no /relatorio.
+
+## VSA / Delta — reversão por VOLUME (Wyckoff/WAPV): delta na B3, tick_volume no forex (20/07)
+Nova estratégia (`vsa_delta_v1`, Variante A), ADITIVA/desligável, nascida do manual WAPV que o dono mandou
+revisar. Lê a INTENÇÃO do "smart money" pela leitura de VOLUME × spread × posição do fechamento da barra
+(Lei do Esforço×Resultado de Wyckoff), a técnica central do WAPV/VSA. Peças:
+- **`indicadores.vsa_sinais`** (PURA/testada, sem look-ahead): da ÚLTIMA barra + histórico, detecta **spring**
+  (varre a mínima recente e FECHA de volta pra cima com volume alto = absorção de venda → COMPRA), **upthrust**
+  (espelho → VENDA), **no_supply** (queda com volume seco → COMPRA), **no_demand** (alta com volume seco → VENDA)
+  e **climax** (volume ≥2× a média). Quando recebe `deltas` (B3), anexa `delta`/`delta_pos`/`delta_neg` (o sinal
+  da agressão). No forex `deltas`=None (só há tick_volume) → roda sem a camada de fluxo.
+- **`indicadores.delta_de_ticks`** (PURA/testada): Σ volume agressor comprador − vendedor de uma lista de TRADE
+  ticks. Usa a flag do agressor (`TICK_FLAG_BUY/SELL`) quando o feed dá; senão a REGRA DO TICK (uptick=compra).
+- **`estrategias.avaliar_vsa_delta`**: viés de direção pelos sinais VSA; `spring`/`upthrust` entram sozinhos
+  (falso-rompimento autossuficiente), `no_supply`/`no_demand` (fracos) exigem reforço até `VSA_SCORE_MIN` (S/R
+  forte, climax, delta). S/R forte no nível é confluência (nunca veto). **Na B3, o DELTA a favor SOMA e o delta
+  CONTRA VETA** (esforço sem confirmação de order-flow) — é a única camada de fluxo REAL do sistema. Gates duros:
+  sessão + spread. Lê `snap["m5_janela"]` (agora com `vol_real` = COALESCE(real_volume,tick_volume) e `delta`),
+  então roda IGUAL em **M5/M15/H1/H4** (forex) e **M1/M5/M15** (B3) — cada TF um livro de sombra independente.
+- **Coleta do delta (B3):** `mt5_bridge_b3.copy_ticks_range` (TRADE ticks, DATA-ONLY) + `coletor_b3._atualizar_deltas`
+  computa o delta de cada candle recém-fechado (janela [t, t+dur)) e grava em `candles.delta` — SÓ nos TFs de
+  operação da B3 e SÓ incremental (não no backfill; bound de custo dos ticks). Coluna `candles.delta REAL`
+  (migração idempotente; NULL no forex). No forex NÃO há delta (o tick_volume não separa agressor).
+Env `VSA_HABILITADA`/`VSA_SCORE_MIN`/`VSA_JANELA`. Testes: `test_indicadores` (spring/upthrust/no_supply/no_demand/
+climax/delta) + `test_estrategias` (entra no spring, autossuficiência, delta a favor soma / contra veta, sinal
+fraco, sessão, janela curta). **268 testes, todos passando.** ⚠️ Assume que o feed de futuros da Genial marca
+`TICK_FLAG_BUY/SELL` (senão cai na regra do tick, aproximação) — validar com os ticks reais. Sombra decide (Etapa 9).
 
 ## Pullback a médias + rejeição — gêmeo A/B da entrada (18/07, motivado pela auditoria 3-vias)
 Mesma história da OB, na `pullback_medias_v1`: a auditoria 3-vias (A N=14 · C_CORRE N=13 · C_HIBRIDA N=42,
