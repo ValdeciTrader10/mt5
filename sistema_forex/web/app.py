@@ -1046,6 +1046,16 @@ def api_candles(request: Request, par: str, tf: str, n: int = 500):
             # Verde translúcido em candle de alta, vermelho em baixa (leitura de esforço Wyckoff).
             cor_vol = "rgba(63,185,80,0.5)" if r["close"] >= r["open"] else "rgba(248,81,73,0.5)"
             volume.append({"time": r["time_utc"], "value": vol, "color": cor_vol})
+    # DELTA de fluxo (agressão compra−venda) por candle: histograma ASSINADO (barra p/ cima quando
+    # comprador dominou, p/ baixo quando vendedor). SÓ na B3 (futuros) — no forex `delta` é NULL,
+    # então a lista sai vazia e o painel não aparece. É a leitura de order-flow do WAPV/Wyckoff.
+    delta = []
+    for r in rows:
+        dv = r["delta"] if "delta" in r.keys() else None
+        if dv is None:
+            continue
+        cor_d = "rgba(63,185,80,0.7)" if dv >= 0 else "rgba(248,81,73,0.7)"
+        delta.append({"time": r["time_utc"], "value": dv, "color": cor_d})
     # VWAP como CURVA que se desenvolve na sessão (reset na âncora — meia-noite no forex, abertura
     # do pregão na B3) + bandas ±1σ/±2σ, no lugar de uma única linha horizontal (item do manual fuzzy).
     vwap = {}
@@ -1069,7 +1079,8 @@ def api_candles(request: Request, par: str, tf: str, n: int = 500):
     sr = [{"preco": nv["preco"], "tipo": nv["tipo"], "forca": nv.get("forca") or 1}
           for nv in niveis if nv["tipo"] in LINHAS]
     return JSONResponse({"par": par, "tf": tf, "candles": candles, "niveis": sr,
-                         "scores": scores, "sync": sync, "vwap": vwap, "volume": volume})
+                         "scores": scores, "sync": sync, "vwap": vwap, "volume": volume,
+                         "delta": delta})
 
 
 @app.get("/grafico/{par}/{tf}", response_class=HTMLResponse)

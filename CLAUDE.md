@@ -792,6 +792,11 @@ Env `VSA_HABILITADA`/`VSA_SCORE_MIN`/`VSA_JANELA`. Testes: `test_indicadores` (s
 climax/delta) + `test_estrategias` (entra no spring, autossuficiência, delta a favor soma / contra veta, sinal
 fraco, sessão, janela curta). **268 testes, todos passando.** ⚠️ Assume que o feed de futuros da Genial marca
 `TICK_FLAG_BUY/SELL` (senão cai na regra do tick, aproximação) — validar com os ticks reais. Sombra decide (Etapa 9).
+- **Delta NO GRÁFICO (20/07):** o `/api/candles` devolve `delta` (histograma ASSINADO por candle) e o
+  `grafico.html` ganhou o botão **"Delta"** (default OFF) — barra p/ CIMA verde = agressão compradora dominou,
+  p/ BAIXO vermelha = vendedora. Compartilha o rodapé com o volume (liga o Delta → o volume some, e vice-versa).
+  **Só aparece na B3** (no forex `delta` é NULL → lista vazia; o botão avisa "só existe na B3"). É a leitura de
+  order-flow do WAPV que o dono pediu ver no gráfico. `test_grafico` cobre `_buscar_candles` com a coluna delta.
 
 ## Pullback a médias + rejeição — gêmeo A/B da entrada (18/07, motivado pela auditoria 3-vias)
 Mesma história da OB, na `pullback_medias_v1`: a auditoria 3-vias (A N=14 · C_CORRE N=13 · C_HIBRIDA N=42,

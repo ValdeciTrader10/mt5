@@ -43,6 +43,7 @@
     <button class="btn" id="full" title="Tela cheia">⛶</button>
     <button class="btn" id="fit" title="Enquadrar tudo">⤢</button>
     <button class="btn" id="scores" title="Painel de scores fuzzy (liga/desliga)">Scores</button>
+    <button class="btn" id="delta" title="Delta de fluxo (agressão compra−venda) — só B3">Delta</button>
     <button class="btn" id="reload" title="Atualizar">↻</button>
     <span class="ohlc" id="ohlc"></span>
   </div>
@@ -87,6 +88,17 @@
       lastValueVisible: false, priceLineVisible: false,
     });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+
+    // --- Delta de fluxo (histograma ASSINADO no rodapé): barra p/ CIMA = agressão compradora,
+    // p/ BAIXO = vendedora (order-flow do WAPV). SÓ B3 (no forex delta é NULL → nada aparece).
+    // Compartilha o rodapé com o volume: quando o Delta liga, o volume some (e vice-versa).
+    var serieDelta = chart.addHistogramSeries({
+      priceScaleId: 'delta', base: 0,
+      lastValueVisible: false, priceLineVisible: false,
+    });
+    chart.priceScale('delta').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+    var mostrarDelta = false;   // OFF por padrão (só útil na B3); botão "Delta" liga.
+    var temDelta = false;       // o par atual tem delta? (forex nunca; B3 sim)
 
     // --- VWAP como CURVA (não linha horizontal) + bandas ±1σ/±2σ, na régua de preço dos candles.
     var serieVwap = chart.addLineSeries({
@@ -212,8 +224,10 @@
           return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close };
         });
         serie.setData(velas);
-        // Volume (histograma) + VWAP evolutiva e bandas.
-        serieVolume.setData(d.volume || []);
+        // Rodapé: volume OU delta (compartilham a faixa). Delta só tem dados na B3.
+        temDelta = (d.delta || []).length > 0;
+        serieDelta.setData(mostrarDelta ? (d.delta || []) : []);
+        serieVolume.setData(mostrarDelta ? [] : (d.volume || []));
         var vw = d.vwap || {};
         serieVwap.setData(vw.vwap || []);
         serieVwapSup1.setData(vw.sup1 || []);
@@ -269,6 +283,15 @@
       this.classList.toggle('off', !mostrarScores);
       carregar(true);
     });
+    document.getElementById('delta').addEventListener('click', function () {
+      mostrarDelta = !mostrarDelta;
+      this.classList.toggle('off', !mostrarDelta);
+      if (mostrarDelta && !temDelta) {
+        document.getElementById('sync').querySelector('.msg').textContent =
+          'Delta só existe na B3 (futuros) — no forex não há agressão separada (só tick_volume).';
+      }
+      carregar(true);
+    });
     document.getElementById('fit').addEventListener('click', function () { chart.timeScale().fitContent(); });
     document.getElementById('full').addEventListener('click', function () {
       var w = document.getElementById('wrap');
@@ -277,6 +300,7 @@
     });
 
     document.getElementById('scores').classList.toggle('off', !mostrarScores);   // reflete estado inicial (OFF)
+    document.getElementById('delta').classList.toggle('off', !mostrarDelta);
     carregar(false);
     setInterval(function () { carregar(true); }, 5000);    // atualiza sozinho a cada 5s (mantém o zoom)
   </script>
