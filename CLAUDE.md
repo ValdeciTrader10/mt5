@@ -806,6 +806,14 @@ fraco, sessão, janela curta). **268 testes, todos passando.** ⚠️ Assume que
   (grava/pula/TF fora de operação). **269 testes, todos passando.** ⚠️ 1ª validação REAL do delta: conferir no
   gráfico da B3 (WIN$N) após o redeploy que as barras aparecem nas velas de sexta — se continuarem vazias, o feed
   da Genial pode não estar devolvendo TRADE ticks (`copy_ticks_range`/`COPY_TICKS_TRADE`) e aí é ajuste na ponte.
+- **Pseudo-delta no FOREX (20/07, "coloque no forex"):** o forex é OTC (sem tape/agressor) → NÃO tem delta real; eu
+  havia desaconselhado, mas o dono pediu uma leitura visual. `indicadores.delta_aprox_candle` (PURA/testada) estima
+  a pressão de UM candle pela Close Location Value: `(2·(close−low)/(high−low) − 1) × tick_volume` → +vol se fechou
+  na máxima, −vol na mínima, ~0 no meio. O `/api/candles` usa o delta REAL quando existe (B3) e cai nesse APROXIMADO
+  quando não (forex), marcando `delta_aprox=true`; o `grafico.html` pinta as barras aproximadas em tom mais FRACO e
+  o rodapé avisa "Delta APROXIMADO — estimativa do candle, NÃO é fluxo real". ⚠️ É SÓ visual: a estratégia `vsa_delta_v1`
+  no forex continua com `delta=None` (não usa o pseudo-delta como sinal — não perseguir ilusão, skill §5). Teste em
+  `test_indicadores` (fecho na máx/mín/meio + guardas). **270 testes, todos passando.**
 
 ## Pullback a médias + rejeição — gêmeo A/B da entrada (18/07, motivado pela auditoria 3-vias)
 Mesma história da OB, na `pullback_medias_v1`: a auditoria 3-vias (A N=14 · C_CORRE N=13 · C_HIBRIDA N=42,

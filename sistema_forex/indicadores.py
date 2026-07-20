@@ -546,3 +546,22 @@ def delta_de_ticks(ticks):
         ult_lado = lado
         delta += lado * vol
     return delta
+
+
+def delta_aprox_candle(high, low, close, tick_volume):
+    """Pseudo-delta APROXIMADO de UM candle, para o forex (que NÃO tem fluxo real — mercado OTC,
+    sem tape/agressor). Distribui o `tick_volume` entre compra e venda pela POSIÇÃO do fechamento
+    no range (Close Location Value): fechou na máxima → todo o volume "comprador" (+vol); na mínima
+    → "vendedor" (−vol); no meio → ~0. PURA/testável.
+
+    ⚠️ É só uma ESTIMATIVA visual (direção do candle × esforço), NÃO order-flow verdadeiro — o
+    tick_volume conta mudanças de preço, não lotes, e não há agressor no forex. Serve para o gráfico
+    dar uma leitura de pressão; NUNCA alimenta decisão de estratégia (a VSA no forex ignora delta).
+    Retorna float assinado, ou None se não dá para medir (sem range/volume)."""
+    if tick_volume is None or tick_volume <= 0:
+        return None
+    rng = high - low
+    if rng <= 0:
+        return None
+    clv = 2.0 * (close - low) / rng - 1.0   # −1 (fechou na mínima) .. +1 (na máxima)
+    return round(clv * tick_volume, 1)

@@ -43,7 +43,7 @@
     <button class="btn" id="full" title="Tela cheia">⛶</button>
     <button class="btn" id="fit" title="Enquadrar tudo">⤢</button>
     <button class="btn" id="scores" title="Painel de scores fuzzy (liga/desliga)">Scores</button>
-    <button class="btn" id="delta" title="Delta de fluxo (agressão compra−venda) — só B3">Delta</button>
+    <button class="btn" id="delta" title="Delta: fluxo real (B3) ou aproximado do candle (forex)">Delta</button>
     <button class="btn" id="reload" title="Atualizar">↻</button>
     <span class="ohlc" id="ohlc"></span>
   </div>
@@ -97,8 +97,9 @@
       lastValueVisible: false, priceLineVisible: false,
     });
     chart.priceScale('delta').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-    var mostrarDelta = false;   // OFF por padrão (só útil na B3); botão "Delta" liga.
-    var temDelta = false;       // o par atual tem delta? (forex nunca; B3 sim)
+    var mostrarDelta = false;   // OFF por padrão; botão "Delta" liga.
+    var temDelta = false;       // o par atual tem alguma barra de delta?
+    var deltaAprox = false;     // B3 = delta REAL; forex = pseudo-delta APROXIMADO (rotulado)
 
     // --- VWAP como CURVA (não linha horizontal) + bandas ±1σ/±2σ, na régua de preço dos candles.
     var serieVwap = chart.addLineSeries({
@@ -224,8 +225,9 @@
           return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close };
         });
         serie.setData(velas);
-        // Rodapé: volume OU delta (compartilham a faixa). Delta só tem dados na B3.
+        // Rodapé: volume OU delta (compartilham a faixa). B3 = delta real; forex = aproximado.
         temDelta = (d.delta || []).length > 0;
+        deltaAprox = !!d.delta_aprox;
         serieDelta.setData(mostrarDelta ? (d.delta || []) : []);
         serieVolume.setData(mostrarDelta ? [] : (d.volume || []));
         var vw = d.vwap || {};
@@ -255,6 +257,12 @@
         });
         aplicarEscalaScores();
         pintarSync(d.sync);
+        // Com o Delta ligado, o rodapé explica o que ele é (real na B3, aproximado no forex).
+        if (mostrarDelta) {
+          document.getElementById('sync').querySelector('.msg').textContent = deltaAprox
+            ? 'Delta APROXIMADO — estimativa do candle (fecho × tick_volume), NÃO é fluxo real (forex é OTC, sem tape)'
+            : 'Delta REAL (B3) — agressão compra−venda: barra verde comprou, vermelha vendeu';
+        }
         var ult = (d.candles || [])[(d.candles || []).length - 1];
         // Precisão do eixo de preço = casas decimais do instrumento (5 forex, 3 JPY, 2 ouro).
         var p = casas(ult ? ult.close : null);
@@ -286,10 +294,6 @@
     document.getElementById('delta').addEventListener('click', function () {
       mostrarDelta = !mostrarDelta;
       this.classList.toggle('off', !mostrarDelta);
-      if (mostrarDelta && !temDelta) {
-        document.getElementById('sync').querySelector('.msg').textContent =
-          'Delta só existe na B3 (futuros) — no forex não há agressão separada (só tick_volume).';
-      }
       carregar(true);
     });
     document.getElementById('fit').addEventListener('click', function () { chart.timeScale().fitContent(); });

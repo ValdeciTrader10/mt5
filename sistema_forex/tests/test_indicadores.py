@@ -251,6 +251,17 @@ def test_delta_de_ticks_por_flag_e_pela_regra_do_tick():
     assert ind.delta_de_ticks([]) is None
 
 
+def test_delta_aprox_candle_pela_posicao_do_fechamento():
+    # Fechou na MÁXIMA → todo o volume "comprador" (+vol); na MÍNIMA → "vendedor" (−vol); meio → ~0.
+    assert ind.delta_aprox_candle(10.0, 8.0, 10.0, 100) == 100.0     # close=high
+    assert ind.delta_aprox_candle(10.0, 8.0, 8.0, 100) == -100.0     # close=low
+    assert ind.delta_aprox_candle(10.0, 8.0, 9.0, 100) == 0.0        # meio do range
+    # Guardas: sem range ou sem volume → None (não inventa pressão).
+    assert ind.delta_aprox_candle(9.0, 9.0, 9.0, 100) is None        # high==low
+    assert ind.delta_aprox_candle(10.0, 8.0, 9.5, 0) is None         # volume 0
+    assert ind.delta_aprox_candle(10.0, 8.0, 9.5, None) is None
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

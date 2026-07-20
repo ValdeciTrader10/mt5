@@ -1046,15 +1046,25 @@ def api_candles(request: Request, par: str, tf: str, n: int = 500):
             # Verde translúcido em candle de alta, vermelho em baixa (leitura de esforço Wyckoff).
             cor_vol = "rgba(63,185,80,0.5)" if r["close"] >= r["open"] else "rgba(248,81,73,0.5)"
             volume.append({"time": r["time_utc"], "value": vol, "color": cor_vol})
-    # DELTA de fluxo (agressão compra−venda) por candle: histograma ASSINADO (barra p/ cima quando
-    # comprador dominou, p/ baixo quando vendedor). SÓ na B3 (futuros) — no forex `delta` é NULL,
-    # então a lista sai vazia e o painel não aparece. É a leitura de order-flow do WAPV/Wyckoff.
+    # DELTA por candle: histograma ASSINADO (barra p/ cima = comprador dominou, p/ baixo = vendedor).
+    #   • B3 (futuros): DELTA REAL de fluxo (agressão compra−venda), lido de `candles.delta`.
+    #   • forex (OTC, sem tape/agressor): PSEUDO-delta APROXIMADO derivado do candle (posição do
+    #     fechamento × tick_volume) — só leitura visual de pressão, NÃO order-flow (a VSA ignora).
+    # `delta_aprox` avisa o gráfico p/ rotular como aproximado. Cores mais fracas no aproximado.
     delta = []
+    tem_delta_real = any((r["delta"] if "delta" in r.keys() else None) is not None for r in rows)
+    delta_aprox = not tem_delta_real
     for r in rows:
-        dv = r["delta"] if "delta" in r.keys() else None
+        if tem_delta_real:
+            dv = r["delta"] if "delta" in r.keys() else None
+        else:
+            dv = indicadores.delta_aprox_candle(r["high"], r["low"], r["close"], r["tick_volume"])
         if dv is None:
             continue
-        cor_d = "rgba(63,185,80,0.7)" if dv >= 0 else "rgba(248,81,73,0.7)"
+        if tem_delta_real:
+            cor_d = "rgba(63,185,80,0.7)" if dv >= 0 else "rgba(248,81,73,0.7)"
+        else:   # aproximado: tom mais apagado p/ o olho não confundir com fluxo real
+            cor_d = "rgba(63,185,80,0.4)" if dv >= 0 else "rgba(248,81,73,0.4)"
         delta.append({"time": r["time_utc"], "value": dv, "color": cor_d})
     # VWAP como CURVA que se desenvolve na sessão (reset na âncora — meia-noite no forex, abertura
     # do pregão na B3) + bandas ±1σ/±2σ, no lugar de uma única linha horizontal (item do manual fuzzy).
@@ -1080,7 +1090,7 @@ def api_candles(request: Request, par: str, tf: str, n: int = 500):
           for nv in niveis if nv["tipo"] in LINHAS]
     return JSONResponse({"par": par, "tf": tf, "candles": candles, "niveis": sr,
                          "scores": scores, "sync": sync, "vwap": vwap, "volume": volume,
-                         "delta": delta})
+                         "delta": delta, "delta_aprox": delta_aprox})
 
 
 @app.get("/grafico/{par}/{tf}", response_class=HTMLResponse)
