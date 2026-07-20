@@ -136,6 +136,35 @@ def _atualizar_deltas(conn, par: str, simbolo: str, tf: str, fechados: list) -> 
                          (d, par, tf, c["time"]))
 
 
+def backfill_deltas(conn, simbolos: dict) -> None:
+    """Preenche o DELTA dos candles RECENTES que ainda não o têm — UMA VEZ, no arranque. Dá dado
+    imediato ao gráfico/estratégia (não espera o pregão) e valida o pipeline tick→delta contra o
+    feed real. Bounded por `DELTA_BACKFILL_CANDLES` (os candles mais novos primeiro). Candles sem
+    ticks (fim de semana/pré-abertura) ficam NULL — legítimo, não têm agressão a medir."""
+    limite = config_b3.DELTA_BACKFILL_CANDLES
+    if limite <= 0:
+        return
+    for par, simbolo in simbolos.items():
+        for tf in config_b3.TFS_OPERACAO_B3:
+            faltantes = conn.execute(
+                "SELECT time_utc FROM candles WHERE par=? AND tf=? AND delta IS NULL "
+                "ORDER BY time_utc DESC LIMIT ?",
+                (par, tf, limite),
+            ).fetchall()
+            preenchidos = 0
+            for r in faltantes:
+                d = _delta_do_candle(simbolo, tf, {"time": r["time_utc"]})
+                if d is not None:
+                    conn.execute("UPDATE candles SET delta=? WHERE par=? AND tf=? AND time_utc=?",
+                                 (d, par, tf, r["time_utc"]))
+                    preenchidos += 1
+                if _parar:
+                    break
+            conn.commit()
+            log.info("Backfill delta B3 %s %s: %d de %d candles preenchidos",
+                     par, tf, preenchidos, len(faltantes))
+
+
 def coletar_incremental(conn, par: str, simbolo: str) -> int:
     """Insere candles novos de todos os TFs para um símbolo. Retorna total de novos.
 
@@ -239,6 +268,7 @@ def main() -> None:
         log.error("Nenhum símbolo B3 resolvido — confira PARES_B3/ALIASES e a Market Watch da Genial.")
     with db.sessao() as conn:
         backfill(conn, simbolos)
+        backfill_deltas(conn, simbolos)   # preenche o delta dos candles recentes (1×, valida o pipeline)
         loop(conn, simbolos)
     mt5_bridge_b3.desligar()
 

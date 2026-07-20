@@ -797,6 +797,15 @@ fraco, sessão, janela curta). **268 testes, todos passando.** ⚠️ Assume que
   p/ BAIXO vermelha = vendedora. Compartilha o rodapé com o volume (liga o Delta → o volume some, e vice-versa).
   **Só aparece na B3** (no forex `delta` é NULL → lista vazia; o botão avisa "só existe na B3"). É a leitura de
   order-flow do WAPV que o dono pediu ver no gráfico. `test_grafico` cobre `_buscar_candles` com a coluna delta.
+- **Backfill do delta (20/07, "não tem nada de delta quando eu ativo"):** o delta era SÓ incremental → todo
+  candle PRÉ-deploy tinha `delta=NULL` e, fora do pregão, nada novo entrava → gráfico vazio. Fix:
+  `coletor_b3.backfill_deltas` preenche, UMA VEZ no arranque, o delta dos `DELTA_BACKFILL_CANDLES` (300) candles
+  mais recentes SEM delta por TF de operação (os ticks históricos ficam no MT5) — dá dado imediato ao gráfico e
+  VALIDA o pipeline tick→delta contra o feed real da Genial, sem esperar o pregão. Pula os que já têm delta (não
+  re-busca ticks); candles sem ticks (fim de semana/pré-abertura) ficam NULL (legítimo). Teste em `test_b3`
+  (grava/pula/TF fora de operação). **269 testes, todos passando.** ⚠️ 1ª validação REAL do delta: conferir no
+  gráfico da B3 (WIN$N) após o redeploy que as barras aparecem nas velas de sexta — se continuarem vazias, o feed
+  da Genial pode não estar devolvendo TRADE ticks (`copy_ticks_range`/`COPY_TICKS_TRADE`) e aí é ajuste na ponte.
 
 ## Pullback a médias + rejeição — gêmeo A/B da entrada (18/07, motivado pela auditoria 3-vias)
 Mesma história da OB, na `pullback_medias_v1`: a auditoria 3-vias (A N=14 · C_CORRE N=13 · C_HIBRIDA N=42,

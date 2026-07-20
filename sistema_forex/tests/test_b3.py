@@ -545,6 +545,48 @@ def test_encerrar_pregao_fecha_forcado_1730():
         os.remove(caminho)
 
 
+def test_delta_backfill_e_incremental_gravam_e_pulam_os_ja_feitos():
+    """O delta é computado dos trade ticks e gravado por candle; candles já com delta não
+    re-buscam ticks; TF fora de operação não computa. Stubbamos a busca de ticks p/ isolar a
+    lógica de banco (o pipeline de ticks reais é validado no VPS contra o feed da Genial)."""
+    caminho = _tmp_db()
+    conn = db.conectar(caminho)
+    orig_ticks = mt5_bridge_b3.copy_ticks_range
+    chamadas = []
+    try:
+        # 3 candles M5 (sem delta) + 1 candle H1 (TF fora de operação → não computa delta).
+        gravar_candles(conn, "WIN$N", "M5", [
+            {"time": t, "open": 1, "high": 2, "low": 0.5, "close": 1.5,
+             "tick_volume": 10, "real_volume": 100, "spread": 5} for t in (300, 600, 900)])
+        gravar_candles(conn, "WIN$N", "H1", [
+            {"time": 300, "open": 1, "high": 2, "low": 0.5, "close": 1.5,
+             "tick_volume": 10, "real_volume": 100, "spread": 5}])
+        conn.commit()
+
+        def fake_ticks(simbolo, inicio, fim):
+            chamadas.append((simbolo, inicio, fim))
+            # 2 ticks: uma agressão compradora (+3) e uma vendedora (−1) → delta +2
+            return [{"volume": 3, "flag": "buy", "last": 100.0},
+                    {"volume": 1, "flag": "sell", "last": 100.0}]
+        mt5_bridge_b3.copy_ticks_range = fake_ticks
+
+        coletor_b3.backfill_deltas(conn, {"WIN$N": "WIN$N"})
+        m5 = {r["time_utc"]: r["delta"] for r in conn.execute(
+            "SELECT time_utc, delta FROM candles WHERE par='WIN$N' AND tf='M5'").fetchall()}
+        assert all(abs(v - 2.0) < 1e-9 for v in m5.values()), m5      # todos os M5 com delta +2
+        h1 = conn.execute("SELECT delta FROM candles WHERE par='WIN$N' AND tf='H1'").fetchone()
+        assert h1["delta"] is None, dict(h1)                           # H1 (fora de operação) intocado
+
+        n1 = len(chamadas)
+        # 2ª passada: os M5 já têm delta → NÃO re-busca ticks (evita custo).
+        coletor_b3.backfill_deltas(conn, {"WIN$N": "WIN$N"})
+        assert len(chamadas) == n1, (n1, len(chamadas))
+        conn.close()
+    finally:
+        mt5_bridge_b3.copy_ticks_range = orig_ticks
+        os.remove(caminho)
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

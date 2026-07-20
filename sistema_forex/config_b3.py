@@ -125,6 +125,11 @@ B3_SOMBRA_HABILITADA = os.environ.get(
 TFS_OPERACAO_B3 = [s.strip() for s in os.environ.get(
     "TFS_OPERACAO_B3", "M1,M5,M15").split(",") if s.strip()]
 
+# DELTA de fluxo — quantos candles recentes (por TF de operação) preencher UMA VEZ no arranque do
+# coletor (os ticks históricos ficam disponíveis no MT5). Dá dado imediato ao gráfico/estratégia e
+# valida o pipeline tick→delta contra o feed real, sem esperar o pregão. 0 desliga o backfill.
+DELTA_BACKFILL_CANDLES = int(os.environ.get("DELTA_BACKFILL_CANDLES", "300"))
+
 # Janela de negociação da B3 — HORA DO SERVIDOR da Genial (o filtro usa a hora do candle). A B3
 # só forma candles durante o pregão, então o default é PERMISSIVO (00–24 = sem corte de sessão):
 # deixamos o próprio pregão ser o filtro e evitamos descartar tudo por um descasamento de fuso do
