@@ -552,6 +552,10 @@ def test_delta_backfill_e_incremental_gravam_e_pulam_os_ja_feitos():
     caminho = _tmp_db()
     conn = db.conectar(caminho)
     orig_ticks = mt5_bridge_b3.copy_ticks_range
+    orig_lim = config_b3.DELTA_BACKFILL_CANDLES
+    orig_pausa = config_b3.DELTA_BACKFILL_PAUSA_S
+    config_b3.DELTA_BACKFILL_CANDLES = 300   # o backfill é OFF por padrão; ligado só p/ o teste
+    config_b3.DELTA_BACKFILL_PAUSA_S = 0.0   # sem throttle no teste
     chamadas = []
     try:
         # 3 candles M5 (sem delta) + 1 candle H1 (TF fora de operação → não computa delta).
@@ -581,6 +585,42 @@ def test_delta_backfill_e_incremental_gravam_e_pulam_os_ja_feitos():
         # 2ª passada: os M5 já têm delta → NÃO re-busca ticks (evita custo).
         coletor_b3.backfill_deltas(conn, {"WIN$N": "WIN$N"})
         assert len(chamadas) == n1, (n1, len(chamadas))
+        conn.close()
+    finally:
+        mt5_bridge_b3.copy_ticks_range = orig_ticks
+        config_b3.DELTA_BACKFILL_CANDLES = orig_lim
+        config_b3.DELTA_BACKFILL_PAUSA_S = orig_pausa
+        os.remove(caminho)
+
+
+def test_delta_incremental_so_o_ultimo_candle_e_nao_retenta_null():
+    """`_atualizar_deltas` computa SÓ o candle recém-fechado mais recente (1 busca/TF) e NÃO
+    re-tenta candles antigos sem delta (evita o loop quente que sobrecarregava o MT5)."""
+    caminho = _tmp_db()
+    conn = db.conectar(caminho)
+    orig_ticks = mt5_bridge_b3.copy_ticks_range
+    chamadas = []
+    try:
+        fechados = [{"time": t, "open": 1, "high": 2, "low": 0.5, "close": 1.5,
+                     "tick_volume": 10, "real_volume": 100, "spread": 5} for t in (300, 600, 900)]
+        gravar_candles(conn, "WIN$N", "M5", fechados)
+        conn.commit()
+
+        def fake_ticks(simbolo, inicio, fim):
+            chamadas.append((inicio, fim))
+            return [{"volume": 5, "flag": "buy", "last": 100.0}]   # delta +5
+        mt5_bridge_b3.copy_ticks_range = fake_ticks
+
+        coletor_b3._atualizar_deltas(conn, "WIN$N", "WIN$N", "M5", fechados)
+        conn.commit()
+        assert len(chamadas) == 1, chamadas             # SÓ o último candle (900), 1 busca
+        m5 = {r["time_utc"]: r["delta"] for r in conn.execute(
+            "SELECT time_utc, delta FROM candles WHERE par='WIN$N' AND tf='M5'").fetchall()}
+        assert m5[900] == 5.0 and m5[300] is None and m5[600] is None, m5   # antigos NÃO retentados
+
+        # 2ª chamada com o MESMO último candle (já tem delta) → não busca ticks de novo.
+        coletor_b3._atualizar_deltas(conn, "WIN$N", "WIN$N", "M5", fechados)
+        assert len(chamadas) == 1, chamadas
         conn.close()
     finally:
         mt5_bridge_b3.copy_ticks_range = orig_ticks

@@ -114,26 +114,21 @@ def _delta_do_candle(simbolo: str, tf: str, candle: dict):
 
 
 def _atualizar_deltas(conn, par: str, simbolo: str, tf: str, fechados: list) -> None:
-    """Calcula e grava o DELTA dos candles recém-fechados que ainda não o têm (evita re-buscar
-    ticks). Só nos TFs de OPERAÇÃO da B3 (onde a VSA/Delta roda) — bound de custo dos ticks."""
+    """Calcula o DELTA APENAS do candle recém-fechado MAIS RECENTE — 1 busca de ticks por TF a cada
+    candle novo. Só nos TFs de OPERAÇÃO (onde a VSA roda). Deliberadamente NÃO varre a janela toda:
+    se um candle antigo voltou sem ticks (delta NULL), NÃO se re-tenta a cada ciclo (evita o loop
+    quente que martelava o terminal MT5 quando o feed não devolve trade ticks)."""
     if not fechados or tf not in config_b3.TFS_OPERACAO_B3:
         return
-    tempos = [c["time"] for c in fechados]
-    ph = ",".join("?" * len(tempos))
-    com_delta = {
-        r[0] for r in conn.execute(
-            f"SELECT time_utc FROM candles WHERE par=? AND tf=? AND time_utc IN ({ph}) "
-            "AND delta IS NOT NULL",
-            (par, tf, *tempos),
-        ).fetchall()
-    }
-    for c in fechados:
-        if c["time"] in com_delta:
-            continue
-        d = _delta_do_candle(simbolo, tf, c)
-        if d is not None:
-            conn.execute("UPDATE candles SET delta=? WHERE par=? AND tf=? AND time_utc=?",
-                         (d, par, tf, c["time"]))
+    c = fechados[-1]                                   # só o último fechado (o novo deste ciclo)
+    ja = conn.execute("SELECT delta FROM candles WHERE par=? AND tf=? AND time_utc=?",
+                      (par, tf, c["time"])).fetchone()
+    if ja is not None and ja["delta"] is not None:
+        return                                         # já tem delta → não re-busca ticks
+    d = _delta_do_candle(simbolo, tf, c)
+    if d is not None:
+        conn.execute("UPDATE candles SET delta=? WHERE par=? AND tf=? AND time_utc=?",
+                     (d, par, tf, c["time"]))
 
 
 def backfill_deltas(conn, simbolos: dict) -> None:
@@ -142,8 +137,9 @@ def backfill_deltas(conn, simbolos: dict) -> None:
     feed real. Bounded por `DELTA_BACKFILL_CANDLES` (os candles mais novos primeiro). Candles sem
     ticks (fim de semana/pré-abertura) ficam NULL — legítimo, não têm agressão a medir."""
     limite = config_b3.DELTA_BACKFILL_CANDLES
-    if limite <= 0:
-        return
+    if limite <= 0:                       # DESLIGADO por padrão (evita a rajada de ticks no arranque
+        return                            # que sobrecarregava o terminal MT5). Ligar com moderação.
+    pausa = config_b3.DELTA_BACKFILL_PAUSA_S
     for par, simbolo in simbolos.items():
         for tf in config_b3.TFS_OPERACAO_B3:
             faltantes = conn.execute(
@@ -153,13 +149,15 @@ def backfill_deltas(conn, simbolos: dict) -> None:
             ).fetchall()
             preenchidos = 0
             for r in faltantes:
+                if _parar:
+                    break
                 d = _delta_do_candle(simbolo, tf, {"time": r["time_utc"]})
                 if d is not None:
                     conn.execute("UPDATE candles SET delta=? WHERE par=? AND tf=? AND time_utc=?",
                                  (d, par, tf, r["time_utc"]))
                     preenchidos += 1
-                if _parar:
-                    break
+                if pausa > 0:              # respira entre chamadas p/ NÃO saturar o MT5/Wine
+                    time.sleep(pausa)
             conn.commit()
             log.info("Backfill delta B3 %s %s: %d de %d candles preenchidos",
                      par, tf, preenchidos, len(faltantes))

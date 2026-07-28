@@ -814,6 +814,14 @@ fraco, sessão, janela curta). **268 testes, todos passando.** ⚠️ Assume que
   o rodapé avisa "Delta APROXIMADO — estimativa do candle, NÃO é fluxo real". ⚠️ É SÓ visual: a estratégia `vsa_delta_v1`
   no forex continua com `delta=None` (não usa o pseudo-delta como sinal — não perseguir ilusão, skill §5). Teste em
   `test_indicadores` (fecho na máx/mín/meio + guardas). **270 testes, todos passando.**
+- **⚠️ CPU 100% na VPS (20/07) — o backfill do delta martelava o MT5:** o `docker stats` do dono mostrou os
+  TERMINAIS MT5/Wine no topo (**mt5_b3 209% · mt5 36%**), Python todo ~0%. Causa: `backfill_deltas` disparava
+  ~1.800 `copy_ticks_range` em rajada no arranque (300 candles × 3 TFs × 2 símbolos) + o incremental
+  RE-TENTAVA candles NULL a cada ciclo (loop quente se o feed não devolve trade ticks). Fixes: (1)
+  `DELTA_BACKFILL_CANDLES` **default → 0 (OFF)** — o backfill só liga sob demanda, com `DELTA_BACKFILL_PAUSA_S`
+  (0,2s) respirando entre chamadas; (2) `_atualizar_deltas` agora computa **só o último candle fechado** (1
+  busca/TF por candle novo) e **não re-tenta NULLs** → o delta do dia a dia entra leve pelo incremental. O
+  pseudo-delta do forex é render-time (ZERO carga no MT5). Testes em `test_b3` (só-último + não-retenta).
 
 ## Pullback a médias + rejeição — gêmeo A/B da entrada (18/07, motivado pela auditoria 3-vias)
 Mesma história da OB, na `pullback_medias_v1`: a auditoria 3-vias (A N=14 · C_CORRE N=13 · C_HIBRIDA N=42,

@@ -126,9 +126,12 @@ TFS_OPERACAO_B3 = [s.strip() for s in os.environ.get(
     "TFS_OPERACAO_B3", "M1,M5,M15").split(",") if s.strip()]
 
 # DELTA de fluxo — quantos candles recentes (por TF de operação) preencher UMA VEZ no arranque do
-# coletor (os ticks históricos ficam disponíveis no MT5). Dá dado imediato ao gráfico/estratégia e
-# valida o pipeline tick→delta contra o feed real, sem esperar o pregão. 0 desliga o backfill.
-DELTA_BACKFILL_CANDLES = int(os.environ.get("DELTA_BACKFILL_CANDLES", "300"))
+# coletor. ⚠️ DESLIGADO por padrão (0): a rajada de `copy_ticks_range` sobrecarregava o terminal
+# MT5/Wine (CPU a 200%+). Ligar com MODERAÇÃO (ex.: 60) só p/ semear o gráfico — o delta do dia a
+# dia já entra pelo incremental (1 busca por candle novo). `DELTA_BACKFILL_PAUSA_S` respira entre
+# as chamadas p/ não saturar o MT5 quando o backfill estiver ligado.
+DELTA_BACKFILL_CANDLES = int(os.environ.get("DELTA_BACKFILL_CANDLES", "0"))
+DELTA_BACKFILL_PAUSA_S = float(os.environ.get("DELTA_BACKFILL_PAUSA_S", "0.2"))
 
 # Janela de negociação da B3 — HORA DO SERVIDOR da Genial (o filtro usa a hora do candle). A B3
 # só forma candles durante o pregão, então o default é PERMISSIVO (00–24 = sem corte de sessão):
