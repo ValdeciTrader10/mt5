@@ -304,6 +304,7 @@ NIVEL_PROX_ATR = float(os.environ.get("NIVEL_PROX_ATR", "0.5"))
 # — ex. "sweep_choch_v1" — permanece estável no banco para não perder o histórico.
 NOMES_ESTRATEGIAS = {
     "confluencia_v1": "Confluência (tendência / S-R)",
+    "confluencia_conf_v1": "Confluência + confirmação",
     "sweep_choch_v1": "Caça-stops + reversão",
     "order_block_v1": "Order block (reteste)",
     "order_block_rej_v1": "Order block + rejeição",
@@ -329,6 +330,11 @@ def nome_estrategia(codigo):
 # engessar. Ligue EXIGIR_REJEICAO_SR para torná-la gate no fade lateral (modo estrito).
 REJEICAO_PAVIO_MIN = float(os.environ.get("REJEICAO_PAVIO_MIN", "0.5"))
 EXIGIR_REJEICAO_SR = os.environ.get("EXIGIR_REJEICAO_SR", "false").lower() in ("1", "true", "sim")
+# Gêmeo A/B da confluência que EXIGE confirmação de fechamento a favor (a vela de entrada fecha do
+# lado certo antes de entrar). Livro de sombra `confluencia_conf_v1`, comparável ao controle
+# `confluencia_v1` — testa se esperar a vela confirmar corta o padrão `entrada_adiantada` (maior
+# classe de perda na auditoria: preço vai contra de imediato). SÓ SOMBRA; o controle fica intocado.
+CONF_CONFIRMA_HABILITADA = os.environ.get("CONF_CONFIRMA_HABILITADA", "true").lower() in ("1", "true", "sim")
 
 # --- 2ª estratégia: liquidity sweep + CHoCH no M5 (doc/skill §4) ---
 # Roda em paralelo à confluencia_v1 (cada uma grava sua decisão; o executor deduplica no

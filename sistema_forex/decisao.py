@@ -395,6 +395,21 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             exigir_rejeicao=config.EXIGIR_REJEICAO_SR,
         ),
     ]
+    # Gêmeo A/B da confluência (item "calibrar entrada" da auditoria): MESMA detecção, mas só entra
+    # se a vela de entrada CONFIRMAR pelo fechamento. Livro de sombra `confluencia_conf_v1`
+    # comparável ao controle `confluencia_v1` — a sombra dirá se esperar a confirmação corta o
+    # padrão `entrada_adiantada` (a maior classe de perda). O controle fica intocado.
+    if config.CONF_CONFIRMA_HABILITADA:
+        decs.append(estrategias.avaliar_confluencia_conf(
+            snap,
+            sessao_utc=sessao_utc,
+            spread_max_pips=spread_max,
+            score_min=config.SCORE_MIN_CONFLUENCIAS,
+            nivel_prox_atr=config.NIVEL_PROX_ATR,
+            forca_min=config.SR_FORCA_MIN,
+            pavio_min=config.REJEICAO_PAVIO_MIN,
+            exigir_rejeicao=config.EXIGIR_REJEICAO_SR,
+        ))
     if config.SWEEP_HABILITADA:
         decs.append(estrategias.avaliar_sweep_choch(
             snap,

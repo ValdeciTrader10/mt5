@@ -87,6 +87,40 @@ def test_lateral_modo_estrito_exige_rejeicao():
 
 
 # --------------------------------------------------------------------------- #
+# Gêmeo de CONFIRMAÇÃO de fechamento (confluencia_conf_v1) — item "calibrar entrada"
+# --------------------------------------------------------------------------- #
+def test_candle_confirma_compra_e_venda():
+    # compra: corpo a favor (c>o) e fecho na metade de cima do range.
+    assert e.candle_confirma(dict(open=1.10, high=1.1012, low=1.0998, close=1.1010), "compra")
+    assert not e.candle_confirma(dict(open=1.10, high=1.1012, low=1.0998, close=1.10), "compra")   # corpo nulo
+    assert not e.candle_confirma(dict(open=1.10, high=1.1012, low=1.0988, close=1.0990), "compra")  # fecha embaixo
+    # venda: espelho.
+    assert e.candle_confirma(dict(open=1.10, high=1.1002, low=1.0988, close=1.0990), "venda")
+    assert not e.candle_confirma(dict(open=1.10, high=1.1012, low=1.0998, close=1.1010), "venda")
+
+
+def test_conf_twin_bloqueia_entrada_sem_confirmacao():
+    # MESMO setup que ENTRA no controle, mas a vela não confirma (open==close) → o gêmeo não entra.
+    snap = _snap(suportes=[(1.0999, 5)],
+                 ultimo_evento={"evento": "BOS", "direcao": "alta", "tf": "M5"})
+    controle = e.avaliar(snap, **CFG)
+    twin = e.avaliar_confluencia_conf(snap, **CFG)
+    assert controle["resultado"] == "entrou", controle
+    assert twin["resultado"] == "nao_entrou" and "confirmação" in twin["motivo"], twin
+    assert twin["estrategia"] == e.ESTRATEGIA_CONF and twin["variante"] == e.VARIANTE_A
+
+
+def test_conf_twin_entra_com_confirmacao():
+    # vela que confirma a compra (fecha acima da abertura, na metade de cima) → o gêmeo entra.
+    snap = _snap(open=1.1000, high=1.1012, low=1.0998, close=1.1010,
+                 suportes=[(1.0999, 5)],
+                 ultimo_evento={"evento": "BOS", "direcao": "alta", "tf": "M5"})
+    twin = e.avaliar_confluencia_conf(snap, **CFG)
+    assert twin["resultado"] == "entrou" and twin["direcao"] == "compra", twin
+    assert twin["estrategia"] == e.ESTRATEGIA_CONF
+
+
+# --------------------------------------------------------------------------- #
 # Estratégia 2 — liquidity sweep + CHoCH (M5)
 # --------------------------------------------------------------------------- #
 # Cenário de COMPRA montado à mão (n_swing=3): swing high A@3, swing low B@8 (=1.1000),

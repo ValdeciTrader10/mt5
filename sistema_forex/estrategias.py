@@ -23,6 +23,7 @@ confluências → gates → decisão auditável) já fica pronta e testada.
 from . import fuzzy_score, indicadores
 
 ESTRATEGIA = "confluencia_v1"
+ESTRATEGIA_CONF = "confluencia_conf_v1"   # gêmeo da confluência que EXIGE confirmação de fechamento
 ESTRATEGIA_SWEEP = "sweep_choch_v1"
 ESTRATEGIA_SWEEP_ABS = "sweep_choch_abs_v1"   # gêmea da caça-stops COM filtro de absorção
 ESTRATEGIA_SWEEP_ST = "sweep_choch_st_v1"     # gêmeo da caça-stops com STOP ESTRUTURAL (atrás do sweep)
@@ -104,6 +105,26 @@ def candle_rejeicao(snap: dict, direcao: str, nivel: float, tol: float, pavio_mi
     return tocou and pavio >= pavio_min and fechou_a_favor
 
 
+def candle_confirma(snap: dict, direcao: str) -> bool:
+    """True se a vela de entrada CONFIRMA a direção pelo FECHAMENTO (confirmação de momentum).
+
+    Anti-"faca caindo": não entra numa vela contrária ou indecisa. Exige corpo A FAVOR (fecha
+    além da abertura) e fecho na METADE a favor do range — a mesma ideia de "esperar a vela
+    fechar do lado certo" que falta às entradas por antecipação (o padrão `entrada_adiantada`, a
+    maior classe de perda: o preço vai contra de imediato). Diferente de `candle_rejeicao` (que
+    pede pavio num nível): aqui basta o fechamento confirmar a direção, útil também em tendência
+    (onde o preço se afasta do S/R e não há nível para rejeitar)."""
+    o, h, l, c = snap.get("open"), snap.get("high"), snap.get("low"), snap.get("close")
+    if None in (o, h, l, c):
+        return False
+    rng = h - l
+    if rng <= 0:
+        return False
+    if direcao == "compra":
+        return c > o and c >= l + rng * 0.5
+    return c < o and c <= h - rng * 0.5
+
+
 def _decisao(resultado, direcao, regime, score, confluencias, motivo, estrategia=ESTRATEGIA,
              variante=VARIANTE_A):
     return {
@@ -119,8 +140,12 @@ def _decisao(resultado, direcao, regime, score, confluencias, motivo, estrategia
 
 
 def avaliar(snap: dict, *, sessao_utc, spread_max_pips, score_min, nivel_prox_atr,
-            forca_min, pavio_min=0.5, exigir_rejeicao=False) -> dict:
-    """Avalia o snapshot e devolve a decisão (dict). Ver módulo para o modelo."""
+            forca_min, pavio_min=0.5, exigir_rejeicao=False, confirmar_fechamento=False) -> dict:
+    """Avalia o snapshot e devolve a decisão (dict). Ver módulo para o modelo.
+
+    `confirmar_fechamento=True` (gêmeo `confluencia_conf_v1`): só entra se a vela de entrada
+    confirmar a direção pelo fechamento (`candle_confirma`) — adia o gatilho para depois da vela,
+    testando se isso corta o padrão `entrada_adiantada` sem tocar no controle."""
     regime = snap.get("regime", "indefinido")
     atr = snap.get("atr")
     close = snap["close"]
@@ -197,7 +222,27 @@ def avaliar(snap: dict, *, sessao_utc, spread_max_pips, score_min, nivel_prox_at
         return _decisao("nao_entrou", direcao, regime, score, conf,
                         f"confluências insuficientes ({score} < {score_min})")
 
+    # Confirmação de fechamento (gêmeo confirmado) — último gate: aplica-se só a setups que, de
+    # outro modo, ENTRARIAM. Assim o livro confirmado é exatamente "as entradas do controle menos
+    # as não-confirmadas", diretamente comparável no /relatorio.
+    if confirmar_fechamento and not candle_confirma(snap, direcao):
+        if "rejeicao" not in conf:
+            conf = conf + ["sem_confirmacao"]
+        return _decisao("nao_entrou", direcao, regime, score, conf,
+                        "sem confirmação de fechamento a favor (modo confirmado)")
+
     return _decisao("entrou", direcao, regime, score, conf, "+".join(conf))
+
+
+def avaliar_confluencia_conf(snap: dict, **kwargs) -> dict:
+    """Gêmeo A/B da confluência que EXIGE confirmação de fechamento a favor. MESMA detecção do
+    controle `confluencia_v1`, mas o gatilho só dispara quando a vela de entrada fecha do lado
+    certo (`candle_confirma`) — livro de sombra `confluencia_conf_v1`, comparável ao controle.
+    Mede empiricamente se esperar a confirmação reduz o padrão `entrada_adiantada` (a maior classe
+    de perda da auditoria). O controle fica INTOCADO; este é aditivo (variante A, estratégia própria)."""
+    dec = avaliar(snap, confirmar_fechamento=True, **kwargs)
+    dec["estrategia"] = ESTRATEGIA_CONF
+    return dec
 
 
 # --------------------------------------------------------------------------- #
