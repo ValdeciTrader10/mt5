@@ -42,8 +42,10 @@ segue false). Regra permanente: demo/sombra primeiro, e só o gate da Etapa 9 va
   `EXEC_REAL_ESTRATEGIAS=order_block_st_v1,order_block_v1`, `EXEC_REAL_TFS=M5,M15` (pedido do dono: "coloca na
   demo as estratégias que foram lucrativas"). É o conjunto de maior exp R/PF do estudo, mas **NÃO passou o gate**
   (não supera o acaso; split-half instável) → entra SÓ como **teste de execução** em conta DEMO, não como edge
-  validado. ⚠️ O curado NÃO filtra par: abrirá OB em TODOS os pares, não só USDJPY#/GBPJPY# (onde é positivo).
-  `EXECUCAO_ATIVA` segue **false** (nenhum livro full-real). Reverter = `EXECUCAO_REAL_CURADA=false` no env.
+  validado. **Filtro por PAR (`EXEC_REAL_PARES`, default `USDJPY#,GBPJPY#`)**: o curado agora abre OB só nos
+  pares onde ele teve edge — os que drenam (AUDUSD#/EURUSD#/GBPUSD#/USDCAD) ficam de FORA do livro real
+  (seguem em sombra). Granularidade de par (não célula par×TF) de propósito, p/ não overfitar (skill §5).
+  Vazio = todos os pares. `EXECUCAO_ATIVA` segue **false** (nenhum full-real). Reverter = `EXECUCAO_REAL_CURADA=false`.
 - **Segue SÓ em SOMBRA (não promovido):** o cluster **H4** (`TFS_OPERACAO` inclui H4) e o **F_BREAKOUT** (M15/H1).
   ⚠️ **NÃO promover o F_BREAKOUT ainda:** a exp R positiva veio de UMA metade (split-half 1ª +0,86 → 2ª −0,11) e o
   gate não supera o acaso (140 testadas×0,05 ≈ 7 falsos ≥ 6 aprovadas) → deixar rodar até N e split-half confirmarem.

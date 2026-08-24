@@ -644,13 +644,27 @@ EXECUCAO_REAL_CURADA = os.environ.get("EXECUCAO_REAL_CURADA", "true").lower() in
 EXEC_REAL_ESTRATEGIAS = [s.strip() for s in os.environ.get(
     "EXEC_REAL_ESTRATEGIAS", "order_block_st_v1,order_block_v1").split(",") if s.strip()]
 EXEC_REAL_TFS = [s.strip() for s in os.environ.get("EXEC_REAL_TFS", "M5,M15").split(",") if s.strip()]
+# FILTRO POR PAR do livro curado (24/08): o curado é estratégia×TF em produto e, sem isto, abriria OB
+# em TODOS os pares — inclusive os que DRENAM na sombra (AUDUSD#/EURUSD#…). Restringe aos pares onde o
+# Order Block mostrou edge no estudo (USDJPY# e GBPJPY# — os que passaram/roçaram o gate). VAZIO = todos
+# os pares (comportamento antigo). Granularidade de PAR (não célula par×TF) de propósito: filtrar cada
+# célula exata seria overfit/data-snooping (skill §5); o par corta o grosso do ruído sem afinar demais.
+EXEC_REAL_PARES = [s.strip() for s in os.environ.get("EXEC_REAL_PARES", "USDJPY#,GBPJPY#").split(",") if s.strip()]
 # Teto de posições REAIS simultâneas no demo (protege a margem da conta de validação).
 MAX_POS_REAL = int(os.environ.get("MAX_POS_REAL", "12"))
 
 
-def combo_real(estrategia, tf):
-    """(estratégia, tf) é elegível ao livro REAL curado (demo)?"""
-    return estrategia in EXEC_REAL_ESTRATEGIAS and tf in EXEC_REAL_TFS
+def combo_real(estrategia, tf, par=None):
+    """(estratégia, tf[, par]) é elegível ao livro REAL curado (demo)?
+
+    O filtro de PAR só se aplica quando `par` é informado E `EXEC_REAL_PARES` não está vazio — assim
+    o executor (que passa o par) opera só nos pares com edge, e chamadas sem par (testes/legado) veem
+    apenas o filtro estratégia×TF."""
+    if estrategia not in EXEC_REAL_ESTRATEGIAS or tf not in EXEC_REAL_TFS:
+        return False
+    if EXEC_REAL_PARES and par is not None and par not in EXEC_REAL_PARES:
+        return False
+    return True
 # Intervalo (segundos) do gestor de saída — poll de tick por posição aberta.
 GESTOR_POLL_S = int(os.environ.get("GESTOR_POLL_S", "1"))
 # Saída por reversão: depois de atingir BE_TRIGGER_R, fecha se ceder este tanto de R

@@ -594,7 +594,7 @@ class Executor:
             # (promover B/C/D/E/F exige aprovação da Etapa 9 por variante).
             espelho = variante in ("C_HIBRIDA", "C_CORRE")
             quer_real = (self.ativa and not espelho) or \
-                (self.real_curada and variante == "A_ORIGINAL" and config.combo_real(estrategia, tf))
+                (self.real_curada and variante == "A_ORIGINAL" and config.combo_real(estrategia, tf, par))
             if quer_real and self._pode_abrir_real(par, tf, direcao, estrategia, variante):
                 self._abrir_seguro(conn, par, tf, direcao, estrategia, real=True, d=d)
 

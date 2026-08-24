@@ -307,11 +307,16 @@ def test_combo_real_default_order_block(monkeypatch=None):
     — teste de execução (fill real vs sombra), não promoção validada. confluencia_v1 segue FORA."""
     assert set(config.EXEC_REAL_ESTRATEGIAS) == {"order_block_v1", "order_block_st_v1"}
     assert config.EXECUCAO_REAL_CURADA is True
-    assert config.combo_real("order_block_v1", "M5") is True
+    assert config.combo_real("order_block_v1", "M5") is True      # sem par: só estratégia×TF
     assert config.combo_real("order_block_st_v1", "M15") is True
-    assert config.combo_real("order_block_v1", "H4") is False    # H4 fora dos TFs curados
+    assert config.combo_real("order_block_v1", "H4") is False     # H4 fora dos TFs curados
     assert config.combo_real("order_block_v1", "M1") is False     # M1 nunca (ralo pelo custo)
     assert config.combo_real("confluencia_v1", "M5") is False     # despromovida (auditoria 18/07)
+    # Filtro por PAR (default USDJPY#/GBPJPY#): opera só onde o OB teve edge.
+    assert config.EXEC_REAL_PARES == ["USDJPY#", "GBPJPY#"]
+    assert config.combo_real("order_block_v1", "M5", "USDJPY#") is True
+    assert config.combo_real("order_block_v1", "M5", "EURUSD#") is False   # par que drena → fora
+    assert config.combo_real("order_block_st_v1", "M15", "GBPJPY#") is True
 
 
 def test_tfs_operacao_e_caps_por_tf():
