@@ -302,11 +302,16 @@ def test_confluencia_reforca_zonas_alinhadas():
         os.remove(caminho)
 
 
-def test_combo_real_default_vazio():
-    """DEFAULT curado VAZIO (18/07): confluencia_v1 deu exp R negativa nas 3 variantes na sombra
-    pós-fix → foi despromovida. Nada é elegível ao real por default até passar o gate da Etapa 9."""
-    assert config.EXEC_REAL_ESTRATEGIAS == []
-    assert config.combo_real("confluencia_v1", "M5") is False   # despromovida (auditoria 18/07)
+def test_combo_real_default_order_block(monkeypatch=None):
+    """DEFAULT curado (24/08): Order Block (reteste + stop estrutural) em M5/M15 no livro real DEMO
+    — teste de execução (fill real vs sombra), não promoção validada. confluencia_v1 segue FORA."""
+    assert set(config.EXEC_REAL_ESTRATEGIAS) == {"order_block_v1", "order_block_st_v1"}
+    assert config.EXECUCAO_REAL_CURADA is True
+    assert config.combo_real("order_block_v1", "M5") is True
+    assert config.combo_real("order_block_st_v1", "M15") is True
+    assert config.combo_real("order_block_v1", "H4") is False    # H4 fora dos TFs curados
+    assert config.combo_real("order_block_v1", "M1") is False     # M1 nunca (ralo pelo custo)
+    assert config.combo_real("confluencia_v1", "M5") is False     # despromovida (auditoria 18/07)
 
 
 def test_tfs_operacao_e_caps_por_tf():

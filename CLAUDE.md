@@ -19,9 +19,14 @@ Sistema **rodando de ponta a ponta** em Docker na VPS Hostinger via **Dokploy**
 `336082748` / servidor `XMGlobal-MT5 9`). Painel: `http://187.77.235.95:8090`
 (login `admin` / `PAINEL_SENHA`; aba **📈 Análise** = analítico de trades).
 
-**Modo atual: SIMULAÇÃO sobre preço ao vivo** (`EXECUCAO_ATIVA=false`) — nenhuma ordem
-real é enviada; posições virtuais gerenciadas com ticks reais. Só ligar real após auditar
-a sombra (regra: demo/sombra primeiro).
+**Modo atual: PARALELO CURADO em DEMO** (`EXECUCAO_ATIVA=false` · `EXECUCAO_REAL_CURADA=true` desde
+24/08). A SOMBRA segue catalogando TUDO (virtual) e, em paralelo, um livro REAL na conta DEMO envia
+ordens só das combinações curadas — hoje **Order Block (reteste + stop estrutural) em M5/M15** (`EXEC_
+REAL_ESTRATEGIAS=order_block_st_v1,order_block_v1` · `EXEC_REAL_TFS=M5,M15` · teto `MAX_POS_REAL=12`).
+⚠️ É **teste de EXECUÇÃO** (derrapagem/spread/delay do fill real vs a sombra), NÃO promoção validada
+pelo gate (a família OB teve a maior exp R/PF do estudo mas não supera o acaso). Conta é DEMO (sem
+dinheiro real); reverter = `EXECUCAO_REAL_CURADA=false`. Nenhum livro FULL-real (`EXECUCAO_ATIVA`
+segue false). Regra permanente: demo/sombra primeiro, e só o gate da Etapa 9 valida edge.
 
 **Registro 24/08 (calibração a partir da auditoria das perdedoras):**
 - **Bug de FUSO corrigido no raio-X / simulação CHoCH da auditoria** (`auditoria._desloc_para_candles`): o
@@ -33,11 +38,18 @@ a sombra (regra: demo/sombra primeiro).
   ⚠️ Importante: os FLAGS de falha e a expectância NÃO estavam contaminados — `mae_r`/`mfe_r` são gravados AO
   VIVO pelo gestor (tick a tick), não do candle; o fuso afetava só o raio-X visual e o replay CHoCH.
 - **Gêmeo de sombra `confluencia_conf_v1`** (calibrar entrada — ver changelog da Variante A). Só sombra.
-- **"Deixar rodar" (nada vira real):** `EXECUCAO_ATIVA=false` · `EXECUCAO_REAL_CURADA=false` ·
-  `EXEC_REAL_ESTRATEGIAS=[]` → NENHUMA célula promovida ao real. O cluster **H4** (`TFS_OPERACAO` já inclui H4)
-  e o **F_BREAKOUT** (M15/H1) seguem catalogando em SOMBRA. ⚠️ **NÃO promover o F_BREAKOUT ainda:** a exp R
-  positiva veio de UMA metade (split-half 1ª +0,86 → 2ª −0,11) e o gate não supera o acaso (140 testadas×0,05
-  ≈ 7 falsos ≥ 6 aprovadas) → deixar rodar até N e split-half confirmarem.
+- **Order Block M5/M15 promovido ao livro real curado (DEMO)** — `EXECUCAO_REAL_CURADA` default → **true**,
+  `EXEC_REAL_ESTRATEGIAS=order_block_st_v1,order_block_v1`, `EXEC_REAL_TFS=M5,M15` (pedido do dono: "coloca na
+  demo as estratégias que foram lucrativas"). É o conjunto de maior exp R/PF do estudo, mas **NÃO passou o gate**
+  (não supera o acaso; split-half instável) → entra SÓ como **teste de execução** em conta DEMO, não como edge
+  validado. ⚠️ O curado NÃO filtra par: abrirá OB em TODOS os pares, não só USDJPY#/GBPJPY# (onde é positivo).
+  `EXECUCAO_ATIVA` segue **false** (nenhum livro full-real). Reverter = `EXECUCAO_REAL_CURADA=false` no env.
+- **Segue SÓ em SOMBRA (não promovido):** o cluster **H4** (`TFS_OPERACAO` inclui H4) e o **F_BREAKOUT** (M15/H1).
+  ⚠️ **NÃO promover o F_BREAKOUT ainda:** a exp R positiva veio de UMA metade (split-half 1ª +0,86 → 2ª −0,11) e o
+  gate não supera o acaso (140 testadas×0,05 ≈ 7 falsos ≥ 6 aprovadas) → deixar rodar até N e split-half confirmarem.
+- ⚠️ **Conferir o Dokploy:** se o Environment setar `EXECUCAO_REAL_CURADA`/`EXEC_REAL_ESTRATEGIAS` explicitamente,
+  o default do código não vale — o livro curado só arma se o env não sobrepuser (ou concordar). E o terminal MT5
+  precisa de **"Algo Trading" habilitado** para o envio de ordens no demo funcionar.
 
 ---
 

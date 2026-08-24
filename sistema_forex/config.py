@@ -630,15 +630,19 @@ EXECUCAO_ATIVA = os.environ.get("EXECUCAO_ATIVA", "false").lower() in ("1", "tru
 # ASSUME (preço-sinal) com o fill REAL: spread no fill, DERRAPAGEM (fill vs assumido) e
 # DELAY (decisão→execução). Cada sinal curado abre um GÊMEO real ao lado do virtual.
 # Ligar SÓ em conta DEMO. Ignorado se EXECUCAO_ATIVA=true (aí é tudo real).
-EXECUCAO_REAL_CURADA = os.environ.get("EXECUCAO_REAL_CURADA", "false").lower() in ("1", "true", "sim")
-# Estratégias e TFs elegíveis ao livro real curado (as positivas na sombra; pula M1).
-# DEFAULT VAZIO (18/07): a auditoria da `confluencia_v1` (sombra pós-fix 16/07, N=47 A / 44
-# C_CORRE / 139 C_HIBRIDA) deu exp R NEGATIVA nas TRÊS variantes (−0,31/−0,32/−0,14) e 0 células
-# no gate da Etapa 9 → ela deixou de ser curada. `fecha_gap` já saíra (aposentada 18/07). Nada é
-# elegível ao real por default até PASSAR o gate (N≥50 · exp R>0 · PF≥1,3 · split-half) — o dono
-# repromove pelo env quando alguma célula aprovar.
+# DEFAULT → true (24/08, pedido do dono): arma o livro real curado na conta DEMO para as
+# combinações do Order Block M5/M15 (abaixo). ⚠️ É um TESTE DE EXECUÇÃO (medir derrapagem/spread/
+# delay do fill real vs a sombra), NÃO uma promoção validada: a família Order Block teve a maior
+# exp R/PF do estudo, mas o gate da Etapa 9 NÃO foi cumprido (as aprovadas não superam o acaso;
+# split-half instável) → por isso fica SÓ em demo. Reverter = EXECUCAO_REAL_CURADA=false no env.
+EXECUCAO_REAL_CURADA = os.environ.get("EXECUCAO_REAL_CURADA", "true").lower() in ("1", "true", "sim")
+# Estratégias e TFs elegíveis ao livro real curado (as menos ruins na sombra; pula M1).
+# DEFAULT (24/08) = Order Block (reteste + stop estrutural) em M5/M15 — o conjunto de maior exp R/PF
+# do relatório (ex.: OB reteste M5 USDJPY# +0,31R PF 1,5; OB+stop estr. M5 USDJPY# +0,30R PF 1,62).
+# ⚠️ O curado NÃO filtra PAR (é estratégia×TF em produto): abrirá OB M5/M15 em TODOS os pares, não só
+# onde é positivo (USDJPY#/GBPJPY#). Só Variante A (os espelhos C ficam de fora). Ajustável por env.
 EXEC_REAL_ESTRATEGIAS = [s.strip() for s in os.environ.get(
-    "EXEC_REAL_ESTRATEGIAS", "").split(",") if s.strip()]
+    "EXEC_REAL_ESTRATEGIAS", "order_block_st_v1,order_block_v1").split(",") if s.strip()]
 EXEC_REAL_TFS = [s.strip() for s in os.environ.get("EXEC_REAL_TFS", "M5,M15").split(",") if s.strip()]
 # Teto de posições REAIS simultâneas no demo (protege a margem da conta de validação).
 MAX_POS_REAL = int(os.environ.get("MAX_POS_REAL", "12"))
