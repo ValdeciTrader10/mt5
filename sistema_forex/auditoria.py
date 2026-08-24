@@ -240,6 +240,66 @@ def _res_r(t) -> float:
 
 
 # --------------------------------------------------------------------------- #
+# Re-alinhamento de relógio (correção do BUG DE FUSO)
+# --------------------------------------------------------------------------- #
+# Candles são gravados na hora do SERVIDOR do broker (r["time"] do MT5, XM = UTC+3) e os
+# trades DEVIAM ser carimbados no MESMO relógio (executor._agora). Quando um trade caiu noutro
+# relógio — arranque do executor com offset ainda 0 (UTC real), migração antiga, ou a virada de
+# DST do broker — a janela do raio-X/CHoCH desliza ~horas e a reconstrução vira lixo. O código
+# antigo só sabia DESCARTAR (status 'janela_suspeita'), perdendo a medição. Aqui descobrimos, por
+# trade, o deslocamento de broker que RE-ALINHA a janela e a corrigimos em vez de jogar fora.
+_SEG_POR_TF = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800, "H1": 3600, "H4": 14400, "D1": 86400}
+# Deslocamentos (s) a somar às horas do TRADE para casar com os CANDLES — 0 primeiro (Occam: só
+# desloca se preciso), depois ±1/2/3h (faixa de fuso de broker, cobre UTC+2/+3 nos dois sentidos).
+_DESLOCS_BROKER_S = [0, 3600, -3600, 7200, -7200, 10800, -10800]
+
+
+def _desloc_para_candles(conn, par, tf, ab, ent, direcao, risco) -> tuple:
+    """Descobre quantos segundos somar às horas do TRADE para casar com o relógio dos CANDLES.
+
+    Testa os deslocamentos de broker plausíveis e escolhe o PRIMEIRO (menor |Δ|) em que a VELA
+    DE ENTRADA — a última com time ≤ (abertura+Δ) — contém, ou fica a ≤0,5R de, o preço de
+    entrada. Um deslocamento cuja "vela de entrada" caia FORA da série (alvo além da última /
+    antes da primeira barra) é ignorado — não alinha nada, só bateria no candle da ponta.
+
+    Devolve (desloc_s, r_erro): r_erro ≤ 0,5 ⇒ alinhou (aplicar desloc_s); r_erro > 0,5 ⇒ nenhum
+    deslocamento casa (janela genuinamente suspeita — dado ruim, não fuso)."""
+    if not (ab and ent and risco):
+        return 0, 0.0
+    dur = _SEG_POR_TF.get(tf, 300)
+    rows = conn.execute(
+        "SELECT time_utc, high, low, close FROM candles WHERE par=? AND tf=? "
+        "AND time_utc BETWEEN ? AND ? ORDER BY time_utc",
+        (par, tf, ab - 4 * 3600 - 2 * dur, ab + 4 * 3600 + 2 * dur),
+    ).fetchall()
+    if not rows:
+        return 0, 9.99
+    melhor = None  # (erro, desloc)
+    for k in _DESLOCS_BROKER_S:
+        alvo = ab + k
+        cand = None
+        for r in rows:
+            if r["time_utc"] <= alvo:
+                cand = r
+            else:
+                break
+        # alvo tem de cair DENTRO da série (perto de uma vela real), não clampar na ponta.
+        if cand is None or (alvo - cand["time_utc"]) > 2 * dur:
+            continue
+        if cand["low"] <= ent <= cand["high"]:
+            erro = 0.0
+        else:
+            erro = abs(gestao.r_por_risco(direcao, ent, cand["close"], risco))
+        if erro <= 0.5:
+            return k, round(erro, 2)          # menor |Δ| que alinha — pronto
+        if melhor is None or erro < melhor[0]:
+            melhor = (erro, k)
+    if melhor is None:
+        return 0, 9.99                        # nenhum Δ cai na série (sem candles no lugar)
+    return melhor[1], round(melhor[0], 2)
+
+
+# --------------------------------------------------------------------------- #
 # Medição: "cortar o perdedor num padrão de reversão forte reduziria o prejuízo?"
 # --------------------------------------------------------------------------- #
 def simular_saida_invalidacao(conn, t, antes: int = 120) -> dict:
@@ -263,6 +323,13 @@ def simular_saida_invalidacao(conn, t, antes: int = 120) -> dict:
     direcao, ab, fe = t.get("direcao"), t.get("abertura_utc"), t.get("fechamento_utc")
     if not (ent and sl and risco and ab and fe and direcao):
         return {"status": "sem_dados"}
+    # CORREÇÃO DO FUSO: re-alinha o relógio do trade ao dos candles antes de medir. Só descarta
+    # ('janela_suspeita') se NENHUM deslocamento de broker fizer a vela de entrada bater com o
+    # preço de entrada — aí é dado ruim, não fuso (antes descartava os dois casos juntos).
+    desloc, r_entrada = _desloc_para_candles(conn, par, tf, ab, ent, direcao, risco)
+    if r_entrada > 0.5:
+        return {"status": "janela_suspeita", "r_entrada": r_entrada}
+    ab, fe = ab + desloc, fe + desloc
     rows = conn.execute(
         "SELECT time_utc, high, low, close FROM candles WHERE par=? AND tf=? AND time_utc<=? "
         "ORDER BY time_utc DESC LIMIT ?",
@@ -281,12 +348,6 @@ def simular_saida_invalidacao(conn, t, antes: int = 120) -> dict:
     idx_ent = next((i for i, tm in enumerate(times) if tm >= ab), None)
     if idx_ent is None:
         return {"status": "sem_candles"}
-    # SANIDADE DA JANELA: a vela de entrada tem de estar ~no preço de entrada. Se estiver longe
-    # (candle em hora de SERVIDOR (UTC+3) vs trade em UTC → janela deslocada ~3h), a reconstrução
-    # NÃO corresponde ao trade e qualquer simulação seria lixo — descarta com aviso.
-    r_entrada = abs(gestao.r_por_risco(direcao, ent, closes[idx_ent], risco))
-    if r_entrada > 0.5:
-        return {"status": "janela_suspeita", "r_entrada": round(r_entrada, 2)}
     idx_sai = next((i for i, tm in enumerate(times) if tm >= fe), len(rows) - 1)
     oposto = "baixa" if direcao == "compra" else "alta"
     # 1º candle da vida em que o stop é furado (o "-1R" real).
@@ -610,6 +671,13 @@ def raiox_dados(conn, t: dict, antes: int = None, depois: int = None) -> dict:
     compra = direcao == "compra"
     pip = _pip_de_trade(t)
     ab, fe = t.get("abertura_utc"), t.get("fechamento_utc")
+
+    # CORREÇÃO DO FUSO: casa o relógio do trade ao dos candles para a janela do raio-X bater com
+    # o price action real (senão a vela "E"/"X" cai ~horas fora e os fatos recomputados mentem).
+    risco = t.get("risco_inicial") or (abs(ent - sl) if (ent and sl) else None)
+    desloc, _r = _desloc_para_candles(conn, par, tf, ab, ent, direcao, risco)
+    ab = (ab + desloc) if ab is not None else ab
+    fe = (fe + desloc) if fe is not None else fe
 
     candles = _janela_trade(conn, par, tf, ab, fe, antes, depois)
     niveis = analise.niveis_ativos(conn, par)

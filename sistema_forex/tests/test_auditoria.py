@@ -216,6 +216,46 @@ def test_invalidacao_sem_dados_e_resumo():
     assert r["n_avaliadas"] == 1 and r["salvaria"] == 1 and r["usd_salvo_total"] > 0, r
 
 
+# --------------------------------------------------------------------------- #
+# Correção do BUG DE FUSO — re-alinhamento trade↔candle (em vez de descartar)
+# --------------------------------------------------------------------------- #
+def test_desloc_para_candles_detecta_e_corrige_fuso():
+    # candles na hora do servidor; trade carimbado 3h À FRENTE (fuso) → helper acha Δ = −3h.
+    c = _conn(); _serie_choch_alta(c)
+    ab = 1000 + 5 * 300
+    desloc, err = aud._desloc_para_candles(c, "Z", "M5", ab + 3 * 3600, 1.111, "venda", 0.0050)
+    assert desloc == -3 * 3600 and err <= 0.5, (desloc, err)
+    # trade já alinhado → não desloca (Occam: menor |Δ| que casa é 0).
+    d0, e0 = aud._desloc_para_candles(c, "Z", "M5", ab, 1.111, "venda", 0.0050)
+    assert d0 == 0 and e0 <= 0.5, (d0, e0)
+    # preço de entrada genuinamente longe de qualquer vela (não é fuso) → nenhum Δ casa.
+    _, e_ruim = aud._desloc_para_candles(c, "Z", "M5", ab, 1.140, "venda", 0.0050)
+    assert e_ruim > 0.5, e_ruim
+
+
+def test_invalidacao_realinha_trade_com_fuso():
+    # MESMO trade que 'salvaria', porém carimbado +3h (fuso). Antes: 'janela_suspeita' (perdido);
+    # agora re-alinha e recupera o CHoCH oposto → 'salvaria'.
+    c = _conn(); _serie_choch_alta(c)
+    t = _trade_venda_choch(abertura_utc=1000 + 5 * 300 + 3 * 3600,
+                           fechamento_utc=1000 + 19 * 300 + 3 * 3600)
+    s = aud.simular_saida_invalidacao(c, t)
+    assert s["status"] == "salvaria", s
+
+
+def test_raiox_realinha_trade_com_fuso():
+    # raio-X de um perdedor carimbado +3h: a janela tem de encontrar a vela de entrada (marca 'E').
+    c = _conn(); _serie_choch_alta(c)
+    _trade(c, par="Z", tf="M5", direcao="venda", preco_entrada=1.111, preco_saida=1.100,
+           sl_servidor=1.130, risco_inicial=0.0050, pips=-11, lucro_usd=-5.0,
+           mae_r=-1.0, mfe_r=0.0, abertura_utc=1000 + 5 * 300 + 3 * 3600,
+           fechamento_utc=1000 + 19 * 300 + 3 * 3600)
+    d = aud.raiox_de_id(c, 1)
+    assert d["candles"], d
+    assert any(cc["marca"].startswith("E") for cc in d["candles"]), \
+        [cc["marca"] for cc in d["candles"]]
+
+
 def test_dossie_por_estrategia_tf_traz_veredito():
     c = _conn()
     for _ in range(6):  # 6 perdas alvo_curto na mesma (estratégia, TF) → CALIBRA SAÍDA
