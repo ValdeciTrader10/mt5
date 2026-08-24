@@ -23,6 +23,22 @@ Sistema **rodando de ponta a ponta** em Docker na VPS Hostinger via **Dokploy**
 real é enviada; posições virtuais gerenciadas com ticks reais. Só ligar real após auditar
 a sombra (regra: demo/sombra primeiro).
 
+**Registro 24/08 (calibração a partir da auditoria das perdedoras):**
+- **Bug de FUSO corrigido no raio-X / simulação CHoCH da auditoria** (`auditoria._desloc_para_candles`): o
+  join trade↔candle assumia o MESMO relógio; trades carimbados noutro relógio (arranque do executor com offset
+  ainda 0, migração antiga, virada de DST do broker) deslocavam a janela ~horas e a auditoria só sabia
+  DESCARTAR (`janela_suspeita` — 23 de 60 recentes na amostra do dono). Agora RE-ALINHA por deslocamento de
+  broker (0/±1/2/3h, escolhendo o que faz a vela de entrada bater com o preço de entrada) e só marca suspeita
+  se NENHUM casar (dado ruim ≠ fuso). **Correção só de LEITURA — não toca no executor nem grava nada.**
+  ⚠️ Importante: os FLAGS de falha e a expectância NÃO estavam contaminados — `mae_r`/`mfe_r` são gravados AO
+  VIVO pelo gestor (tick a tick), não do candle; o fuso afetava só o raio-X visual e o replay CHoCH.
+- **Gêmeo de sombra `confluencia_conf_v1`** (calibrar entrada — ver changelog da Variante A). Só sombra.
+- **"Deixar rodar" (nada vira real):** `EXECUCAO_ATIVA=false` · `EXECUCAO_REAL_CURADA=false` ·
+  `EXEC_REAL_ESTRATEGIAS=[]` → NENHUMA célula promovida ao real. O cluster **H4** (`TFS_OPERACAO` já inclui H4)
+  e o **F_BREAKOUT** (M15/H1) seguem catalogando em SOMBRA. ⚠️ **NÃO promover o F_BREAKOUT ainda:** a exp R
+  positiva veio de UMA metade (split-half 1ª +0,86 → 2ª −0,11) e o gate não supera o acaso (140 testadas×0,05
+  ≈ 7 falsos ≥ 6 aprovadas) → deixar rodar até N e split-half confirmarem.
+
 ---
 
 # 🎯 PAINEL DE VALIDAÇÃO — O QUE AUDITAR (ler ISTO ao catalogar resultados)
@@ -181,6 +197,16 @@ banco na manhã seguinte (design do coletor).
     reauditar a sombra ZERADA pós-fix com N maior e, se o padrão "só lateral rende" persistir com N≥50, avaliar um
     GÊMEO A/B `confluencia_range_v1` (só entra no lateral) — como fizemos com `order_block_rej_v1` — nunca tunar o
     controle. ➖ veredito de N (47/44 é amostra pequena p/ concluir); reauditar após dias de sombra limpa.
+- **`confluencia_conf_v1`** · Confluência + confirmação de fechamento (gêmeo A/B da entrada) · 🅰️🅱️🧪
+  - 24/08 · NASCEU. MOTIVO: o dossiê das perdedoras (sombra atual) reconfirma `entrada_adiantada` (preço vai
+    contra de imediato) como a MAIOR classe de perda, e a Confluência como a maior sangradora em USD (M5/M15).
+    Em tendência o gatilho da `confluencia_v1` entra por regime+nível+FVG SEM qualquer confirmação de vela
+    (entra na "faca caindo"). MESMA detecção, mas só entra se a vela de entrada CONFIRMAR pelo fechamento
+    (`candle_confirma`: corpo a favor + fecho na metade a favor do range) — mesmo playbook dos gêmeos `_rej`.
+    É COMPLEMENTAR (não substitui) ao eixo `confluencia_range_v1` (regime): aqui o eixo é o TIMING/momentum da
+    vela. Env `CONF_CONFIRMA_HABILITADA` (default on). SÓ SOMBRA (variante A, estratégia própria, fora do
+    `EXEC_REAL_*`); o controle `confluencia_v1` fica INTOCADO → comparável A/B por (TF×par). Sombra decide
+    (Etapa 9) — sem conclusão até N≥50.
 - **`sweep_choch_v1`** · Caça-stops + reversão (liquidity sweep + CHoCH no M5) · 🟢
   - 13/07 · NASCEU (2ª estratégia; varre máx/mín, falha e fecha de volta = stop-hunt Wyckoff).
   - ⚠️ SL ainda é ATR 3× genérico; o stop estrutural (atrás do pavio) é calibração futura guiada por MAE/MFE.
