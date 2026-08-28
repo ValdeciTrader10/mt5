@@ -53,6 +53,32 @@ segue false). Regra permanente: demo/sombra primeiro, e só o gate da Etapa 9 va
   o default do código não vale — o livro curado só arma se o env não sobrepuser (ou concordar). E o terminal MT5
   precisa de **"Algo Trading" habilitado** para o envio de ordens no demo funcionar.
 
+**Registro 28/08 (1ª revisão pós-arm do curado + validação das correções em produção):**
+- **GOTCHA confirmado (armar o curado):** o Environment do Dokploy TINHA os defaults antigos → o executor subia
+  em `SIMULAÇÃO` mesmo com o código em `EXECUCAO_REAL_CURADA=true`. Só armou depois de (a) setar no Environment do
+  Dokploy `EXECUCAO_REAL_CURADA=true` + `EXEC_REAL_ESTRATEGIAS=order_block_st_v1,order_block_v1` + `EXEC_REAL_TFS=
+  M5,M15` + `EXEC_REAL_PARES=USDJPY#,GBPJPY#` E (b) **Redeploy** (editar env NÃO reinicia o container sozinho).
+  Sinal de que armou: log de arranque `Executor iniciado (PARALELO CURADO — … order_block_st_v1,order_block_v1 em
+  M5,M15)`. **Diagnóstico rápido de "está em sim ou real":** todo open/close vira `[sim]` vs `[real]` no log; e
+  `_equity` passa a ler o equity REAL do demo. (O badge do painel mostra "SIMULAÇÃO" mesmo no curado — ele reflete
+  só `EXECUCAO_ATIVA`, não o curado; não usar como termômetro.)
+- **Curado ARMOU mas sem trade real ainda:** aba "Sombra vs Real" = "sem trades reais". Motivo: nenhum sinal de OB
+  em USDJPY#/GBPJPY# M5/M15 desde o arm (madrugada/Ásia, OB é raro) — os OB desses pares na sombra são todos
+  pré-arm. Esperado; abre no próximo reteste em sessão ativa. Vigiar `🟢 [real]` + ordem 0,01 lote/SL/sem TP/magic 500250.
+- ✅ **Fix de FUSO validado em produção:** a simulação CHoCH da `/auditoria` foi de **23/60 `janela_suspeita` → 0/60**
+  (60 avaliadas: 25 sem sinal · **35 com sinal · 33 reduziriam a perda** · R médio salvo **0,51** · ~19,72 USD). A
+  medição virou confiável. **Lead novo (agora crível, calibração FUTURA de saída):** 33/60 perdedoras teriam sido
+  cortadas ~0,51R mais cedo por um CHoCH oposto; os 25/60 "sem sinal" viram rápido demais = problema de ENTRADA.
+- ⚠️ **`confluencia_conf_v1` (gêmeo de confirmação) — early read NÃO ajudou (inconclusivo, período confunde):**
+  M5 exp **−0,17** (n 255) vs controle **−0,12** (n 3492) = **pior**; M15 −0,11 (n 133) ≈ controle −0,12; H1 −0,49
+  (n 44). Perdedores do gêmeo AINDA têm `entrada_adiantada` (fecharam a favor e reverteram no candle seguinte) →
+  "vela fechou na direção" é filtro FRACO. ⚠️ Amostra do gêmeo é 100% pós-deploy (período ≠ do controle) e N ≪ 50 →
+  **não concluir**; deixar rodar até N≥50 e comparar MESMO período no `/relatorio` (split-half). Se seguir ≤ controle,
+  a confirmação-por-fechamento está refutada → próximo passo é confirmação FORTE (fechamento ALÉM do nível / micro-BOS
+  a favor), não a vela crua. **NÃO tunar agora** (data-snooping a N=255).
+- **Sombra (quadro geral):** 26.580 trades · wr 36,9% · PF 0,79 · exp **−0,12** · **−3.223 USD**. Gradiente de TF
+  persiste (Confluência **H4 +0,22R MANTÉM** vs M5/M15/H1 negativos). Nada muda a foto grande.
+
 ---
 
 # 🎯 PAINEL DE VALIDAÇÃO — O QUE AUDITAR (ler ISTO ao catalogar resultados)
@@ -221,6 +247,12 @@ banco na manhã seguinte (design do coletor).
     vela. Env `CONF_CONFIRMA_HABILITADA` (default on). SÓ SOMBRA (variante A, estratégia própria, fora do
     `EXEC_REAL_*`); o controle `confluencia_v1` fica INTOCADO → comparável A/B por (TF×par). Sombra decide
     (Etapa 9) — sem conclusão até N≥50.
+  - 28/08 · **1º early read (INCONCLUSIVO, período confunde — NÃO ajudou):** M5 exp **−0,17** (n 255) vs controle
+    **−0,12** (n 3492) = pior; M15 −0,11 (n 133) ≈ controle; H1 −0,49 (n 44). Perdedores do gêmeo AINDA têm
+    `entrada_adiantada` (fecharam a favor e reverteram no candle seguinte) → "vela fechou na direção" é filtro
+    FRACO. ⚠️ amostra 100% pós-deploy (período ≠ do controle) e N ≪ 50 → não concluir; rodar até N≥50 e comparar
+    MESMO período no `/relatorio`. Se seguir ≤ controle → refutada; próximo passo = confirmação FORTE (fechamento
+    ALÉM do nível / micro-BOS), não a vela crua. **NÃO tunar agora** (data-snooping a N=255). ➖ inconclusivo.
 - **`sweep_choch_v1`** · Caça-stops + reversão (liquidity sweep + CHoCH no M5) · 🟢
   - 13/07 · NASCEU (2ª estratégia; varre máx/mín, falha e fecha de volta = stop-hunt Wyckoff).
   - ⚠️ SL ainda é ATR 3× genérico; o stop estrutural (atrás do pavio) é calibração futura guiada por MAE/MFE.
