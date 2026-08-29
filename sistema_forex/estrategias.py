@@ -52,6 +52,7 @@ ESTRATEGIA_SENT_LEQUE = "sentinela_leque_v1"          # leque comprime (mola) e 
 # Família F_BREAKOUT — rompimento da faixa de abertura de Londres (validado fora da amostra).
 ESTRATEGIA_BREAKOUT = "breakout_londres_v1"           # saída: corre até o fim da janela (máx expectância)
 ESTRATEGIA_BREAKOUT_PROT = "breakout_londres_prot_v1" # + proteção: trava +2p após +10p (curva suave)
+ESTRATEGIA_VWAPBAR = "vwapbar_v1"                     # port da VWAPBarEA (fade de reteste em linha do ZigZag)
 
 # Variante do laboratório multi-variante. As estratégias deste módulo são o GRUPO DE CONTROLE
 # (Variante A). B_FUZZY_PURO / C_HIBRIDA marcam a decisão via este campo (ETAPAS 5-6).
@@ -1616,3 +1617,92 @@ def gerir_breakout(estrategia, direcao, preco, entrada, sl, *, hora, fim_hora, m
         novo = max(sl, alvo) if direcao == "compra" else min(sl, alvo)   # só aperta p/ o lucro
         return {"novo_sl": novo, "fechar": False, "motivo": ""}
     return {"novo_sl": sl, "fechar": False, "motivo": ""}
+
+
+# --------------------------------------------------------------------------- #
+# VWAPBarEA (port) — fade de reteste numa LINHA derivada do ZigZag (função PURA)
+# --------------------------------------------------------------------------- #
+# Port fiel da lógica ATIVA da `VWAPBarEA.mq5` (o resto do EA é código comentado). ⚠️ O nome
+# "VWAP" do EA ENGANA: não há VWAP — a "linha VWAP_NEUTRAL" é o PREÇO TÍPICO ((H+L+O+C)/4) da
+# maior barra CONTRÁRIA da perna atual do ZigZag, além do nível fibo 0,40. A entrada é um FADE:
+# quando um candle ATRAVESSA a linha com o pavio e FECHA de volta do lado de origem, entra contra
+# o pavio. Sem look-ahead (ZigZag confirmado; usa a última vela fechada). Índice por desenho
+# (pregão 09–17, pontos), mas roda em qualquer série — o `point` escala o `deviation` do ZigZag.
+def _ponto_instrumento(preco: float) -> float:
+    """Heurística de 'point' quando o wiring não informa: índice (WIN/WDO, preço alto) → 1,0;
+    JPY (3 casas) → 0,01; forex 5 casas → 0,0001. Usada só como fallback nos testes/CLI."""
+    if preco is None:
+        return 0.0001
+    if preco >= 1000:
+        return 1.0
+    if preco >= 20:
+        return 0.01
+    return 0.0001
+
+
+def linha_referencia_zigzag(opens, highs, lows, closes, *, depth, deviation, backstep, point,
+                            fibo=0.40):
+    """Reproduz a linha do EA: da perna atual do ZigZag (últimos topo↔fundo), o preço TÍPICO da
+    MAIOR barra CONTRÁRIA além do nível `fibo` da perna. Devolve (linha, sentido) ou (None, None).
+    `sentido` = 'alta' (último pivô é TOPO → procura maior barra de BAIXA acima do fibo) /
+    'baixa' (último pivô é FUNDO → maior barra de ALTA abaixo do fibo). PURA."""
+    piv = indicadores.zigzag(highs, lows, depth=depth, deviation=deviation, backstep=backstep,
+                             point=point)
+    if len(piv) < 2:
+        return None, None
+    ult, ant = piv[-1], piv[-2]
+    hi_p = ult["preco"] if ult["tipo"] == "high" else ant["preco"]
+    lo_p = ult["preco"] if ult["tipo"] == "low" else ant["preco"]
+    if hi_p <= lo_p:
+        return None, None
+    a, b = sorted((ant["i"], ult["i"]))
+    fibo040 = lo_p + (hi_p - lo_p) * fibo
+    sentido = "alta" if ult["tipo"] == "high" else "baixa"
+    melhor = None  # (corpo, preco_tipico)
+    for i in range(a, b + 1):
+        o, c = opens[i], closes[i]
+        tipico = (highs[i] + lows[i] + o + c) / 4.0
+        corpo = abs(c - o)
+        contraria = (c < o and o > fibo040) if sentido == "alta" else (c > o and o < fibo040)
+        if contraria and (melhor is None or corpo > melhor[0]):
+            melhor = (corpo, tipico)
+    return (melhor[1], sentido) if melhor else (None, None)
+
+
+def avaliar_vwapbar(snap: dict, *, sessao_utc, spread_max_pips, depth=12, deviation=5,
+                    backstep=3, point=None, fibo=0.40) -> dict:
+    """Estratégia `vwapbar_v1` (port da VWAPBarEA): fade do reteste da linha do ZigZag. Lê a janela
+    do TF de operação (`m5_janela`), computa a linha e, se a ÚLTIMA vela atravessa a linha e fecha
+    de volta, entra contra o pavio. Gates duros: sessão + spread. SÓ SOMBRA."""
+    regime = snap.get("regime", "indefinido")
+    jan = snap.get("m5_janela") or {}
+    o, h, l, c = jan.get("open"), jan.get("high"), jan.get("low"), jan.get("close")
+    if not (o and h and l and c) or len(c) < depth + 3:
+        return _decisao("nao_entrou", None, regime, 0, [], "janela insuficiente p/ ZigZag",
+                        estrategia=ESTRATEGIA_VWAPBAR)
+    pt = point if point else _ponto_instrumento(c[-1])
+    linha, sentido = linha_referencia_zigzag(o, h, l, c, depth=depth, deviation=deviation,
+                                             backstep=backstep, point=pt, fibo=fibo)
+    if linha is None:
+        return _decisao("nao_entrou", None, regime, 0, [], "sem linha de referência (ZigZag/fibo)",
+                        estrategia=ESTRATEGIA_VWAPBAR)
+    O, H, L, C = o[-1], h[-1], l[-1], c[-1]
+    if C >= linha and L < linha:
+        direcao = "venda"       # pavio furou embaixo, fechou acima → fade de venda
+    elif C <= linha and H > linha:
+        direcao = "compra"      # pavio furou acima, fechou abaixo → fade de compra
+    else:
+        return _decisao("nao_entrou", None, regime, 0, [f"zigzag_{sentido}"],
+                        "sem reteste (vela não atravessa a linha)", estrategia=ESTRATEGIA_VWAPBAR)
+    conf = [f"zigzag_{sentido}", "reteste_linha"]
+    hora = snap.get("hora_utc", 0)
+    if not (sessao_utc[0] <= hora < sessao_utc[1]):
+        return _decisao("nao_entrou", direcao, regime, len(conf), conf, f"fora da sessão ({hora}h)",
+                        estrategia=ESTRATEGIA_VWAPBAR)
+    spread = snap.get("spread_pips", 0.0)
+    if spread > spread_max_pips:
+        return _decisao("nao_entrou", direcao, regime, len(conf), conf,
+                        f"spread alto ({spread:.1f}p > {spread_max_pips}p)",
+                        estrategia=ESTRATEGIA_VWAPBAR)
+    return _decisao("entrou", direcao, regime, len(conf), conf, "+".join(conf),
+                    estrategia=ESTRATEGIA_VWAPBAR)

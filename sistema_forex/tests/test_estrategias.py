@@ -1130,6 +1130,55 @@ def test_gerir_breakout_protecao_trava_lucro_so_no_prot():
     assert not d3["fechar"] and d3["novo_sl"] == 1.0988, d3
 
 
+# --------------------------------------------------------------------------- #
+# VWAPBarEA port (vwapbar_v1) — fade de reteste na linha do ZigZag
+# --------------------------------------------------------------------------- #
+# Perna de alta: fundo@0(99) → topo@8(108); UMA barra de baixa pequena @5 (não reverte o ZigZag),
+# acima do fibo 0,40 (=102,6) → linha = preço típico dessa barra = 104,45. Confirma o topo com a
+# queda em @9; @10/@11 não confirmam novo fundo (sep < depth) → último pivô continua o topo.
+_VB_O = [99.5, 100.5, 101.5, 102.5, 103.5, 104.5, 104.6, 105.6, 106.6, 108.0, 107.0, 104.0]
+_VB_C = [100.5, 101.5, 102.5, 103.5, 104.5, 104.4, 105.6, 106.6, 107.6, 107.0, 106.0, 104.6]
+_VB_H = [101.0, 102.0, 103.0, 104.0, 105.0, 104.6, 106.0, 107.0, 108.0, 108.0, 107.0, 104.7]
+_VB_L = [99.0, 100.0, 101.0, 102.0, 103.0, 104.3, 104.5, 105.5, 106.5, 106.0, 105.0, 103.5]
+
+
+def _snap_vwapbar(**kw):
+    base = dict(regime="lateral", hora_utc=10, spread_pips=1.0,
+                m5_janela={"open": _VB_O, "high": _VB_H, "low": _VB_L, "close": _VB_C})
+    base.update(kw)
+    return base
+
+
+def test_vwapbar_linha_referencia():
+    linha, sentido = e.linha_referencia_zigzag(_VB_O, _VB_H, _VB_L, _VB_C,
+                                               depth=3, deviation=1, backstep=3, point=1.0)
+    assert sentido == "alta" and abs(linha - 104.45) < 1e-9, (linha, sentido)
+
+
+def test_vwapbar_entra_fade_venda():
+    # última vela (i=11) atravessa a linha 104,45: fecha acima (104,6) com pavio abaixo (103,5) → venda.
+    d = e.avaliar_vwapbar(_snap_vwapbar(), sessao_utc=(9, 17), spread_max_pips=2.0,
+                          depth=3, deviation=1, backstep=3, point=1.0)
+    assert d["resultado"] == "entrou" and d["direcao"] == "venda", d
+    assert d["estrategia"] == e.ESTRATEGIA_VWAPBAR and "reteste_linha" in d["confluencias"]
+
+
+def test_vwapbar_sem_reteste_nao_entra():
+    # última vela toda ACIMA da linha (não atravessa) → não entra.
+    o = _VB_O[:]; h = _VB_H[:]; l = _VB_L[:]; c = _VB_C[:]
+    o[-1], c[-1], h[-1], l[-1] = 106.0, 106.5, 107.0, 105.8
+    d = e.avaliar_vwapbar(_snap_vwapbar(m5_janela={"open": o, "high": h, "low": l, "close": c}),
+                          sessao_utc=(9, 17), spread_max_pips=2.0, depth=3, deviation=1,
+                          backstep=3, point=1.0)
+    assert d["resultado"] == "nao_entrou" and "reteste" in d["motivo"], d
+
+
+def test_vwapbar_fora_sessao_nao_entra():
+    d = e.avaliar_vwapbar(_snap_vwapbar(hora_utc=20), sessao_utc=(9, 17), spread_max_pips=2.0,
+                          depth=3, deviation=1, backstep=3, point=1.0)
+    assert d["resultado"] == "nao_entrou" and "sessão" in d["motivo"], d
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

@@ -565,6 +565,20 @@ def avaliar_par(conn, par: str, tf: str, candle, *, mercado: str = "forex",
             exigir_rejeicao=True,
             estrategia=estrategias.ESTRATEGIA_MEDIAS_REJ,
         ))
+    # vwapbar_v1 — port da VWAPBarEA (fade do reteste na linha do ZigZag). Roda em forex E B3
+    # (índice por desenho); cada TF de operação um livro. 1ª fase: entrada com a saída da casa
+    # (a saída FIEL do EA — SL/TP fixos + trailing — é calibração por mercado, separada). `point`
+    # auto-derivado do preço (índice→1 · JPY→0,01 · forex→0,0001) escala o deviation do ZigZag.
+    if config.VWAPBAR_HABILITADA:
+        decs.append(estrategias.avaliar_vwapbar(
+            snap,
+            sessao_utc=sessao_utc,
+            spread_max_pips=spread_max,
+            depth=config.VWAPBAR_DEPTH,
+            deviation=config.VWAPBAR_DEVIATION,
+            backstep=config.VWAPBAR_BACKSTEP,
+            fibo=config.VWAPBAR_FIBO,
+        ))
     if config.PIVOT_HABILITADA:
         decs.append(estrategias.avaliar_pivot_confluencia(
             snap,

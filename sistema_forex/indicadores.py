@@ -256,6 +256,62 @@ def swings(highs, lows, n: int) -> list:
     return res
 
 
+def zigzag(highs, lows, *, depth: int = 12, deviation: int = 5, backstep: int = 3,
+           point: float = 1.0) -> list:
+    """ZigZag — pivôs alternados topo/fundo (reimplementação do clássico do MT5).
+
+    ⚠️ O `ZigzagColor.ex5` original (usado pela VWAPBarEA) é um binário compilado que NÃO veio
+    junto; esta é uma reimplementação fiel ao PRINCÍPIO com os mesmos parâmetros (depth/deviation/
+    backstep 12/5/3), podendo divergir um pouco do indicador compilado. **SEM look-ahead**: um pivô
+    no índice `i` só é confirmado numa vela POSTERIOR (quando a reversão de `deviation` aparece) —
+    ao contrário do ZigZag do MT5, que REPINTA a última perna. Isso é uma melhoria metodológica
+    (o replay da sombra vê só o que o vivo veria).
+
+    - `depth`: separação mínima (em velas) entre dois pivôs consecutivos.
+    - `deviation`: reversão mínima, em unidades de `point`, para confirmar o extremo oposto.
+    - `backstep`: folga p/ o extremo mais forte "engolir" um pivô recém-posto perto demais.
+    - `point`: tamanho do ponto do instrumento (o limiar de reversão é `deviation*point`).
+
+    Retorna [{"i", "tipo": "high"|"low", "preco"}] em ordem cronológica (último = mais recente).
+    """
+    n = len(highs)
+    if n < 2 or len(lows) != n:
+        return []
+    dev = max(deviation, 0) * point
+    piv: list = []
+    trend = None                 # None indefinido · "up" busca TOPO · "down" busca FUNDO
+    hi, hi_i = highs[0], 0       # extremo candidato corrente (topo)
+    lo, lo_i = lows[0], 0        # extremo candidato corrente (fundo)
+
+    def _sep_ok(idx):            # separação mínima do último pivô (depth) + backstep
+        if not piv:
+            return True
+        return (idx - piv[-1]["i"]) >= max(depth, backstep)
+
+    for i in range(1, n):
+        if highs[i] > hi:
+            hi, hi_i = highs[i], i
+        if lows[i] < lo:
+            lo, lo_i = lows[i], i
+        if trend is None:
+            # 1ª reversão significativa define o sentido inicial.
+            if hi - lows[i] >= dev and i > hi_i:
+                piv.append({"i": hi_i, "tipo": "high", "preco": hi}); trend = "down"
+                lo, lo_i = lows[i], i
+            elif highs[i] - lo >= dev and i > lo_i:
+                piv.append({"i": lo_i, "tipo": "low", "preco": lo}); trend = "up"
+                hi, hi_i = highs[i], i
+        elif trend == "up":       # último pivô foi FUNDO → sobe até um TOPO reverter `dev`
+            if hi - lows[i] >= dev and i > hi_i and _sep_ok(hi_i):
+                piv.append({"i": hi_i, "tipo": "high", "preco": hi}); trend = "down"
+                lo, lo_i = lows[i], i
+        else:                     # trend == "down": último pivô foi TOPO → procura FUNDO
+            if highs[i] - lo >= dev and i > lo_i and _sep_ok(lo_i):
+                piv.append({"i": lo_i, "tipo": "low", "preco": lo}); trend = "up"
+                hi, hi_i = highs[i], i
+    return piv
+
+
 def rotular_swings(sw: list) -> list:
     """Adiciona o rótulo SMC (HH/HL/LH/LL) comparando cada swing ao anterior do MESMO tipo."""
     ult_high = ult_low = None

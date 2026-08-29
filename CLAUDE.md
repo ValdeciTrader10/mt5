@@ -485,6 +485,19 @@ banco na manhã seguinte (design do coletor).
     VETA (esforço sem confirmação de fluxo). No forex `delta`=None (só tick_volume) → roda sem essa camada. Env
     `VSA_HABILITADA`. ⚠️ SL/saída é o ATR genérico (calibração de stop estrutural fica p/ depois de mostrar edge).
     Sombra decide (Etapa 9) — sem conclusão até N≥50.
+- **`vwapbar_v1`** · VWAP-Bar (fade de reteste na linha do ZigZag) · 🧪 **NOVA (28/08)**
+  - 28/08 · NASCEU do port da **VWAPBarEA.mq5** (dono mandou o EA). ⚠️ O nome "VWAP" do EA ENGANA: **não há
+    VWAP** — a "linha VWAP_NEUTRAL" é o **preço típico** `(H+L+O+C)/4` da MAIOR barra CONTRÁRIA da perna atual do
+    **ZigZag** (depth 12/dev 5/backstep 3), além do fibo 0,40. Entrada = **fade do reteste**: a vela atravessa a
+    linha com o pavio e FECHA de volta → entra contra o pavio (venda se fechou acima com pavio embaixo; compra no
+    espelho). **Reimplementei o ZigZag** em `indicadores.zigzag` (o `ZigzagColor.ex5` do EA é binário, não veio) —
+    **SEM look-ahead** (pivô só confirma numa vela posterior; o ZigZag do MT5 REPINTA → melhoria metodológica).
+    **1ª fase (feita): ENTRADA catalogando** em forex E B3 (índice por desenho), cada TF de operação um livro,
+    com a **saída da CASA** (ATR/estrutural, auto-escala) — comparável ao resto do lab. Env `VWAPBAR_HABILITADA`.
+    Motor puro testado (`test_indicadores.zigzag` + `test_estrategias.vwapbar`). **282 testes.** ⚠️ **Pendente
+    (Etapa 3): saída FIEL ao EA** (SL/TP fixos em pontos + trailing 40→+5→barra anterior) — precisa de calibração
+    de PONTO por mercado (WIN vs forex) p/ não repetir o insta-stop de escala do GOLD; por isso ficou separada.
+    Sombra decide (Etapa 9) — sem conclusão até N≥50.
 
 ## Variante B — Fuzzy Puro (fiel à didática do PDF; livro paralelo, não filtra a A)
 - **`fuzzy_puro_v1`** · Fuzzy Puro (maré 60/verde), timing M1 · 🟢

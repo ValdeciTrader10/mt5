@@ -319,6 +319,7 @@ NOMES_ESTRATEGIAS = {
     "pullback_medias_rej_v1": "Pullback a médias + rejeição",
     "pivot_confluencia_v1": "Pivot + confluência S/R",
     "fuzzy_puro_v1": "Fuzzy Puro (Variante B)",
+    "vwapbar_v1": "VWAP-Bar (ZigZag fade)",
 }
 
 
@@ -549,6 +550,18 @@ BREAKOUT_FIM_HORA = int(os.environ.get("BREAKOUT_FIM_HORA", "17"))   # fecha no 
 BREAKOUT_OR_MIN_PIPS = float(os.environ.get("BREAKOUT_OR_MIN_PIPS", "3"))  # faixa mínima (evita degenerada)
 BREAKOUT_PROT_TRIGGER_PIPS = float(os.environ.get("BREAKOUT_PROT_TRIGGER_PIPS", "10"))  # +100 pipetes
 BREAKOUT_PROT_LOCK_PIPS = float(os.environ.get("BREAKOUT_PROT_LOCK_PIPS", "2"))         # trava +2 pips
+
+# --- vwapbar_v1 — port da VWAPBarEA (fade de reteste na linha do ZigZag) ---
+# A "linha VWAP" do EA NÃO é VWAP: é o preço típico da maior barra contrária da perna do ZigZag,
+# além do fibo 0,40. Entra quando a vela atravessa a linha e fecha de volta (fade do pavio). Roda
+# em forex E B3 (índice por desenho), cada TF de operação um livro de sombra. ⚠️ 1ª fase cataloga
+# a ENTRADA com a SAÍDA DA CASA (ATR/estrutural, auto-escala segura); a saída FIEL ao EA (SL/TP
+# fixos + trailing) é calibração separada por mercado (evitar insta-stop de escala — lição GOLD).
+VWAPBAR_HABILITADA = os.environ.get("VWAPBAR_HABILITADA", "true").lower() in ("1", "true", "sim")
+VWAPBAR_DEPTH = int(os.environ.get("VWAPBAR_DEPTH", "12"))        # ZigZag depth (EA)
+VWAPBAR_DEVIATION = int(os.environ.get("VWAPBAR_DEVIATION", "5")) # ZigZag deviation (EA) — em point
+VWAPBAR_BACKSTEP = int(os.environ.get("VWAPBAR_BACKSTEP", "3"))   # ZigZag backstep (EA)
+VWAPBAR_FIBO = float(os.environ.get("VWAPBAR_FIBO", "0.40"))      # nível fibo da barra de referência
 # Sub-flags por estratégia. As 3 DESLIGADAS por padrão desde 18/07: a 1ª auditoria
 # (N=30-43, pós-fix) deu as três NEGATIVAS com o IC 95% da exp R abaixo de zero em forca/leque
 # (t=-3,5/-2,7; PF ~0,35; split-half negativo nas 2 metades) e divergencia negativa a ~93% —

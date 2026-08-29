@@ -41,6 +41,21 @@ def test_swings_rotulos_e_eventos():
     assert any(e["evento"] == "BOS" for e in ev)
 
 
+def test_zigzag_pivos_alternados_sem_lookahead():
+    # sobe (fundo@0) → topo@3 → desce até fundo@7; deviation 1, depth/backstep 3, point 1.
+    L = [7, 8, 9, 10, 9, 8, 7, 6, 7, 8, 9, 10]
+    H = [8, 9, 10, 11, 10, 9, 8, 7, 8, 9, 10, 11]
+    pv = ind.zigzag(H, L, depth=3, deviation=1, backstep=3, point=1.0)
+    assert [(p["i"], p["tipo"], p["preco"]) for p in pv] == \
+        [(0, "low", 7), (3, "high", 11), (7, "low", 6)], pv
+    # tipos alternam sempre (topo/fundo/topo…)
+    tipos = [p["tipo"] for p in pv]
+    assert all(tipos[k] != tipos[k + 1] for k in range(len(tipos) - 1)), tipos
+    # deviation grande demais → nenhum pivô (nenhuma reversão atinge o limiar)
+    assert ind.zigzag(H, L, depth=3, deviation=999, backstep=3, point=1.0) == []
+    assert ind.zigzag([], [], point=1.0) == []
+
+
 def test_sr_clusteriza_dois_niveis():
     sw = [
         {"i": 0, "tipo": "high", "preco": 1.1000},
