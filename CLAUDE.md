@@ -79,6 +79,26 @@ segue false). Regra permanente: demo/sombra primeiro, e só o gate da Etapa 9 va
 - **Sombra (quadro geral):** 26.580 trades · wr 36,9% · PF 0,79 · exp **−0,12** · **−3.223 USD**. Gradiente de TF
   persiste (Confluência **H4 +0,22R MANTÉM** vs M5/M15/H1 negativos). Nada muda a foto grande.
 
+**Registro 26/10 (a VPS estourou de recurso — passamos a rodar SÓ FOREX + otimizações duráveis):**
+- **Causa do estouro:** 2 terminais MT5/Wine (forex + B3) + `GESTOR_POLL_S=1` varrendo centenas de posições de
+  sombra por segundo = CPU no talo; e **DEBUG sem rotação de log** + `decisoes` com 1,2M linhas + WAL/backups =
+  disco cheio → desligava.
+- **RODA SÓ FOREX agora:** os 4 serviços da B3 (`mt5_b3`/`coletor_b3`/`estrategista_b3`/`executor_b3`) foram para o
+  **profile `b3`** no `docker-compose.dokploy.yml` → **não sobem por padrão** (tira o 2º terminal Wine = ~metade do
+  peso). 2ª trava: `B3_HABILITADO`/`B3_SOMBRA_HABILITADA` default → **false** no código. **Religar a B3** = subir o
+  profile `b3` (Dokploy → Compose Profiles: `b3`) + os dois flags `=true` no Environment.
+- **Otimizações duráveis (compose):** rotação de log em TODOS os serviços (`json-file 10m×3` → log nunca mais enche
+  o disco) + **teto de memória** por serviço (`mem_limit`: Wine 2g, python/web 512m — overridável por `MT5_MEM`/
+  `PY_MEM`/`WEB_MEM`) + `restart: unless-stopped`.
+- **Polls mais folgados (defaults no código + compose):** `GESTOR_POLL_S` 1→**3** · `ANALISE_POLL_S` 15→**30** ·
+  `DECISAO_POLL_S` 5→**10** · `COLETOR_POLL_S` 5→**10** · `PAINEL_REFRESH_S` 5→**10** · `MAX_POS_SOMBRA` 3000→**1000**.
+- **Retenção do banco:** `python -m sistema_forex.manutencao podar [dias]` (default 60) — apaga só decisões/trades
+  FECHADOS antigos (PRESERVA candles e o recente), encolhe o WAL (checkpoint) e roda VACUUM (best-effort); rotaciona
+  backups (mantém os `BACKUPS_MANTER`=3 mais novos). Mantém o disco sob controle sem zerar o dia a dia.
+- ⚠️ **Antes do redeploy funcionar:** liberar disco na VPS (`docker system prune -af && docker builder prune -af`
+  — NUNCA `--volumes`), senão o build do redeploy falha por falta de espaço. **LOG_LEVEL segue DEBUG** (regra do
+  projeto) — a rotação é que segura o disco; para logar menos ainda, `LOG_LEVEL=INFO` no Environment.
+
 ---
 
 # 🎯 PAINEL DE VALIDAÇÃO — O QUE AUDITAR (ler ISTO ao catalogar resultados)

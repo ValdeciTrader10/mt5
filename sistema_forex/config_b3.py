@@ -58,7 +58,11 @@ BACKFILL_ESPERA_S_B3 = int(os.environ.get("BACKFILL_ESPERA_S_B3", "3"))
 COLETOR_B3_POLL_S = int(os.environ.get("COLETOR_B3_POLL_S", "5"))
 
 # Habilita o módulo B3 por completo (desligável sem remover os serviços).
-B3_HABILITADO = os.environ.get("B3_HABILITADO", "true").lower() in ("1", "true", "sim")
+# 26/10: default → FALSE. O dono decidiu rodar SÓ forex (a B3 é o 2º terminal MT5/Wine = metade do
+# peso da VPS, e nunca foi auditada). Os serviços da B3 saíram do compose do Dokploy (profile `b3`);
+# este flag é a 2ª trava — mesmo que um container da B3 suba, os loops não fazem nada. Religar a B3 =
+# subir o profile `b3` no compose + `B3_HABILITADO=true` no Environment.
+B3_HABILITADO = os.environ.get("B3_HABILITADO", "false").lower() in ("1", "true", "sim")
 
 # VWAP da B3 ancorada na ABERTURA DO PREGÃO (item 5) — a VWAP intradiária deve zerar quando o
 # pregão abre (~09:00), não à meia-noite como no forex 24h. Valor em HORAS no relógio do servidor
@@ -118,7 +122,7 @@ def valor_ponto(par: str, default: float = None) -> float:
 # real (a ponte da B3 não tem função de ordem — impossível por construção). ADITIVO e ISOLADO:
 # o forex não é tocado; o executor do forex ignora as decisões/trades `mercado='b3'`.
 B3_SOMBRA_HABILITADA = os.environ.get(
-    "B3_SOMBRA_HABILITADA", "true").lower() in ("1", "true", "sim")
+    "B3_SOMBRA_HABILITADA", "false").lower() in ("1", "true", "sim")  # 26/10: default false (só forex)
 
 # TFs de OPERAÇÃO da sombra da B3 (cada TF é um livro independente, como no forex). Default
 # igual ao forex (M1/M5/M15) — M1 é observação (o custo come o alvo), M5/M15 são os candidatos.

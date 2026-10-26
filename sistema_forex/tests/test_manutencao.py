@@ -124,6 +124,51 @@ def test_restaurar_forex_do_backup():
             os.remove(bak)
 
 
+def test_podar_apaga_antigo_preserva_recente_e_candles():
+    import time
+    caminho = _tmp_db()
+    try:
+        conn = db.conectar(caminho)
+        agora = int(time.time())
+        velho, recente = agora - 100 * 86400, agora - 1 * 86400
+        conn.execute("INSERT INTO candles (par,tf,time_utc,open,high,low,close,tick_volume,spread) "
+                     "VALUES ('X','M5',?,1,1,1,1,10,8)", (velho,))
+        conn.execute("INSERT INTO decisoes (par,time_utc,resultado) VALUES ('X',?,'entrou')", (velho,))
+        conn.execute("INSERT INTO decisoes (par,time_utc,resultado) VALUES ('X',?,'entrou')", (recente,))
+        # trades: fechado velho (apaga), fechado recente (fica), ABERTO velho (fica — fechamento NULL)
+        conn.execute("INSERT INTO trades (par,tf,estrategia,direcao,fechamento_utc) "
+                     "VALUES ('X','M5','c','venda',?)", (velho,))
+        conn.execute("INSERT INTO trades (par,tf,estrategia,direcao,fechamento_utc) "
+                     "VALUES ('X','M5','c','venda',?)", (recente,))
+        conn.execute("INSERT INTO trades (par,tf,estrategia,direcao,fechamento_utc) "
+                     "VALUES ('X','M5','c','compra',NULL)")
+        conn.commit()
+        apagados = manutencao.podar(conn, dias=30)
+        d = manutencao.contar(conn)
+        assert apagados["decisoes"] == 1 and apagados["trades"] == 1, apagados
+        assert d["decisoes"] == 1, d           # a decisão recente ficou
+        assert d["trades"] == 2, d             # trade recente fechado + o aberto (NULL) ficam
+        assert d["candles"] == 1, "candles preservados"
+        conn.close()
+    finally:
+        os.remove(caminho)
+
+
+def test_rotacionar_backups_mantem_os_recentes():
+    import glob
+    caminho = _tmp_db()
+    try:
+        for i in range(5):
+            open(f"{caminho}.bak-2026010{i}-000000", "w").close()
+        removidos = manutencao.rotacionar_backups(caminho, manter=2)
+        resta = glob.glob(f"{caminho}.bak-*")
+        assert len(removidos) == 3 and len(resta) == 2, (removidos, resta)
+    finally:
+        for f in [caminho] + glob.glob(f"{caminho}.bak-*"):
+            if os.path.exists(f):
+                os.remove(f)
+
+
 def main() -> int:
     testes = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in testes:

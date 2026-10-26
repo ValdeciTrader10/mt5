@@ -17,6 +17,7 @@ Antes de apagar, faz um BACKUP consistente do banco (API de backup do SQLite, se
     python -m sistema_forex.manutencao status    # só conta as linhas (não apaga)
     python -m sistema_forex.manutencao reset      # fecha posições do robô + BACKUP + limpa
     python -m sistema_forex.manutencao reset-b3   # BACKUP + limpa SÓ o livro de sombra da B3
+    python -m sistema_forex.manutencao podar [dias]  # RETENÇÃO: apaga só o antigo (>dias) + VACUUM
 
 `reset` faz tudo em ordem segura: (1) FECHA as posições do robô no broker (magic, p/ não
 ficarem órfãs); (2) BACKUP do banco; (3) apaga trades/decisões/derivados. Depois, REDEPLOY
@@ -25,6 +26,7 @@ no Dokploy para o executor reiniciar com estado limpo e recomeçar a catalogar.
 
 import sqlite3
 import sys
+import os
 from datetime import datetime
 
 from . import config, db
@@ -124,6 +126,64 @@ def ultimo_backup(db_path=None):
     return baks[-1] if baks else None
 
 
+# --------------------------------------------------------------------------- #
+# RETENÇÃO / PODA (26/10) — mantém o disco da VPS sob controle sem zerar nada
+# --------------------------------------------------------------------------- #
+# O catálogo da sombra acumula 1M+ decisões; sem poda o banco + WAL + backups enchem o disco
+# (foi uma das causas da VPS "estourar"). `podar` apaga só o que é VELHO (além de `dias`),
+# PRESERVANDO candles e os dados recentes (o gate da Etapa 9 usa a janela recente, não anos).
+BACKUPS_MANTER = int(os.environ.get("BACKUPS_MANTER", "3"))
+
+
+def rotacionar_backups(db_path=None, manter: int = None) -> list:
+    """Mantém só os `manter` backups .bak-* mais recentes; apaga os demais. Retorna os removidos."""
+    import glob
+    import os as _os
+    manter = BACKUPS_MANTER if manter is None else manter
+    src = str(db_path or config.DB_PATH)
+    baks = sorted(glob.glob(f"{src}.bak-*"))
+    remover = baks[:-manter] if manter > 0 and len(baks) > manter else (baks if manter == 0 else [])
+    for b in remover:
+        try:
+            _os.remove(b)
+        except OSError:
+            pass
+    return remover
+
+
+def podar(conn, dias: int = 60) -> dict:
+    """Apaga decisões e trades FECHADOS com mais de `dias`; preserva candles e dados recentes.
+    Depois faz checkpoint do WAL (encolhe o arquivo -wal). NÃO faz VACUUM aqui (ver `vacuum`,
+    best-effort, porque precisa de espaço temporário). Retorna o nº apagado por tabela.
+
+    Granularidade de dias é tolerante a fuso (os times são hora de servidor ~UTC+3; o corte vem
+    de time.time() em UTC — a diferença de horas é irrelevante para um corte de dezenas de dias)."""
+    import time as _t
+    corte = int(_t.time()) - max(dias, 1) * 86400
+    out = {}
+    out["decisoes"] = conn.execute("DELETE FROM decisoes WHERE time_utc < ?", (corte,)).rowcount
+    out["trades"] = conn.execute(
+        "DELETE FROM trades WHERE fechamento_utc IS NOT NULL AND fechamento_utc < ?", (corte,)
+    ).rowcount
+    conn.commit()
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except sqlite3.Error:
+        pass
+    return out
+
+
+def vacuum(conn) -> bool:
+    """VACUUM: devolve ao disco o espaço das linhas apagadas. Best-effort — precisa de espaço
+    temporário (~tamanho do banco); num disco quase cheio pode falhar, e aí não é fatal."""
+    try:
+        conn.execute("VACUUM")
+        return True
+    except sqlite3.Error as e:
+        print(f"  (VACUUM não concluído — provavelmente sem espaço temporário: {e})")
+        return False
+
+
 def restaurar_de_backup(conn, caminho_backup, mercado="forex") -> dict:
     """RESTAURA trades+decisões de UM mercado a partir de um backup (.bak) para o banco vivo — sem
     tocar no outro mercado nem nos candles. Usado para desfazer uma limpeza indevida (ex.: o forex
@@ -215,8 +275,26 @@ def main() -> int:
               "de leilão corrigido).")
         return 0
 
+    if cmd == "podar":
+        # Retenção: apaga decisões/trades FECHADOS além de `dias` + encolhe WAL + roda VACUUM
+        # (best-effort) + rotaciona backups. PRESERVA candles e o recente. Não zera nada do dia a dia.
+        dias = int(sys.argv[2]) if len(sys.argv) > 2 else 60
+        removidos = rotacionar_backups()          # libera espaço ANTES (importante em disco cheio)
+        if removidos:
+            print(f"Backups antigos removidos ({len(removidos)}): mantidos os {BACKUPS_MANTER} mais recentes.")
+        with db.sessao() as conn:
+            antes = contar(conn)
+            apagados = podar(conn, dias)
+            feito_vacuum = vacuum(conn)
+            depois = contar(conn)
+        print(f"Poda (> {dias} dias):", {k: v for k, v in apagados.items() if v})
+        print(f"decisoes {antes['decisoes']}→{depois['decisoes']} · "
+              f"trades {antes['trades']}→{depois['trades']} · candles PRESERVADOS: {depois['candles']}")
+        print(f"VACUUM: {'ok (espaço devolvido ao disco)' if feito_vacuum else 'pulado (sem espaço temporário)'}")
+        return 0
+
     print("uso: python -m sistema_forex.manutencao "
-          "[status|reset (só forex)|reset-b3|reset-tudo|restaurar-forex|restaurar-b3]")
+          "[status|reset (só forex)|reset-b3|reset-tudo|podar [dias]|restaurar-forex|restaurar-b3]")
     return 1
 
 

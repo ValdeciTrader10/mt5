@@ -130,7 +130,7 @@ DD_DIARIO_MAX_PCT = 5.0
 # evita truncar a amostra dos grupos novos. Ajustável por env no Dokploy.
 # 1200→3000 (18/07): com H1 e H4 somando aos TFs de operação (2→4) e as posições de H1/H4
 # vivendo horas/dias (ocupam slot por mais tempo), o catálogo cresceu — teto amplo evita truncar.
-MAX_POS_SOMBRA = int(os.environ.get("MAX_POS_SOMBRA", "3000"))
+MAX_POS_SOMBRA = int(os.environ.get("MAX_POS_SOMBRA", "1000"))  # 26/10: 3000→1000 (menos posições vivas = menos CPU/banco)
 # Idade máxima de uma decisão para virar posição (segundos, medida em UTC contra criada_utc).
 # Guarda contra abrir sinal VELHO após downtime (redeploy/fim de semana): sem preço vivo da
 # hora do sinal, a simulação seria desonesta (tick atual ≠ contexto da decisão).
@@ -227,7 +227,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "troque-esta-chave-em-producao")
 SESSAO_HORAS = int(os.environ.get("SESSAO_HORAS", "12"))
 # Intervalo (segundos) do auto-refresh do painel — fetch leve do /api/status (sem
 # recarregar o gráfico). Baixo para o status/regime/níveis atualizarem quase ao vivo.
-PAINEL_REFRESH_S = int(os.environ.get("PAINEL_REFRESH_S", "5"))
+PAINEL_REFRESH_S = int(os.environ.get("PAINEL_REFRESH_S", "10"))  # 26/10: 5→10 (alivia a VPS)
 
 # --------------------------------------------------------------------------- #
 # Telegram (usado a partir das fases seguintes)
@@ -240,7 +240,7 @@ TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT", "")
 # --------------------------------------------------------------------------- #
 # Intervalo (segundos) entre verificações de candle M5 fechado no loop.
 # Baixo de propósito: detecta o candle fechado quase na hora (o candle em si é 5 min).
-COLETOR_POLL_S = int(os.environ.get("COLETOR_POLL_S", "5"))
+COLETOR_POLL_S = int(os.environ.get("COLETOR_POLL_S", "10"))  # 26/10: 5→10 (candle é 5min+, 10s basta)
 
 # Backfill: o MT5 baixa o histórico de forma ASSÍNCRONA na 1ª chamada logo após
 # selecionar o símbolo (por isso, sem retry, só chegam ~9 candles). Repetimos a
@@ -252,7 +252,7 @@ BACKFILL_ESPERA_S = int(os.environ.get("BACKFILL_ESPERA_S", "3"))
 # Motor de análise (Fase 2)
 # --------------------------------------------------------------------------- #
 # Intervalo (segundos) entre recálculos do motor (níveis/estrutura/regime).
-ANALISE_POLL_S = int(os.environ.get("ANALISE_POLL_S", "15"))
+ANALISE_POLL_S = int(os.environ.get("ANALISE_POLL_S", "30"))  # 26/10: 15→30 (níveis/regime não mudam tão rápido)
 # Períodos dos indicadores (padrão de mercado).
 ATR_PERIODO = int(os.environ.get("ATR_PERIODO", "14"))
 ADX_PERIODO = int(os.environ.get("ADX_PERIODO", "14"))
@@ -296,7 +296,7 @@ EV_HABILITADO = os.environ.get("EV_HABILITADO", "true").lower() in ("1", "true",
 # Estrategista / decisão (Fase 4 — modo sombra)
 # --------------------------------------------------------------------------- #
 # Intervalo (segundos) entre verificações de candle M5 novo para decidir.
-DECISAO_POLL_S = int(os.environ.get("DECISAO_POLL_S", "5"))
+DECISAO_POLL_S = int(os.environ.get("DECISAO_POLL_S", "10"))  # 26/10: 5→10 (alivia a VPS)
 # Proximidade (em ATR) do preço a um nível para contar como confluência.
 NIVEL_PROX_ATR = float(os.environ.get("NIVEL_PROX_ATR", "0.5"))
 
@@ -679,7 +679,7 @@ def combo_real(estrategia, tf, par=None):
         return False
     return True
 # Intervalo (segundos) do gestor de saída — poll de tick por posição aberta.
-GESTOR_POLL_S = int(os.environ.get("GESTOR_POLL_S", "1"))
+GESTOR_POLL_S = int(os.environ.get("GESTOR_POLL_S", "3"))  # 26/10: 1→3 (o gestor varria cada posição a cada 1s = martelo no MT5)
 # Saída por reversão: depois de atingir BE_TRIGGER_R, fecha se ceder este tanto de R
 # do pico favorável (a "força contrária" no preço).
 GIVEBACK_R = float(os.environ.get("GIVEBACK_R", "0.7"))
